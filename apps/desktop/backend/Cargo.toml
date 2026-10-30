@@ -1,0 +1,55 @@
+[package]
+name = "catalex-desktop"
+version = "0.1.0"
+description = "AI-powered LaTeX writing workspace"
+edition = "2021"
+
+[lib]
+name = "catalex_desktop_lib"
+crate-type = ["rlib"]
+
+[build-dependencies]
+dotenvy = "0.15"
+serde_json = "1"
+
+[dependencies]
+catalex-document-core = { path = "../../../packages/document-core" }
+tempfile = "3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+polodb_core = "=5.3.0"
+similar = "2.7"
+notify = "5.2"
+axum = "0.8"
+rmcp = { version = "3.2", default-features = false, features = ["server", "transport-streamable-http-server"] }
+tokio-util = "0.7"
+serde_yaml = "0.9"
+tokio = { version = "1", features = ["full"] }
+dirs = "5"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+hmac = "0.12"
+sha1 = "0.10"
+base64 = "0.22"
+dotenvy = "0.15"
+git2 = { version = "0.20", default-features = false, features = ["vendored-libgit2"] }
+chrono = "0.4"
+uuid = { version = "1", features = ["v4"] }
+which = "7"
+tectonic = { version = "0.15", default-features = true, features = ["external-harfbuzz"] }
+# NOTE: Building tectonic requires external harfbuzz/graphite2/icu/freetype:
+#   macOS:   brew install icu4c harfbuzz pkg-config
+#   Linux:   apt install libicu-dev libgraphite2-dev libharfbuzz-dev libfreetype-dev libfontconfig-dev
+#   Windows: vcpkg install harfbuzz[graphite2] freetype icu fontconfig (with TECTONIC_DEP_BACKEND=vcpkg)
+flate2 = "1"
+tar = "0.4"
+
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+winreg = "0.55"
+windows-sys = { version = "0.52", features = ["Win32_System_Environment", "Win32_Storage_FileSystem", "Win32_Foundation"] }
+
+[patch.crates-io]
+polodb_core = { path = "../../../third_party/polodb_core" }

@@ -1,0 +1,14 @@
+if command -v corepack >/dev/null 2>&1; then
+  corepack pnpm version:sync
+  corepack pnpm exec biome check --staged --write --no-errors-on-unmatched
+  exit $?
+fi
+
+if command -v pnpm >/dev/null 2>&1; then
+  pnpm version:sync
+  pnpm exec biome check --staged --write --no-errors-on-unmatched
+  exit $?
+fi
+
+echo "husky(pre-commit): pnpm unavailable; skipping staged biome check." >&2
+exit 0

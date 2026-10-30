@@ -1,0 +1,2671 @@
+import { exportPdfSource, type PdfSource } from "@/lib/mupdf/pdf-source";
+import { CoalescedScrollTask } from "@/lib/coalesced-scroll-task";
+import { createSourceLineIndex } from "@/lib/source-line-index";
+import { createCompiledPdfMap } from "./pdf-source-map";
+import { clampPdfScale } from "./pdf-zoom";
+import {
+  captureCompileContext,
+  compileWorkspace,
+} from "@/lib/workspace-compile";
+import { isComposingKey } from "@/lib/keyboard-events";
+import { PdfZoomControl } from "./pdf-zoom-control";
+import { setCommentDraft } from "../editor/comment-draft-history";
+import { attachCommentToChat } from "@/lib/comment-chat-context";
+import { registerSelectionContextActions } from "@/lib/context-menu";
+import { Hint } from "@/components/ui/tooltip";
+import { WorkspacePanelHeader } from "../workspace-panel";
+import { CommentsPanel, CommentsSummaryButton } from "../editor/comments-panel";
+import { ProblemsMotion } from "../editor/problems-motion";
+import { pickPdfCommentRange } from "./pdf-comment-selection";
+import { toast } from "sonner";
+import { createPdfCommentLookup } from "./pdf-comment-lookup";
+import {
+  useState,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useCallback,
+  useMemo,
+  type ReactNode,
+} from "react";
+import {
+  FileTextIcon,
+  CheckIcon,
+  MessageSquareTextIcon,
+  SpellCheckIcon,
+  AlertCircleIcon,
+  LoaderIcon,
+  RefreshCwIcon,
+  MoveHorizontalIcon,
+  MoveVerticalIcon,
+  DownloadIcon,
+  MousePointerClickIcon,
+  ChevronUpIcon,
+  ChevronDownIcon,
+} from "lucide-react";
+import {
+  useDocumentStore,
+  getCurrentPdfBytes,
+  hasPdfData,
+} from "@/stores/document-store";
+import { offsetToLineCol, useAgentChatStore } from "@/stores/agent-chat-store";
+import {
+  useSettingsStore,
+  type ConcreteCompilerEngine,
+  type RootCompilerChoice,
+} from "@/stores/settings-store";
+import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
+import { ButtonGroup } from "@/components/ui/button-group";
+import { SettingsSwitch } from "@/components/settings/settings-switch";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuCheckboxItem,
+  DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu";
+
+import {
+  detectTexEngineFromContent,
+  synctexEdit,
+  synctexView,
+  type SynctexResult,
+} from "@/lib/latex-compiler";
+import { MERGE_PREVIEW_REFRESH_EVENT } from "@/lib/workspace-events";
+import { ErrorBoundary } from "react-error-boundary";
+import {
+  SelectionToolbar,
+  type ToolbarAction,
+} from "@/components/workspace/editor/selection-toolbar";
+import { save } from "@/lib/desktop/dialog";
+import {
+  PdfViewer,
+  type PdfTextSelection,
+  type PdfScrollPosition,
+} from "./pdf-viewer";
+import type {
+  PdfReadingAnchor,
+  PdfReadingAnchorControl,
+} from "./pdf-reading-anchor";
+import { resolveTexRoot } from "@/stores/document-store";
+
+import { useProjectComments } from "../editor/use-project-comments";
+import {
+  PdfCommentInteraction,
+  pdfCommentTargets,
+  type PdfCommentTarget,
+} from "./pdf-comments";
+import { PDF_COMMENT_NAVIGATE_EVENT } from "@/lib/workspace-events";
+
+function pdfSelectionFallbackLabel(selection: PdfTextSelection) {
+  const text = selection.text.replace(/\s+/g, " ").trim();
+  const characters = Array.from(text);
+  const excerpt =
+    characters.length > 32 ? `${characters.slice(0, 32).join("")}…` : text;
+  return `PDF p.${selection.pageNumber} · “${excerpt}”`;
+}
+
+type FitMode = "fit-width" | "fit-height" | null;
+const DEFAULT_FIT_MODE: Exclude<FitMode, null> = "fit-width";
+const RECOMPILE_BUTTON_WIDTH = 100;
+const RECOMPILE_ICON_BUTTON_WIDTH = 28;
+const PAGE_COUNTER_CLASS =
+  "flex h-7 shrink-0 items-center justify-center gap-0.5 px-[5px] text-xs tabular-nums";
+const PAGE_STEP_CLASS = "h-7 w-5 shrink-0";
+type CompilerChoice = `latexmk:${ConcreteCompilerEngine}` | "tectonic";
+
+/** Per-root zoom state cache: rootFileId → { scale, fitMode } */
+const zoomCache = new Map<string, { scale: number; fitMode: FitMode }>();
+
+/** Max number of PdfViewer instances kept alive simultaneously. */
+const MAX_ALIVE_VIEWERS = 5;
+
+/** Clear zoom cache (e.g., on project close). */
+export function clearZoomCache(): void {
+  zoomCache.clear();
+}
+
+export function PdfPreview({
+  aiEnabled: requestedAiEnabled = false,
+  editorVisible = false,
+  layoutAnimating = false,
+  layoutTarget,
+  standalonePdfData = null,
+  standaloneRootFileId,
+  isolatedSnapshot = false,
+  toolbarContent,
+  syncNavigationRequest: requestedSyncNavigation = null,
+  onSyncNavigationHandled,
+  scrollSyncEnabled: requestedScrollSyncEnabled = false,
+  scrollSyncPaused = false,
+  outlineTrackingEnabled = false,
+  scrollSyncSourceTarget: requestedScrollSyncTarget = null,
+  onScrollSyncToEditor,
+  onRevealSource,
+}: {
+  aiEnabled?: boolean;
+  onRevealSource?: () => void;
+  editorVisible?: boolean;
+  layoutAnimating?: boolean;
+  layoutTarget?: {
+    from: number;
+    to: number;
+    width: number;
+    currentWidth: number;
+  };
+  standalonePdfData?: PdfSource | null;
+  standaloneRootFileId?: string;
+  /** Historical bytes only; never navigate or write to the current workspace. */
+  isolatedSnapshot?: boolean;
+  toolbarContent?: ReactNode;
+  syncNavigationRequest?: {
+    id: number;
+    direction: "to-editor" | "to-pdf";
+  } | null;
+  onSyncNavigationHandled?: (id: number) => void;
+  scrollSyncEnabled?: boolean;
+  scrollSyncPaused?: boolean;
+  outlineTrackingEnabled?: boolean;
+  scrollSyncSourceTarget?: { id: number; position: number } | null;
+  onScrollSyncToEditor?: (position: number) => void;
+}) {
+  const aiEnabled = requestedAiEnabled && !isolatedSnapshot;
+  const scrollSyncEnabled = requestedScrollSyncEnabled && !isolatedSnapshot;
+  const scrollSyncSourceTarget = isolatedSnapshot
+    ? null
+    : requestedScrollSyncTarget;
+  const syncNavigationRequest = isolatedSnapshot
+    ? null
+    : requestedSyncNavigation;
+  const globalCompilerBackend = useSettingsStore((s) => s.compilerBackend);
+  const globalCompilerEngine = useSettingsStore((s) => s.compilerEngine);
+  const pdfRevision = useDocumentStore((s) => s.pdfRevision);
+  const compileError = useDocumentStore((s) => s.compileError);
+  const isCompiling = useDocumentStore((s) => s.isCompiling);
+  const isSaving = useDocumentStore((s) => s.isSaving);
+  const content = useDocumentStore((s) => s.content);
+  const projectRoot = useDocumentStore((s) => s.projectRoot);
+  const autoCompile = useSettingsStore((s) =>
+    s.getProjectAutoCompile(projectRoot),
+  );
+  const setProjectAutoCompile = useSettingsStore(
+    (s) => s.setProjectAutoCompile,
+  );
+  const files = useDocumentStore((s) => s.files);
+  const setActiveFile = useDocumentStore((s) => s.setActiveFile);
+  const activeFile = useDocumentStore((s) => {
+    return s.files.find((f) => f.id === s.activeFileId) ?? null;
+  });
+  const requestJumpToPosition = useDocumentStore(
+    (s) => s.requestJumpToPosition,
+  );
+
+  const [pdfError, setPdfError] = useState<string | null>(null);
+  const [numPages, setNumPages] = useState<number>(0);
+  const [currentPage, setCurrentPage] = useState<number>(1);
+  const [pageInputValue, setPageInputValue] = useState<string>("1");
+  const [isEditingPage, setIsEditingPage] = useState(false);
+  const pageInputRef = useRef<HTMLInputElement>(null);
+  useLayoutEffect(() => {
+    if (!isEditingPage) return;
+    pageInputRef.current?.focus();
+    pageInputRef.current?.select();
+  }, [isEditingPage]);
+  const readingAnchorRef = useRef<PdfReadingAnchorControl | null>(null);
+  const linkedReadingAnchorRef = useRef<{
+    source: { fileId: string; content: string; position: number };
+    pdf: PdfReadingAnchor;
+    revision: number;
+    sourceRequestId: number | undefined;
+  } | null>(null);
+  useLayoutEffect(() => {
+    linkedReadingAnchorRef.current = null;
+  }, [projectRoot, activeFile?.id, activeFile?.content, scrollSyncEnabled]);
+  const scrollToPageRef = useRef<
+    ((page: number, pdfY?: number) => void) | null
+  >(null);
+  const [scale, setScale] = useState<number>(1.0);
+  const [toolbarCompactLevel, setToolbarCompactLevel] = useState<0 | 2 | 3>(0);
+  const hidePageStepButtons = toolbarCompactLevel >= 2;
+  const hideRecompileLabel = toolbarCompactLevel === 3;
+  const [fitMode, setFitMode] = useState<FitMode>(DEFAULT_FIT_MODE);
+  const fitViewportRef = useRef<HTMLDivElement | null>(null);
+  const viewportScrollbarWidth = useRef(0);
+  const [containerSize, setContainerSize] = useState<{
+    width: number;
+    height: number;
+  } | null>(null);
+  const handleContainerResize = useCallback(
+    (_width: number, _height: number, viewport: HTMLDivElement) => {
+      fitViewportRef.current = viewport;
+      if (viewport.offsetWidth > 1)
+        viewportScrollbarWidth.current =
+          viewport.offsetWidth - viewport.clientWidth;
+      const width = viewport.clientWidth;
+      const height = viewport.clientHeight;
+      const update = () =>
+        setContainerSize((previous) =>
+          previous?.width === width && previous.height === height
+            ? previous
+            : { width, height },
+        );
+      update();
+    },
+    [],
+  );
+  const [firstPageSize, setFirstPageSize] = useState<{
+    width: number;
+    height: number;
+  } | null>(null);
+  const lastHandledSyncNavigationIdRef = useRef<number | null>(null);
+  const syncDriverRef = useRef<"editor" | "pdf" | null>(null);
+  const sourceScrollSyncRequestIdRef = useRef(0);
+  const scrollSyncRequestIdRef = useRef(0);
+  const ignorePdfScrollSyncUntilRef = useRef(0);
+  const suppressPdfToEditorSyncRef = useRef(false);
+  const lastObservedPdfRevisionRef = useRef(pdfRevision);
+  const pendingEditorAuthoritativeRevisionRef = useRef<number | null>(null);
+  const aligningEditorAuthoritativeRevisionRef = useRef<number | null>(null);
+  const postCompileSyncFrameRef = useRef<number | null>(null);
+  const postCompileReleaseFrameRef = useRef<number | null>(null);
+  const scrollSyncEnabledRef = useRef(scrollSyncEnabled);
+  const scrollSyncSourceTargetRef = useRef(scrollSyncSourceTarget);
+  scrollSyncEnabledRef.current = scrollSyncEnabled;
+  scrollSyncSourceTargetRef.current = scrollSyncSourceTarget;
+  const toolbarRowRef = useRef<HTMLDivElement>(null);
+  const toolbarLeftControlsRef = useRef<HTMLDivElement>(null);
+  const toolbarRightControlsRef = useRef<HTMLDivElement>(null);
+  const toolbarProbeLevel0Ref = useRef<HTMLDivElement>(null);
+  const toolbarProbeLevel2Ref = useRef<HTMLDivElement>(null);
+  const recompileButtonRef = useRef<HTMLButtonElement>(null);
+  const hasInitialCompile = useRef(false);
+  const autoCompileTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+  const forceNextAutoCompileRef = useRef(false);
+  const initialized = useDocumentStore((s) => s.initialized);
+  const contentGeneration = useDocumentStore((s) => s.contentGeneration);
+
+  // Isolation remains active during loading/error states, even with no bytes.
+  const isStandalonePdf = isolatedSnapshot || standalonePdfData != null;
+  const effectiveCompileError = isStandalonePdf ? null : compileError;
+
+  useEffect(() => {
+    if (isolatedSnapshot) setPdfError(null);
+  }, [isolatedSnapshot, standalonePdfData, pdfRevision]);
+
+  // Keep compiled PDF bytes outside React-managed values. In dev, React 19 can
+  // publish render metadata through the Performance API; large hook/prop values
+  // can cause the browser to clone multi-MB PDFs on every relevant commit.
+  const hasCurrentPdfData = isStandalonePdf
+    ? standalonePdfData != null
+    : hasPdfData();
+
+  // A new compiled PDF can reset or restore its own scroll position while its
+  // pages are being rebuilt. During that window the editor is authoritative:
+  // discard PDF-to-editor feedback, then realign the ready PDF from the latest
+  // editor viewport target. pdfRevision covers manual, automatic, and
+  // agent-triggered compiles through the same path.
+  useLayoutEffect(() => {
+    const revisionChanged = pdfRevision !== lastObservedPdfRevisionRef.current;
+    lastObservedPdfRevisionRef.current = pdfRevision;
+
+    if (!scrollSyncEnabled || isStandalonePdf) {
+      pendingEditorAuthoritativeRevisionRef.current = null;
+      aligningEditorAuthoritativeRevisionRef.current = null;
+      suppressPdfToEditorSyncRef.current = false;
+      return;
+    }
+    if (!revisionChanged) return;
+
+    sourceScrollSyncRequestIdRef.current += 1;
+    scrollSyncRequestIdRef.current += 1;
+    if (postCompileSyncFrameRef.current !== null) {
+      cancelAnimationFrame(postCompileSyncFrameRef.current);
+      postCompileSyncFrameRef.current = null;
+    }
+    if (postCompileReleaseFrameRef.current !== null) {
+      cancelAnimationFrame(postCompileReleaseFrameRef.current);
+      postCompileReleaseFrameRef.current = null;
+    }
+
+    pendingEditorAuthoritativeRevisionRef.current = pdfRevision;
+    aligningEditorAuthoritativeRevisionRef.current = null;
+    suppressPdfToEditorSyncRef.current = true;
+    ignorePdfScrollSyncUntilRef.current = Number.POSITIVE_INFINITY;
+  }, [isStandalonePdf, pdfRevision, scrollSyncEnabled]);
+
+  useEffect(() => {
+    if (!scrollSyncEnabled || isStandalonePdf) {
+      suppressPdfToEditorSyncRef.current = false;
+      return;
+    }
+    if (isCompiling) {
+      suppressPdfToEditorSyncRef.current = true;
+      scrollSyncRequestIdRef.current += 1;
+      return;
+    }
+    if (
+      pendingEditorAuthoritativeRevisionRef.current === null &&
+      aligningEditorAuthoritativeRevisionRef.current === null
+    ) {
+      ignorePdfScrollSyncUntilRef.current = performance.now() + 400;
+      suppressPdfToEditorSyncRef.current = false;
+    }
+  }, [isCompiling, isStandalonePdf, scrollSyncEnabled]);
+
+  // Keep-alive: track which root files have PdfViewer instances alive (LRU order)
+  const currentRootFileId = useMemo(
+    () =>
+      isolatedSnapshot
+        ? `history-snapshot:${standaloneRootFileId ?? "preview"}`
+        : (standaloneRootFileId ?? resolveTexRoot(activeFile?.id ?? "", files)),
+    [isolatedSnapshot, standaloneRootFileId, activeFile?.id, files],
+  );
+  const currentRootFile = files.find((file) => file.id === currentRootFileId);
+  const agentWorkspaceRoot = useDocumentStore((s) => s.agentWorkspaceRoot);
+  const compiledGeneration = useDocumentStore((s) =>
+    s.lastCompiledGenerations.get(currentRootFileId),
+  );
+  const [projectComments, setProjectComments, , commentsLoaded] =
+    useProjectComments(
+      isStandalonePdf || agentWorkspaceRoot ? null : projectRoot,
+    );
+  const pdfCommentsVisible = useSettingsStore(
+    (s) => s.displayComments && s.showPdfComments,
+  );
+  const pdfCommentFullWidth = useSettingsStore((s) => s.pdfCommentFullWidth);
+  const setPdfCommentFullWidth = useSettingsStore(
+    (s) => s.setPdfCommentFullWidth,
+  );
+  const [newCommentId, setNewCommentId] = useState<string | null>(null);
+  const [commentRequestRevision, setCommentRequestRevision] = useState(0);
+  const [centerRequestedComment, setCenterRequestedComment] = useState(false);
+  const commentNavigationToken = useRef(0);
+  const panelsProjectKey = JSON.stringify(projectRoot);
+  const commentsPanelOpen = useSettingsStore(
+    (s) => s.editorCommentsPanelOpenByProject[panelsProjectKey] ?? false,
+  );
+  const commentFilter = useSettingsStore(
+    (s) => s.editorCommentFilterByProject[panelsProjectKey] ?? "all",
+  );
+  const saveCommentsPanelOpen = useSettingsStore(
+    (s) => s.setEditorCommentsPanelOpen,
+  );
+  const saveCommentFilter = useSettingsStore((s) => s.setEditorCommentFilter);
+  const activeFileComments = activeFile
+    ? (projectComments[activeFile.relativePath] ?? []).filter(
+        (comment) => !comment.resolved,
+      )
+    : [];
+  const showPdfCommentControls =
+    pdfCommentsVisible &&
+    !editorVisible &&
+    !isStandalonePdf &&
+    !agentWorkspaceRoot &&
+    activeFileComments.length > 0;
+  const selectedChatCommentsJson = useAgentChatStore((state) =>
+    JSON.stringify(
+      state.tabs
+        .find((tab) => tab.id === state.activeTabId)
+        ?.draft.pinnedContexts.filter((context) => context.comment)
+        .map((context) => ({
+          filePath: context.filePath,
+          id: context.comment!.id,
+        })) ?? [],
+    ),
+  );
+  const selectedChatComments = useMemo<Array<{ filePath: string; id: string }>>(
+    () => JSON.parse(selectedChatCommentsJson),
+    [selectedChatCommentsJson],
+  );
+  const commentActions = useCallback(
+    (target: PdfCommentTarget) => {
+      const update = (
+        change: (
+          comment: PdfCommentTarget["comment"],
+        ) => PdfCommentTarget["comment"] | null,
+      ) => {
+        setProjectComments((current) => ({
+          ...current,
+          [target.filePath]: (current[target.filePath] ?? []).flatMap(
+            (comment) => {
+              if (comment.id !== target.comment.id) return [comment];
+              const next = change(comment);
+              return next ? [next] : [];
+            },
+          ),
+        }));
+      };
+      return {
+        historyScope: projectRoot
+          ? { root: projectRoot, filePath: target.filePath }
+          : undefined,
+        selectedCommentIds: selectedChatComments
+          .filter((comment) => comment.filePath === target.filePath)
+          .map((comment) => comment.id),
+        onAttach: aiEnabled
+          ? (comment: PdfCommentTarget["comment"]) =>
+              attachCommentToChat(projectRoot, target.filePath, comment)
+          : undefined,
+        onResize: (
+          id: string,
+          range: { from: number; to: number; line: number },
+        ) => {
+          const document = useDocumentStore.getState();
+          if (
+            document.projectRoot !== projectRoot ||
+            document.agentWorkspaceRoot ||
+            document.contentGeneration !== compiledGeneration ||
+            document.lastCompiledGenerations.get(currentRootFileId) !==
+              compiledGeneration ||
+            document.files.find((file) => file.relativePath === target.filePath)
+              ?.content !== target.sourceContent
+          )
+            return;
+          setProjectComments(
+            (current) => ({
+              ...current,
+              [target.filePath]: (current[target.filePath] ?? []).map(
+                (comment) =>
+                  comment.id === id &&
+                  comment.from === target.comment.from &&
+                  comment.to === target.comment.to &&
+                  comment.anchorRevision === target.comment.anchorRevision
+                    ? {
+                        ...comment,
+                        ...range,
+                        positionReset: false,
+                        removedAnchor: undefined,
+                      }
+                    : comment,
+              ),
+            }),
+            true,
+          );
+        },
+        onSave: (_id: string, text: string) => {
+          if (text.trim())
+            update((comment) => ({ ...comment, text, isEditing: false }));
+        },
+        onEdit: () => update((comment) => ({ ...comment, isEditing: true })),
+        onCancel: () =>
+          update((comment) =>
+            comment.text.trim() ? { ...comment, isEditing: false } : null,
+          ),
+        onResolve: () => update((comment) => ({ ...comment, resolved: true })),
+        onDelete: () => update(() => null),
+      };
+    },
+    [
+      setProjectComments,
+      projectRoot,
+      selectedChatComments,
+      aiEnabled,
+      compiledGeneration,
+      currentRootFileId,
+    ],
+  );
+  const commentTargets = useMemo(
+    () => pdfCommentTargets(files, projectComments),
+    [files, projectComments],
+  );
+  const compiledMap = useMemo(
+    () => (projectRoot ? createCompiledPdfMap(projectRoot) : null),
+    [projectRoot, pdfRevision, currentRootFileId],
+  );
+  const sourceLines = useMemo(
+    () => createSourceLineIndex(activeFile?.content ?? ""),
+    [activeFile?.content],
+  );
+  const sourceLinesRef = useRef(sourceLines);
+  sourceLinesRef.current = sourceLines;
+  const commentLookup = useMemo(
+    () =>
+      projectRoot && compiledMap
+        ? createPdfCommentLookup(projectRoot, compiledMap.load)
+        : null,
+    [projectRoot, compiledMap],
+  );
+  useEffect(() => {
+    if (
+      scrollSyncEnabled &&
+      !isCompiling &&
+      compiledGeneration === contentGeneration
+    )
+      void compiledMap?.prepare().catch(() => {});
+  }, [
+    compiledMap,
+    scrollSyncEnabled,
+    isCompiling,
+    compiledGeneration,
+    contentGeneration,
+  ]);
+  const navigateCommentInPdf = useCallback(
+    async (commentId: string) => {
+      const token = ++commentNavigationToken.current;
+      const isCurrentCompileContext = captureCompileContext();
+      const target = commentTargets.find(
+        (target) =>
+          target.comment.id === commentId &&
+          target.filePath === activeFile?.relativePath,
+      );
+      if (!target || !commentLookup) return;
+      const controller = new AbortController();
+      for (let page = 1; page <= numPages; page++) {
+        const boxes = await commentLookup(page, controller.signal);
+        if (token !== commentNavigationToken.current) return;
+        const box = boxes.find((box) =>
+          box.sources.some(
+            (source) =>
+              source.file === target.filePath &&
+              source.line >= target.firstLine &&
+              source.line <= target.lastLine,
+          ),
+        );
+        if (!box) continue;
+        if (!target.comment.isEditing)
+          commentActions(target).onAttach?.(target.comment);
+        scrollToPageRef.current?.(page, box.y);
+        setCenterRequestedComment(true);
+        setNewCommentId(commentId);
+        setCommentRequestRevision((revision) => revision + 1);
+        return;
+      }
+      if (!isCurrentCompileContext()) return;
+      toast.error("This comment could not be located in the current PDF.", {
+        id: "pdf-comment-location",
+        action: {
+          label: "Recompile",
+          onClick: () => {
+            if (!isCurrentCompileContext() || isStandalonePdf) return;
+            setPdfError(null);
+            void compileWorkspace({ force: true }).catch((error) =>
+              toast.error(`Could not recompile: ${String(error)}`),
+            );
+          },
+        },
+      });
+    },
+    [
+      commentTargets,
+      commentLookup,
+      activeFile?.relativePath,
+      numPages,
+      commentActions,
+      isStandalonePdf,
+    ],
+  );
+  const navigateComment = useCallback(
+    (target: PdfCommentTarget) => {
+      setPdfSelection(null);
+      window.dispatchEvent(
+        new CustomEvent(PDF_COMMENT_NAVIGATE_EVENT, {
+          detail: {
+            projectRoot,
+            filePath: target.filePath,
+            commentId: target.comment.id,
+          },
+        }),
+      );
+    },
+    [projectRoot],
+  );
+  const pdfComments = useMemo(
+    () =>
+      pdfCommentsVisible &&
+      !isStandalonePdf &&
+      !agentWorkspaceRoot &&
+      !isCompiling &&
+      compiledGeneration === contentGeneration &&
+      commentLookup
+        ? {
+            targets: commentTargets,
+            lookup: commentLookup,
+            navigate: navigateComment,
+            selectionEnabled: aiEnabled,
+            clearSelection: () => {
+              const store = useDocumentStore.getState();
+              if (store.commentSelectionContext)
+                store.setCommentSelectionContext(null);
+            },
+          }
+        : null,
+    [
+      isStandalonePdf,
+      agentWorkspaceRoot,
+      isCompiling,
+      compiledGeneration,
+      contentGeneration,
+      commentTargets,
+      commentLookup,
+      pdfCommentsVisible,
+      navigateComment,
+      aiEnabled,
+    ],
+  );
+  const detectedRootEngine = useMemo(
+    () =>
+      currentRootFile?.content
+        ? detectTexEngineFromContent(currentRootFile.content)
+        : null,
+    [currentRootFile?.content],
+  );
+  const storedCompilerChoice = useSettingsStore((s) =>
+    projectRoot && currentRootFileId
+      ? s.getCompilerChoiceForRoot(projectRoot, currentRootFileId)
+      : undefined,
+  );
+  const fallbackCompilerChoice: RootCompilerChoice =
+    globalCompilerBackend === "tectonic"
+      ? { backend: "tectonic", engine: detectedRootEngine ?? "xelatex" }
+      : {
+          backend: "latexmk",
+          engine:
+            globalCompilerEngine === "auto"
+              ? (detectedRootEngine ?? "pdflatex")
+              : globalCompilerEngine,
+        };
+  const resolvedCompilerChoice = storedCompilerChoice ?? fallbackCompilerChoice;
+  const compilerChoice: CompilerChoice =
+    resolvedCompilerChoice.backend === "tectonic"
+      ? "tectonic"
+      : `latexmk:${resolvedCompilerChoice.engine}`;
+  const setCompilerChoice = useCallback(
+    (choice: CompilerChoice) => {
+      if (!projectRoot || !currentRootFileId) return;
+      if (choice === "tectonic") {
+        useSettingsStore
+          .getState()
+          .setCompilerChoiceForRoot(projectRoot, currentRootFileId, {
+            backend: "tectonic",
+            engine: resolvedCompilerChoice.engine,
+          });
+        return;
+      }
+      useSettingsStore
+        .getState()
+        .setCompilerChoiceForRoot(projectRoot, currentRootFileId, {
+          backend: "latexmk",
+          engine: choice.replace("latexmk:", "") as ConcreteCompilerEngine,
+        });
+    },
+    [projectRoot, currentRootFileId, resolvedCompilerChoice.engine],
+  );
+  const hasTexProject = files.some((file) => file.type === "tex");
+  const [aliveOrder, setAliveOrder] = useState<string[]>([]);
+  const prevRootRef = useRef(currentRootFileId);
+  const hasAutoCompileBaseline = useRef(false);
+  const hasBackendBaseline = useRef(false);
+  const lastAutoCompileGenerationRef = useRef(0);
+
+  const measureToolbarOverflow = useCallback(() => {
+    const row = toolbarRowRef.current;
+    const left = toolbarLeftControlsRef.current;
+    const probe0 = toolbarProbeLevel0Ref.current;
+    const probe2 = toolbarProbeLevel2Ref.current;
+    if (!row || !left || !probe0 || !probe2) return;
+
+    // Always measure the labeled button's width, even while it is collapsed.
+    // Otherwise collapsing it would create room and immediately expand it again.
+    const compileButton = recompileButtonRef.current;
+    const leftWidth =
+      left.getBoundingClientRect().width +
+      (compileButton
+        ? RECOMPILE_BUTTON_WIDTH - compileButton.getBoundingClientRect().width
+        : 0);
+    const commentWidth =
+      toolbarRightControlsRef.current
+        ?.querySelector<HTMLElement>("[data-pdf-comments-summary]")
+        ?.closest<HTMLElement>("[data-problems-motion]")
+        ?.getBoundingClientRect().width ?? 0;
+    const rowStyle = getComputedStyle(row);
+    const availableForRight =
+      row.clientWidth -
+      Number.parseFloat(rowStyle.paddingLeft) -
+      Number.parseFloat(rowStyle.paddingRight) -
+      leftWidth -
+      commentWidth;
+    const widthLevel0 = hasCurrentPdfData ? probe0.scrollWidth : 0;
+    const widthLevel2 = hasCurrentPdfData ? probe2.scrollWidth : 0;
+
+    setToolbarCompactLevel((prev) => {
+      // Deterministic fit with hysteresis to prevent flapping near boundaries.
+      if (availableForRight >= widthLevel0 + (prev === 0 ? 0 : 16)) {
+        return 0;
+      }
+      if (availableForRight >= widthLevel2 || !compileButton) return 2;
+      return 3;
+    });
+  }, [hasCurrentPdfData]);
+
+  useLayoutEffect(() => {
+    const raf = requestAnimationFrame(() => measureToolbarOverflow());
+    return () => cancelAnimationFrame(raf);
+  }, [
+    measureToolbarOverflow,
+    hasCurrentPdfData,
+    currentPage,
+    numPages,
+    scale,
+    fitMode,
+    isEditingPage,
+  ]);
+
+  useEffect(() => {
+    const row = toolbarRowRef.current;
+    const left = toolbarLeftControlsRef.current;
+    const right = toolbarRightControlsRef.current;
+    const container = previewContainerRef.current;
+    const targets = [row, left, right, container].filter(Boolean) as Element[];
+    if (targets.length === 0 || typeof ResizeObserver === "undefined") return;
+
+    const observer = new ResizeObserver(() => {
+      requestAnimationFrame(() => measureToolbarOverflow());
+    });
+    for (const target of targets) observer.observe(target);
+    return () => observer.disconnect();
+  }, [measureToolbarOverflow]);
+
+  // Save/restore zoom state per root file on switch
+  useEffect(() => {
+    const prev = prevRootRef.current;
+    if (prev && prev !== currentRootFileId) {
+      // Save previous root's zoom
+      zoomCache.set(prev, { scale, fitMode });
+    }
+    // Restore new root's zoom
+    const cached = zoomCache.get(currentRootFileId);
+    if (cached) {
+      setScale(cached.scale);
+      setFitMode(cached.fitMode);
+    } else {
+      setScale(1.0);
+      setFitMode(DEFAULT_FIT_MODE);
+    }
+    prevRootRef.current = currentRootFileId;
+  }, [currentRootFileId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Update alive set when active root changes and has PDF data
+  useEffect(() => {
+    if (!currentRootFileId || !hasCurrentPdfData) return;
+    setAliveOrder((prev) => {
+      if (prev[0] === currentRootFileId) return prev; // already at front
+      const without = prev.filter((id) => id !== currentRootFileId);
+      return [currentRootFileId, ...without].slice(0, MAX_ALIVE_VIEWERS);
+    });
+  }, [currentRootFileId, hasCurrentPdfData]);
+
+  // PDF text selection toolbar
+  const [pdfSelection, setPdfSelection] = useState<PdfTextSelection | null>(
+    null,
+  );
+  const previewContainerRef = useRef<HTMLDivElement>(null);
+
+  const handleTextClick = useCallback(
+    (text: string) => {
+      if (isolatedSnapshot) return;
+      let index = content.indexOf(text);
+      if (index === -1) {
+        const cleanText = text.replace(/[{}\\$]/g, "");
+        if (cleanText.length > 2) index = content.indexOf(cleanText);
+      }
+      if (index === -1 && text.length > 5) {
+        const words = text.split(/\s+/).filter((w) => w.length > 3);
+        for (const word of words) {
+          index = content.indexOf(word);
+          if (index !== -1) break;
+        }
+      }
+      if (index !== -1) requestJumpToPosition(index);
+    },
+    [content, isolatedSnapshot, requestJumpToPosition],
+  );
+
+  const navigateSynctexResultToSource = useCallback(
+    (result: SynctexResult, scrollOnly = false) => {
+      if (isolatedSnapshot) return;
+      const normalize = (path: string) =>
+        path.replace(/\\/g, "/").replace(/^\.\//, "");
+      const normalizedTarget = normalize(result.file);
+      const targetFile = files.find(
+        (file) => normalize(file.relativePath) === normalizedTarget,
+      );
+      if (!targetFile) return;
+
+      const state = useDocumentStore.getState();
+      const needsSwitch = state.activeFileId !== targetFile.id;
+      if (scrollOnly && !scrollSyncEnabled && needsSwitch) return;
+      if (needsSwitch) setActiveFile(targetFile.id);
+
+      const fileContent = targetFile.content ?? "";
+      const lines =
+        targetFile.id === activeFile?.id
+          ? sourceLinesRef.current
+          : createSourceLineIndex(fileContent);
+      const offset = lines.offset(result.line, Math.max(0, result.column));
+
+      const navigate = () => {
+        if (scrollOnly) {
+          onScrollSyncToEditor?.(offset);
+        } else {
+          requestJumpToPosition(offset);
+        }
+      };
+      if (needsSwitch) setTimeout(navigate, 100);
+      else navigate();
+      return { fileId: targetFile.id, content: fileContent, position: offset };
+    },
+    [
+      files,
+      activeFile?.id,
+      isolatedSnapshot,
+      onScrollSyncToEditor,
+      requestJumpToPosition,
+      setActiveFile,
+      scrollSyncEnabled,
+    ],
+  );
+
+  const handleSynctexClick = useCallback(
+    async (page: number, x: number, y: number) => {
+      if (isolatedSnapshot || !projectRoot) return;
+      const result = await synctexEdit(projectRoot, page, x, y);
+      if (!result) return;
+      navigateSynctexResultToSource(result);
+    },
+    [isolatedSnapshot, navigateSynctexResultToSource, projectRoot],
+  );
+
+  // Resolved source location from synctex
+  const [resolvedSource, setResolvedSource] = useState<{
+    file: string;
+    line: number;
+    column: number;
+  } | null>(null);
+
+  const handleTextSelect = useCallback(
+    (selection: PdfTextSelection | null) => {
+      if (isolatedSnapshot) return;
+      setPdfSelection(selection);
+      setResolvedSource(null);
+      if (selection) {
+        useDocumentStore.getState().setPdfSelectionContext({
+          selectionKey: `pdf:${selection.pageNumber}:${selection.pdfX}:${selection.pdfY}:${selection.text}`,
+          label: pdfSelectionFallbackLabel(selection),
+          filePath: "document.pdf",
+          selectedText: selection.text,
+        });
+      } else {
+        useDocumentStore.getState().setPdfSelectionContext(null);
+      }
+    },
+    [isolatedSnapshot],
+  );
+
+  const canMapPdfComment = Boolean(pdfComments && projectRoot);
+  const [commentCheck, setCommentCheck] = useState<{
+    selection: PdfTextSelection;
+    files: typeof files;
+    root: typeof projectRoot;
+    activePath: string | undefined;
+    generation: number;
+    compiledGeneration: typeof compiledGeneration;
+    choice: ReturnType<typeof pickPdfCommentRange>;
+  } | null>(null);
+  const checkedSelection =
+    commentCheck?.selection === pdfSelection &&
+    commentCheck?.files === files &&
+    commentCheck?.root === projectRoot &&
+    commentCheck?.activePath === activeFile?.relativePath &&
+    commentCheck?.generation === contentGeneration &&
+    commentCheck?.compiledGeneration === compiledGeneration
+      ? commentCheck
+      : null;
+  const commentStatus = !canMapPdfComment
+    ? "unavailable"
+    : !checkedSelection
+      ? "checking"
+      : checkedSelection.choice
+        ? "ready"
+        : "unavailable";
+  const commentReason = !canMapPdfComment
+    ? "Recompile to enable comments."
+    : commentStatus === "checking"
+      ? "Finding source…"
+      : commentStatus === "ready"
+        ? "Add comment"
+        : "Couldn’t locate the source. Select more surrounding text.";
+
+  // Selection detection is already debounced. Resolve once when its toolbar
+  // opens, and discard results for an old selection or document snapshot.
+  useEffect(() => {
+    if (isolatedSnapshot || !pdfSelection || !projectRoot) return;
+    let cancelled = false;
+    setCommentCheck(null);
+    setResolvedSource(null);
+    void (async () => {
+      const sourceLocation = await synctexEdit(
+        projectRoot,
+        pdfSelection.pageNumber,
+        pdfSelection.pdfX,
+        pdfSelection.pdfY,
+      ).catch(() => null);
+      if (cancelled) return;
+      setResolvedSource(sourceLocation);
+      if (!canMapPdfComment) return;
+      const sourceFile =
+        sourceLocation &&
+        files.find(
+          (file) =>
+            file.relativePath === sourceLocation.file ||
+            sourceLocation.file.endsWith(`/${file.relativePath}`),
+        );
+      const choice = pickPdfCommentRange(
+        files
+          .filter((file) => file.relativePath.endsWith(".tex") && file.content)
+          .map((file) => ({
+            filePath: file.relativePath,
+            content: file.content!,
+          })),
+        pdfSelection.text,
+        {
+          context: pdfSelection.context,
+          source:
+            sourceFile && sourceLocation
+              ? { filePath: sourceFile.relativePath, line: sourceLocation.line }
+              : undefined,
+          activeFilePath: activeFile?.relativePath,
+        },
+      );
+      // Reuse the availability result as optional source context. The PDF text
+      // itself remains usable when no source match can be found.
+      const chatContext = useDocumentStore.getState().pdfSelectionContext;
+      if (
+        choice &&
+        chatContext?.label === pdfSelectionFallbackLabel(pdfSelection) &&
+        chatContext.selectedText === pdfSelection.text
+      ) {
+        const content = files.find(
+          (file) => file.relativePath === choice.filePath,
+        )!.content!;
+        const start = offsetToLineCol(content, choice.range.from);
+        const end = offsetToLineCol(content, choice.range.to);
+        useDocumentStore.getState().setPdfSelectionContext({
+          ...chatContext,
+          label: `PDF p.${pdfSelection.pageNumber} · @${choice.filePath}:${start.line}:${start.col}-${end.line}:${end.col}`,
+          filePath: choice.filePath,
+          selectedText: `${pdfSelection.text}\n\n[${choice.approximate ? "Approximate source" : "Source"}: ${choice.filePath}, line ${choice.range.line}, offsets ${choice.range.from}–${choice.range.to}]`,
+        });
+      }
+      if (!cancelled)
+        setCommentCheck({
+          selection: pdfSelection,
+          files,
+          root: projectRoot,
+          activePath: activeFile?.relativePath,
+          generation: contentGeneration,
+          compiledGeneration,
+          choice,
+        });
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    isolatedSnapshot,
+    pdfSelection,
+    projectRoot,
+    files,
+    activeFile?.relativePath,
+    contentGeneration,
+    compiledGeneration,
+    canMapPdfComment,
+  ]);
+
+  const pdfContextLabel = resolvedSource
+    ? `~@${resolvedSource.file}:${resolvedSource.line}`
+    : pdfSelection
+      ? `~@PDF page ${pdfSelection.pageNumber}`
+      : "";
+
+  const buildPdfContext = useCallback(
+    (text: string) => {
+      const locationNote = resolvedSource
+        ? `near ${resolvedSource.file}:${resolvedSource.line}`
+        : pdfSelection
+          ? `PDF page ${pdfSelection.pageNumber}`
+          : "PDF";
+      return `[Selected from PDF output, approximate source location: ${locationNote}]\n${text}`;
+    },
+    [resolvedSource, pdfSelection],
+  );
+
+  const pdfToolbarActions: ToolbarAction[] = useMemo(
+    () => [
+      {
+        id: "proofread",
+        isAI: true,
+        label: "Proofread",
+        icon: <SpellCheckIcon className="size-4" />,
+      },
+      ...(pdfCommentsVisible &&
+      !isStandalonePdf &&
+      !agentWorkspaceRoot &&
+      projectRoot
+        ? [
+            {
+              id: "comment",
+              isAI: false,
+              label: "Comment",
+              icon:
+                commentStatus === "checking" ? (
+                  <LoaderIcon className="size-4 animate-spin" />
+                ) : (
+                  <MessageSquareTextIcon className="size-4" />
+                ),
+              disabled: commentStatus !== "ready" || !commentsLoaded,
+              busy: commentStatus === "checking",
+              description: commentReason,
+            },
+          ]
+        : []),
+    ],
+    [
+      isStandalonePdf,
+      agentWorkspaceRoot,
+      projectRoot,
+      pdfCommentsVisible,
+      commentStatus,
+      commentReason,
+      commentsLoaded,
+    ],
+  );
+
+  const handlePdfToolbarAction = useCallback(
+    async (actionId: string) => {
+      if (!pdfSelection) return;
+      if (actionId === "comment") {
+        if (!commentsLoaded) return;
+        const choice =
+          commentStatus === "ready" ? checkedSelection?.choice : null;
+        const document = useDocumentStore.getState();
+        if (
+          !choice ||
+          !checkedSelection ||
+          document.projectRoot !== projectRoot ||
+          document.agentWorkspaceRoot ||
+          document.files !== checkedSelection.files ||
+          document.contentGeneration !== checkedSelection.generation ||
+          document.lastCompiledGenerations.get(currentRootFileId) !==
+            checkedSelection.compiledGeneration
+        )
+          return;
+        const filePath = choice.filePath;
+        const range = choice.range;
+        const id = crypto.randomUUID();
+        const draftComment = {
+          id,
+          ...range,
+          text: "",
+          createdAt: new Date().toISOString(),
+
+          isEditing: true,
+        };
+        setProjectComments((current) => ({
+          ...current,
+          [filePath]: [
+            ...(current[filePath] ?? []).filter(
+              (comment) => comment.text.trim() || !comment.isEditing,
+            ),
+            draftComment,
+          ],
+        }));
+        if (projectRoot)
+          setCommentDraft({ root: projectRoot, filePath }, id, {
+            comment: draftComment,
+            text: "",
+          });
+        setCenterRequestedComment(false);
+        setNewCommentId(id);
+        setCommentRequestRevision((revision) => revision + 1);
+        if (choice.approximate) {
+          toast.info("Matched approximately—check the highlighted source.", {
+            duration: 10000,
+            action: {
+              label: "Show source",
+              onClick: () => {
+                if (useDocumentStore.getState().projectRoot !== projectRoot)
+                  return;
+                onRevealSource?.();
+                window.dispatchEvent(
+                  new CustomEvent(PDF_COMMENT_NAVIGATE_EVENT, {
+                    detail: { projectRoot, filePath, commentId: id },
+                  }),
+                );
+              },
+            },
+          });
+        }
+      }
+      const label = pdfContextLabel;
+      const sel = pdfSelection;
+      setPdfSelection(null);
+      sel.clear();
+      if (actionId === "proofread") {
+        useAgentChatStore
+          .getState()
+          .sendPrompt("Proofread and fix any errors in this text", {
+            label,
+            filePath: resolvedSource?.file ?? "document.pdf",
+            selectedText: buildPdfContext(sel.text),
+          });
+      }
+    },
+    [
+      pdfSelection,
+      commentStatus,
+      checkedSelection,
+      currentRootFileId,
+      setProjectComments,
+      commentsLoaded,
+      pdfContextLabel,
+      resolvedSource,
+      buildPdfContext,
+      activeFile?.relativePath,
+      projectRoot,
+      onRevealSource,
+    ],
+  );
+
+  useEffect(() => {
+    if (
+      isolatedSnapshot ||
+      !pdfSelection ||
+      !pdfToolbarActions.some((action) => action.id === "comment")
+    )
+      return;
+    return registerSelectionContextActions(pdfSelection.viewport, () => {
+      if (window.getSelection()?.toString().trim() !== pdfSelection.text)
+        return [];
+      return [
+        {
+          label: "Add Comment",
+          disabled: commentStatus !== "ready" || !commentsLoaded,
+          run: () => handlePdfToolbarAction("comment"),
+        },
+      ];
+    });
+  }, [
+    isolatedSnapshot,
+    pdfSelection,
+    pdfToolbarActions,
+    commentStatus,
+    handlePdfToolbarAction,
+    commentsLoaded,
+  ]);
+
+  const handlePdfToolbarDismiss = useCallback(
+    (reason?: "outside" | "escape") => {
+      if (reason !== "outside") {
+        pdfSelection?.clear();
+        useDocumentStore.getState().setPdfSelectionContext(null);
+      }
+      setPdfSelection(null);
+    },
+    [pdfSelection],
+  );
+
+  const getPdfToolbarAnchor = useCallback(() => {
+    if (!pdfSelection) return null;
+    const rect = pdfSelection.getBounds();
+    if (!rect) return null;
+    const viewport = pdfSelection.viewport.getBoundingClientRect();
+    const bounds = {
+      top: Math.max(0, viewport.top) + 8,
+      bottom: Math.min(window.innerHeight, viewport.bottom) - 8,
+      left: Math.max(0, viewport.left) + 8,
+      right: Math.min(window.innerWidth, viewport.right) - 8,
+    };
+    if (
+      rect.width <= 0 ||
+      rect.height <= 0 ||
+      bounds.right <= bounds.left ||
+      bounds.bottom <= bounds.top ||
+      rect.bottom <= Math.max(0, viewport.top) ||
+      rect.top >= Math.min(window.innerHeight, viewport.bottom) ||
+      rect.right <= Math.max(0, viewport.left) ||
+      rect.left >= Math.min(window.innerWidth, viewport.right)
+    )
+      return null;
+    return { top: rect.top, left: rect.left - 42 - 8, bounds };
+  }, [pdfSelection]);
+
+  useEffect(() => {
+    hasInitialCompile.current = false;
+  }, [projectRoot, currentRootFileId]);
+
+  useEffect(() => {
+    hasAutoCompileBaseline.current = false;
+    hasBackendBaseline.current = false;
+  }, [projectRoot]);
+
+  useEffect(() => {
+    if (isStandalonePdf) return;
+    if (!projectRoot || !currentRootFileId || !currentRootFile?.content) return;
+    useSettingsStore
+      .getState()
+      .initializeCompilerChoiceForRoot(
+        projectRoot,
+        currentRootFileId,
+        detectedRootEngine,
+      );
+  }, [
+    isStandalonePdf,
+    projectRoot,
+    currentRootFileId,
+    currentRootFile?.content,
+    detectedRootEngine,
+  ]);
+
+  const fittedScale = useCallback(
+    (width: number, height: number) => {
+      if (!fitMode || !firstPageSize) return scale;
+      return clampPdfScale(
+        fitMode === "fit-width"
+          ? Math.round(width - 32) / firstPageSize.width
+          : Math.round(height - 32) / firstPageSize.height,
+      );
+    },
+    [fitMode, firstPageSize, scale],
+  );
+  const openingPdf =
+    layoutAnimating &&
+    layoutTarget &&
+    layoutTarget.from <= 0.5 &&
+    layoutTarget.to > 0.5;
+  const closingPdf = layoutAnimating && layoutTarget && layoutTarget.to <= 0.5;
+  const motionScale =
+    fitMode &&
+    containerSize &&
+    (openingPdf || containerSize.width > 1) &&
+    !closingPdf
+      ? fittedScale(
+          layoutAnimating && layoutTarget
+            ? (openingPdf ? layoutTarget.width : layoutTarget.currentWidth) -
+                viewportScrollbarWidth.current
+            : containerSize.width,
+          containerSize.height,
+        )
+      : scale;
+  const renderScale = openingPdf ? motionScale : scale;
+
+  // Panel motion changes only CSS geometry. Commit the sharp raster at the end.
+  useLayoutEffect(() => {
+    if (layoutAnimating || !fitMode || !containerSize || !firstPageSize) return;
+    const viewport = fitViewportRef.current;
+    if (viewport && viewport.clientWidth <= 1) return;
+    setScale(
+      fittedScale(
+        viewport?.clientWidth ?? containerSize.width,
+        viewport?.clientHeight ?? containerSize.height,
+      ),
+    );
+  }, [fitMode, containerSize, firstPageSize, layoutAnimating, fittedScale]);
+
+  const selectFitMode = (mode: FitMode) => setFitMode(mode);
+
+  const zoomIn = useCallback(() => {
+    setFitMode(null);
+    setScale((s) => clampPdfScale(s + 0.1));
+  }, []);
+  const zoomOut = useCallback(() => {
+    setFitMode(null);
+    setScale((s) => clampPdfScale(s - 0.1));
+  }, []);
+
+  const exportFileName = files.find(
+    (f) => f.name === "main.tex" || f.name === "document.tex",
+  )?.name;
+  const handleExport = useCallback(async () => {
+    const currentPdf = isStandalonePdf
+      ? standalonePdfData
+      : getCurrentPdfBytes();
+    if (!currentPdf) return;
+    const defaultName = exportFileName
+      ? exportFileName.replace(/\.tex$/, ".pdf")
+      : "document.pdf";
+    const filePath = await save({
+      title: "Export PDF",
+      defaultPath: defaultName,
+      filters: [{ name: "PDF", extensions: ["pdf"] }],
+    });
+    if (!filePath) return;
+    await exportPdfSource(currentPdf, filePath);
+  }, [isStandalonePdf, standalonePdfData, exportFileName]);
+
+  const handleCurrentPageChange = useCallback(
+    (page: number) => {
+      setCurrentPage((prev) => {
+        if (prev === page) return prev;
+        if (!isEditingPage) setPageInputValue(String(page));
+        return page;
+      });
+    },
+    [isEditingPage],
+  );
+
+  const goToPage = useCallback(
+    (page: number) => {
+      const clamped = Math.max(1, Math.min(numPages, page));
+      scrollToPageRef.current?.(clamped);
+    },
+    [numPages],
+  );
+
+  const navigateCurrentPageToSource = useCallback(async () => {
+    if (isolatedSnapshot || !projectRoot || currentPage < 1) return;
+    const requestId = ++scrollSyncRequestIdRef.current;
+    sourceScrollSyncRequestIdRef.current += 1;
+    const isCurrentContext = captureCompileContext();
+    const result = await synctexEdit(
+      projectRoot,
+      currentPage,
+      firstPageSize ? firstPageSize.width / 2 : 0,
+      firstPageSize ? firstPageSize.height / 2 : 0,
+    );
+    if (
+      !result ||
+      requestId !== scrollSyncRequestIdRef.current ||
+      !isCurrentContext()
+    )
+      return;
+    setResolvedSource(result);
+    navigateSynctexResultToSource(result);
+  }, [
+    isolatedSnapshot,
+    projectRoot,
+    currentPage,
+    firstPageSize,
+    navigateSynctexResultToSource,
+  ]);
+
+  const navigateSourcePositionToPdf = useCallback(
+    async (
+      position: number,
+      suppressFeedback = false,
+      expectedRequestId?: number,
+    ) => {
+      if (
+        isolatedSnapshot ||
+        !projectRoot ||
+        (expectedRequestId !== undefined &&
+          expectedRequestId !== sourceScrollSyncRequestIdRef.current)
+      )
+        return;
+      const state = useDocumentStore.getState();
+      const currentFile = state.files.find((f) => f.id === state.activeFileId);
+      if (!currentFile || currentFile.type !== "tex") return;
+
+      const content = currentFile.content ?? "";
+      const sourceRequestId = scrollSyncSourceTargetRef.current?.id;
+      const clampedPosition = Math.max(0, Math.min(position, content.length));
+      const linked = linkedReadingAnchorRef.current;
+      if (
+        linked?.source.fileId === currentFile.id &&
+        linked.revision === state.pdfRevision &&
+        linked.source.content === content &&
+        linked.source.position === clampedPosition
+      ) {
+        if (suppressFeedback) {
+          ignorePdfScrollSyncUntilRef.current = performance.now() + 400;
+        }
+        readingAnchorRef.current?.align(linked.pdf, !suppressFeedback);
+        return;
+      }
+      const { line, column } =
+        sourceLinesRef.current.lineAndColumn(clampedPosition);
+
+      const result = await synctexView(
+        projectRoot,
+        currentFile.relativePath,
+        line,
+        column,
+      );
+      if (!result) return;
+      const latest = useDocumentStore.getState();
+      if (
+        latest.projectRoot !== projectRoot ||
+        latest.activeFileId !== currentFile.id ||
+        latest.files.find((file) => file.id === currentFile.id)?.content !==
+          currentFile.content ||
+        latest.pdfRevision !== state.pdfRevision
+      )
+        return;
+      if (
+        expectedRequestId !== undefined &&
+        expectedRequestId !== sourceScrollSyncRequestIdRef.current
+      ) {
+        return;
+      }
+      if (suppressFeedback) {
+        ignorePdfScrollSyncUntilRef.current = performance.now() + 400;
+      }
+      const pdf = { page: result.page, pdfX: result.x, pdfY: result.y };
+      linkedReadingAnchorRef.current = {
+        source: { fileId: currentFile.id, content, position: clampedPosition },
+        pdf,
+        revision: state.pdfRevision,
+        sourceRequestId,
+      };
+      readingAnchorRef.current?.align(pdf, !suppressFeedback);
+    },
+    [isolatedSnapshot, projectRoot],
+  );
+
+  const navigateEditorToPdf = useCallback(async () => {
+    const requestId = ++sourceScrollSyncRequestIdRef.current;
+    scrollSyncRequestIdRef.current += 1;
+    const state = useDocumentStore.getState();
+    const position = state.selectionRange?.start ?? state.cursorPosition;
+    await navigateSourcePositionToPdf(position, false, requestId);
+  }, [navigateSourcePositionToPdf]);
+
+  type NativeScrollRequest =
+    | { kind: "source"; position: number; epoch: number }
+    | { kind: "pdf"; position: PdfScrollPosition; epoch: number };
+  const nativeScrollRunRef = useRef<
+    (request: NativeScrollRequest) => Promise<unknown>
+  >(async () => {});
+  const nativeScrollTask = useMemo(
+    () =>
+      new CoalescedScrollTask<NativeScrollRequest>((request) =>
+        nativeScrollRunRef.current(request),
+      ),
+    [],
+  );
+  const processedSourceTargetRef = useRef<typeof scrollSyncSourceTarget>(null);
+  const sourceFallback = useMemo(
+    () => ({
+      push: (request: { position: number; epoch: number }) =>
+        nativeScrollTask.push({ ...request, kind: "source" }),
+      clear: () => nativeScrollTask.clear(),
+    }),
+    [nativeScrollTask],
+  );
+
+  useEffect(() => {
+    if (
+      !scrollSyncEnabled ||
+      isCompiling ||
+      !Number.isFinite(ignorePdfScrollSyncUntilRef.current) ||
+      !scrollSyncSourceTarget ||
+      !hasCurrentPdfData
+    )
+      return;
+    if (processedSourceTargetRef.current === scrollSyncSourceTarget) return;
+    processedSourceTargetRef.current = scrollSyncSourceTarget;
+    if (syncDriverRef.current !== "editor") {
+      syncDriverRef.current = "editor";
+      sourceScrollSyncRequestIdRef.current += 1;
+    }
+    scrollSyncRequestIdRef.current += 1;
+    const position = scrollSyncSourceTarget.position;
+    const mapped =
+      compiledGeneration === contentGeneration && activeFile
+        ? compiledMap?.index?.forward(
+            activeFile.relativePath,
+            sourceLines.coordinate(position),
+          )
+        : null;
+    const anchor = readingAnchorRef.current;
+    if (mapped && anchor) {
+      sourceFallback.clear();
+      // A valid compiled mapping owns this position through idle as well.
+      // Switching to a native box origin after release causes a visible jump.
+      sourceScrollSyncRequestIdRef.current += 1;
+      const pdf = anchor.interpolate(mapped.from, mapped.to, mapped.fraction);
+      ignorePdfScrollSyncUntilRef.current = performance.now() + 400;
+      linkedReadingAnchorRef.current = {
+        source: {
+          fileId: activeFile!.id,
+          content: activeFile!.content ?? "",
+          position,
+        },
+        pdf,
+        revision: pdfRevision,
+        sourceRequestId: scrollSyncSourceTarget.id,
+      };
+      anchor.align(pdf);
+    } else
+      sourceFallback.push({
+        position,
+        epoch: sourceScrollSyncRequestIdRef.current,
+      });
+  }, [
+    hasCurrentPdfData,
+    sourceFallback,
+    scrollSyncEnabled,
+    scrollSyncSourceTarget,
+    isCompiling,
+    compiledGeneration,
+    contentGeneration,
+    compiledMap,
+    activeFile,
+    sourceLines,
+    pdfRevision,
+  ]);
+
+  useEffect(
+    () => () => {
+      sourceFallback.clear();
+      sourceScrollSyncRequestIdRef.current += 1;
+    },
+    [sourceFallback],
+  );
+
+  useLayoutEffect(() => {
+    // Ignore reflow-generated editor/PDF scroll events in both directions.
+    ignorePdfScrollSyncUntilRef.current = performance.now() + 400;
+  }, [layoutAnimating]);
+
+  const inverseNavigationRef = useRef(navigateSynctexResultToSource);
+  inverseNavigationRef.current = navigateSynctexResultToSource;
+  const onScrollSyncToEditorRef = useRef(onScrollSyncToEditor);
+  onScrollSyncToEditorRef.current = onScrollSyncToEditor;
+  const pdfFallback = useMemo(
+    () => ({
+      push: (request: { position: PdfScrollPosition; epoch: number }) =>
+        nativeScrollTask.push({ ...request, kind: "pdf" }),
+      clear: () => nativeScrollTask.clear(),
+    }),
+    [nativeScrollTask],
+  );
+  nativeScrollRunRef.current = async (request) => {
+    if (request.kind === "source")
+      return navigateSourcePositionToPdf(request.position, true, request.epoch);
+    const { position, epoch } = request;
+    if (!projectRoot || epoch !== scrollSyncRequestIdRef.current) return;
+    const result = await synctexEdit(
+      projectRoot,
+      position.page,
+      position.pdfX,
+      position.pdfY,
+    );
+    if (!result || epoch !== scrollSyncRequestIdRef.current) return;
+    const source = inverseNavigationRef.current(result, true);
+    if (source)
+      linkedReadingAnchorRef.current = {
+        source,
+        pdf: position,
+        revision: pdfRevision,
+        sourceRequestId: scrollSyncSourceTargetRef.current?.id,
+      };
+  };
+
+  useEffect(
+    () => () => {
+      pdfFallback.clear();
+      scrollSyncRequestIdRef.current += 1;
+    },
+    [pdfFallback],
+  );
+
+  const handlePdfScrollIntent = useCallback(() => {
+    ignorePdfScrollSyncUntilRef.current = 0;
+    sourceScrollSyncRequestIdRef.current += 1;
+    sourceFallback.clear();
+  }, [sourceFallback]);
+
+  const handlePdfScrollPositionChange = useCallback(
+    (position: PdfScrollPosition) => {
+      if (
+        (!scrollSyncEnabled && !outlineTrackingEnabled) ||
+        scrollSyncPaused ||
+        layoutAnimating ||
+        isStandalonePdf ||
+        !projectRoot ||
+        suppressPdfToEditorSyncRef.current ||
+        performance.now() < ignorePdfScrollSyncUntilRef.current
+      )
+        return;
+      const linked = linkedReadingAnchorRef.current;
+      if (
+        linked &&
+        linked.revision === pdfRevision &&
+        linked.pdf.page === position.page &&
+        Math.abs(linked.pdf.pdfX - position.pdfX) < 1 &&
+        Math.abs(linked.pdf.pdfY - position.pdfY) < 1
+      )
+        return;
+      if (syncDriverRef.current !== "pdf") {
+        syncDriverRef.current = "pdf";
+        scrollSyncRequestIdRef.current += 1;
+      }
+      sourceScrollSyncRequestIdRef.current += 1;
+      sourceFallback.clear();
+      const coordinate =
+        compiledGeneration === contentGeneration && activeFile
+          ? compiledMap?.index?.inverse(activeFile.relativePath, position)
+          : null;
+      if (coordinate != null && activeFile) {
+        pdfFallback.clear();
+        scrollSyncRequestIdRef.current += 1;
+        const offset = sourceLines.offset(coordinate);
+        onScrollSyncToEditorRef.current?.(offset);
+        linkedReadingAnchorRef.current = {
+          source: {
+            fileId: activeFile.id,
+            content: activeFile.content ?? "",
+            position: offset,
+          },
+          pdf: position,
+          revision: pdfRevision,
+          sourceRequestId: scrollSyncSourceTargetRef.current?.id,
+        };
+      } else
+        pdfFallback.push({ position, epoch: scrollSyncRequestIdRef.current });
+    },
+    [
+      scrollSyncEnabled,
+      outlineTrackingEnabled,
+      scrollSyncPaused,
+      layoutAnimating,
+      isStandalonePdf,
+      projectRoot,
+      sourceFallback,
+      pdfFallback,
+      compiledGeneration,
+      contentGeneration,
+      activeFile,
+      compiledMap,
+      sourceLines,
+      pdfRevision,
+    ],
+  );
+
+  useLayoutEffect(() => {
+    syncDriverRef.current = null;
+    sourceScrollSyncRequestIdRef.current += 1;
+    scrollSyncRequestIdRef.current += 1;
+    sourceFallback.clear();
+    pdfFallback.clear();
+  }, [
+    projectRoot,
+    activeFile?.id,
+    activeFile?.content,
+    pdfRevision,
+    scrollSyncEnabled,
+    scrollSyncPaused,
+    isCompiling,
+    layoutAnimating,
+    sourceFallback,
+    pdfFallback,
+  ]);
+
+  useEffect(() => {
+    if (!outlineTrackingEnabled || layoutAnimating || !hasCurrentPdfData)
+      return;
+    // Wait for the existing layout/scale synchronization suppression to expire.
+    const timer = setTimeout(() => {
+      const position = readingAnchorRef.current?.read();
+      if (position) handlePdfScrollPositionChange(position);
+    }, 550);
+    return () => {
+      clearTimeout(timer);
+      scrollSyncRequestIdRef.current += 1;
+    };
+  }, [
+    outlineTrackingEnabled,
+    layoutAnimating,
+    hasCurrentPdfData,
+    handlePdfScrollPositionChange,
+  ]);
+
+  useEffect(() => {
+    sourceScrollSyncRequestIdRef.current += 1;
+    scrollSyncRequestIdRef.current += 1;
+    if (scrollSyncEnabled) {
+      ignorePdfScrollSyncUntilRef.current = performance.now() + 500;
+      return;
+    }
+    pendingEditorAuthoritativeRevisionRef.current = null;
+    aligningEditorAuthoritativeRevisionRef.current = null;
+    suppressPdfToEditorSyncRef.current = false;
+  }, [scrollSyncEnabled]);
+
+  useEffect(
+    () => () => {
+      if (postCompileSyncFrameRef.current !== null) {
+        cancelAnimationFrame(postCompileSyncFrameRef.current);
+      }
+      if (postCompileReleaseFrameRef.current !== null) {
+        cancelAnimationFrame(postCompileReleaseFrameRef.current);
+      }
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (!syncNavigationRequest) return;
+    sourceFallback.clear();
+    pdfFallback.clear();
+    if (lastHandledSyncNavigationIdRef.current === syncNavigationRequest.id)
+      return;
+    lastHandledSyncNavigationIdRef.current = syncNavigationRequest.id;
+    if (syncNavigationRequest.direction === "to-pdf") {
+      void navigateEditorToPdf();
+    } else {
+      void navigateCurrentPageToSource();
+    }
+    onSyncNavigationHandled?.(syncNavigationRequest.id);
+  }, [
+    syncNavigationRequest,
+    sourceFallback,
+    pdfFallback,
+    navigateEditorToPdf,
+    navigateCurrentPageToSource,
+    onSyncNavigationHandled,
+  ]);
+
+  const handlePageInputCommit = useCallback(() => {
+    setIsEditingPage(false);
+    const parsed = parseInt(pageInputValue, 10);
+    if (!Number.isNaN(parsed) && parsed >= 1 && parsed <= numPages) {
+      goToPage(parsed);
+    } else {
+      setPageInputValue(String(currentPage));
+    }
+  }, [pageInputValue, numPages, currentPage, goToPage]);
+
+  const handleLoadSuccess = useCallback(
+    (pages: number) => {
+      setNumPages(pages);
+
+      const revision = pendingEditorAuthoritativeRevisionRef.current;
+      if (
+        revision === null ||
+        revision !== lastObservedPdfRevisionRef.current ||
+        !scrollSyncEnabledRef.current ||
+        aligningEditorAuthoritativeRevisionRef.current === revision
+      ) {
+        return;
+      }
+      aligningEditorAuthoritativeRevisionRef.current = revision;
+
+      if (postCompileSyncFrameRef.current !== null) {
+        cancelAnimationFrame(postCompileSyncFrameRef.current);
+      }
+      postCompileSyncFrameRef.current = requestAnimationFrame(() => {
+        postCompileSyncFrameRef.current = null;
+        if (
+          pendingEditorAuthoritativeRevisionRef.current !== revision ||
+          !scrollSyncEnabledRef.current
+        ) {
+          return;
+        }
+
+        // Use the latest editor viewport target, not the cursor captured when
+        // compilation started. The editor may have scrolled while compiling.
+        const state = useDocumentStore.getState();
+        const sourceTarget = scrollSyncSourceTargetRef.current;
+        const linked = linkedReadingAnchorRef.current;
+        const position =
+          (sourceTarget && sourceTarget.id !== linked?.sourceRequestId
+            ? sourceTarget.position
+            : (linked?.source.position ?? sourceTarget?.position)) ??
+          state.selectionRange?.start ??
+          state.cursorPosition;
+        const requestId = ++sourceScrollSyncRequestIdRef.current;
+
+        void navigateSourcePositionToPdf(position, true, requestId).finally(
+          () => {
+            if (pendingEditorAuthoritativeRevisionRef.current !== revision) {
+              return;
+            }
+            if (postCompileReleaseFrameRef.current !== null) {
+              cancelAnimationFrame(postCompileReleaseFrameRef.current);
+            }
+            // Let the viewer commit its programmatic scroll before restoring
+            // bidirectional synchronization. The time guard absorbs the
+            // resulting native scroll event after the explicit phase ends.
+            postCompileReleaseFrameRef.current = requestAnimationFrame(() => {
+              postCompileReleaseFrameRef.current = requestAnimationFrame(() => {
+                postCompileReleaseFrameRef.current = null;
+                if (
+                  pendingEditorAuthoritativeRevisionRef.current !== revision
+                ) {
+                  return;
+                }
+                pendingEditorAuthoritativeRevisionRef.current = null;
+                aligningEditorAuthoritativeRevisionRef.current = null;
+                ignorePdfScrollSyncUntilRef.current = performance.now() + 400;
+                if (!useDocumentStore.getState().isCompiling) {
+                  suppressPdfToEditorSyncRef.current = false;
+                }
+              });
+            });
+          },
+        );
+      });
+    },
+    [navigateSourcePositionToPdf],
+  );
+  const handleScaleChange = (newScale: number) => {
+    setFitMode(null);
+    setScale(newScale);
+  };
+
+  const handleCompile = useCallback(
+    async (force = false, automatic = false) => {
+      if (isStandalonePdf) return;
+      setPdfError(null);
+      await compileWorkspace({ force, automatic });
+    },
+    [isStandalonePdf],
+  );
+
+  const cancelScheduledAutoCompile = useCallback(() => {
+    if (autoCompileTimerRef.current !== null) {
+      clearTimeout(autoCompileTimerRef.current);
+      autoCompileTimerRef.current = null;
+    }
+    forceNextAutoCompileRef.current = false;
+  }, []);
+
+  const scheduleAutoCompile = useCallback(
+    (force = false) => {
+      if (
+        !useSettingsStore
+          .getState()
+          .getProjectAutoCompile(useDocumentStore.getState().projectRoot)
+      )
+        return;
+      forceNextAutoCompileRef.current ||= force;
+      if (autoCompileTimerRef.current !== null) {
+        clearTimeout(autoCompileTimerRef.current);
+      }
+      const isCurrentContext = captureCompileContext();
+      autoCompileTimerRef.current = setTimeout(() => {
+        autoCompileTimerRef.current = null;
+        const shouldForce = forceNextAutoCompileRef.current;
+        forceNextAutoCompileRef.current = false;
+        if (isCurrentContext()) void handleCompile(shouldForce, true);
+      }, 800);
+    },
+    [handleCompile],
+  );
+
+  useEffect(() => cancelScheduledAutoCompile, [cancelScheduledAutoCompile]);
+
+  useEffect(() => {
+    cancelScheduledAutoCompile();
+  }, [
+    cancelScheduledAutoCompile,
+    autoCompile,
+    resolvedCompilerChoice.backend,
+    resolvedCompilerChoice.engine,
+    resolvedCompilerChoice.autoEngine,
+    projectRoot,
+    agentWorkspaceRoot,
+    currentRootFileId,
+  ]);
+
+  useEffect(() => {
+    if (isStandalonePdf) return;
+
+    const handleMergePreviewRefresh = () => {
+      const state = useDocumentStore.getState();
+      if (!state.initialized || !state.projectRoot || !hasTexProject) return;
+      scheduleAutoCompile(true);
+    };
+
+    window.addEventListener(
+      MERGE_PREVIEW_REFRESH_EVENT,
+      handleMergePreviewRefresh,
+    );
+    return () => {
+      window.removeEventListener(
+        MERGE_PREVIEW_REFRESH_EVENT,
+        handleMergePreviewRefresh,
+      );
+    };
+  }, [hasTexProject, isStandalonePdf, scheduleAutoCompile]);
+
+  useEffect(() => {
+    if (isStandalonePdf) return;
+    if (!autoCompile || hasInitialCompile.current) return;
+    if (!initialized || !projectRoot || !hasTexProject) return;
+    if (hasCurrentPdfData || isCompiling || compileError) return;
+
+    hasInitialCompile.current = true;
+    scheduleAutoCompile(true);
+  }, [
+    autoCompile,
+    isStandalonePdf,
+    compileError,
+    scheduleAutoCompile,
+    hasTexProject,
+    initialized,
+    isCompiling,
+    hasCurrentPdfData,
+    projectRoot,
+    currentRootFileId,
+  ]);
+
+  useEffect(() => {
+    if (isStandalonePdf) return;
+    if (!initialized || !projectRoot || !hasTexProject) return;
+    if (!hasBackendBaseline.current) {
+      hasBackendBaseline.current = true;
+      return;
+    }
+    scheduleAutoCompile(true);
+  }, [
+    autoCompile,
+    isStandalonePdf,
+    resolvedCompilerChoice.backend,
+    resolvedCompilerChoice.engine,
+    resolvedCompilerChoice.autoEngine,
+    scheduleAutoCompile,
+    hasTexProject,
+    initialized,
+    projectRoot,
+  ]);
+
+  useEffect(() => {
+    if (isStandalonePdf) return;
+    if (!initialized || !projectRoot || !hasTexProject) return;
+    if (!hasAutoCompileBaseline.current) {
+      hasAutoCompileBaseline.current = true;
+      lastAutoCompileGenerationRef.current = contentGeneration;
+      return;
+    }
+    if (
+      !autoCompile ||
+      contentGeneration === lastAutoCompileGenerationRef.current
+    )
+      return;
+
+    lastAutoCompileGenerationRef.current = contentGeneration;
+    scheduleAutoCompile(false);
+  }, [
+    autoCompile,
+    isStandalonePdf,
+    resolvedCompilerChoice.backend,
+    resolvedCompilerChoice.engine,
+    resolvedCompilerChoice.autoEngine,
+    contentGeneration,
+    hasTexProject,
+    initialized,
+    projectRoot,
+    scheduleAutoCompile,
+  ]);
+
+  const renderContent = () => {
+    if (effectiveCompileError) {
+      const errors = [
+        ...new Set(
+          effectiveCompileError
+            .split(/\s*!\s*/)
+            .map((s) => s.trim())
+            .filter((s) => s.length > 0 && s !== "Compilation failed"),
+        ),
+      ];
+
+      const handleFixWithChat = () => {
+        const errorList = errors.map((e) => `- ${e}`).join("\n");
+        useAgentChatStore
+          .getState()
+          .sendPrompt(
+            `[Compilation errors]\n${errorList}\n\nFix these LaTeX compilation errors.`,
+          );
+      };
+
+      return (
+        <div className="flex flex-1 flex-col items-center justify-center bg-muted/30 p-6">
+          <div className="w-full max-w-lg">
+            <div className="mb-4 flex items-center gap-2 text-destructive">
+              <AlertCircleIcon className="size-5" />
+              <h2 className="font-semibold text-base">Compilation Failed</h2>
+              <span className="ml-auto rounded-full bg-destructive/15 px-2 py-0.5 font-medium text-xs">
+                {errors.length} {errors.length === 1 ? "error" : "errors"}
+              </span>
+            </div>
+            <div className="rounded-lg border border-destructive/20 bg-background">
+              <div className="app-scrollbar max-h-60 divide-y divide-border overflow-y-auto">
+                {errors.map((error, i) => (
+                  <div key={i} className="flex items-start gap-2.5 px-3 py-2.5">
+                    <AlertCircleIcon className="mt-0.5 size-3.5 shrink-0 text-destructive/70" />
+                    <span className="text-foreground text-sm">{error}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="mt-3 flex items-center gap-2">
+              {!isStandalonePdf ? (
+                <>
+                  <button
+                    onClick={handleFixWithChat}
+                    className="flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 font-medium text-primary-foreground text-xs shadow-sm transition-colors hover:bg-primary/90"
+                  >
+                    <MousePointerClickIcon className="size-3.5" />
+                    Fix with Chat
+                  </button>
+                  <button
+                    onClick={() => handleCompile(true)}
+                    className="flex items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-1.5 font-medium text-foreground text-xs transition-colors hover:bg-muted"
+                  >
+                    <RefreshCwIcon className="size-3.5" />
+                    Retry
+                  </button>
+                </>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      );
+    }
+    if (!hasCurrentPdfData) {
+      return (
+        <div className="flex flex-1 flex-col items-center justify-center bg-muted/30 p-8">
+          <FileTextIcon className="mb-4 size-16 text-muted-foreground/50" />
+          <h2 className="mb-2 font-medium text-lg text-muted-foreground">
+            PDF Preview
+          </h2>
+          <p className="mb-4 text-center text-muted-foreground text-sm">
+            {isStandalonePdf
+              ? "Loading PDF..."
+              : autoCompile
+                ? "Edit your source to update the preview automatically"
+                : "Click Compile to preview your document"}
+          </p>
+          {!isStandalonePdf && hasTexProject && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5"
+              onClick={() => handleCompile(true)}
+            >
+              <RefreshCwIcon className="size-3.5" />
+              Compile
+            </Button>
+          )}
+        </div>
+      );
+    }
+    if (pdfError) {
+      return (
+        <div className="flex flex-1 flex-col items-center justify-center bg-muted/30 p-8">
+          <AlertCircleIcon className="mb-4 size-12 text-destructive" />
+          <h2 className="mb-2 font-medium text-destructive text-lg">
+            PDF Load Error
+          </h2>
+          <p className="max-w-md text-center text-muted-foreground text-sm">
+            {pdfError}
+          </p>
+        </div>
+      );
+    }
+
+    // Keep-alive rendering: one PdfViewer per root file, toggle via CSS.
+    // Use visibility:hidden + absolute positioning instead of display:none
+    // so that the browser preserves scrollTop on the overflow container.
+    return (
+      <div className="relative flex min-h-0 flex-1">
+        {aliveOrder.map((rootId) => {
+          if (isStandalonePdf && rootId !== currentRootFileId) return null;
+          if (isStandalonePdf && !standalonePdfData) return null;
+          const isActive = rootId === currentRootFileId;
+          const dataSource =
+            standalonePdfData != null
+              ? {
+                  kind: "standalone" as const,
+                  data: standalonePdfData,
+                }
+              : {
+                  kind: "compiled" as const,
+                  rootFileId: rootId,
+                  revision: isActive ? pdfRevision : 0,
+                };
+          return (
+            <ErrorBoundary
+              key={rootId}
+              fallback={
+                <div className="flex h-full flex-col items-center justify-center gap-3 bg-muted/30 p-8">
+                  <AlertCircleIcon className="size-10 text-destructive" />
+                  <p className="text-muted-foreground text-sm">
+                    {isStandalonePdf
+                      ? "PDF viewer crashed."
+                      : "PDF viewer crashed. Try recompiling."}
+                  </p>
+                  {!isStandalonePdf ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="gap-1.5"
+                      onClick={() => handleCompile(true)}
+                    >
+                      <RefreshCwIcon className="size-3.5" />
+                      Recompile
+                    </Button>
+                  ) : null}
+                </div>
+              }
+            >
+              <div
+                className={
+                  isActive
+                    ? "absolute inset-0 flex flex-col"
+                    : "pointer-events-none invisible absolute inset-0 flex flex-col"
+                }
+              >
+                <PdfCommentInteraction
+                  fullWidth={pdfCommentFullWidth}
+                  onToggleFullWidth={
+                    editorVisible
+                      ? undefined
+                      : () => setPdfCommentFullWidth(!pdfCommentFullWidth)
+                  }
+                  context={isActive ? pdfComments : null}
+                  editorVisible={editorVisible}
+                  layoutAnimating={layoutAnimating}
+                  actionsFor={commentActions}
+                  requestedCommentId={newCommentId}
+                  requestRevision={commentRequestRevision}
+                  centerRequested={centerRequestedComment}
+                >
+                  <PdfViewer
+                    dataSource={dataSource}
+                    scale={renderScale}
+                    displayScale={motionScale}
+                    layoutAnimating={layoutAnimating}
+                    rootFileId={rootId}
+                    isolatedSelection={isolatedSnapshot}
+                    documentReloadRevision={isolatedSnapshot ? pdfRevision : 0}
+                    isActive={isActive}
+                    isCompiling={!isStandalonePdf && isCompiling}
+                    onError={isActive ? setPdfError : undefined}
+                    onLoadSuccess={isActive ? handleLoadSuccess : undefined}
+                    onScaleChange={isActive ? handleScaleChange : undefined}
+                    onTextClick={
+                      isActive && !isolatedSnapshot
+                        ? handleTextClick
+                        : undefined
+                    }
+                    onSynctexClick={
+                      isActive && !isolatedSnapshot
+                        ? handleSynctexClick
+                        : undefined
+                    }
+                    onTextSelect={
+                      isActive && !isolatedSnapshot
+                        ? handleTextSelect
+                        : undefined
+                    }
+                    onFirstPageSize={
+                      isActive
+                        ? (w, h) => setFirstPageSize({ width: w, height: h })
+                        : undefined
+                    }
+                    onContainerResize={
+                      isActive ? handleContainerResize : undefined
+                    }
+                    onCurrentPageChange={
+                      isActive ? handleCurrentPageChange : undefined
+                    }
+                    onScrollIntent={
+                      isActive && !isolatedSnapshot
+                        ? handlePdfScrollIntent
+                        : undefined
+                    }
+                    onScrollPositionChange={
+                      isActive && !isolatedSnapshot
+                        ? handlePdfScrollPositionChange
+                        : undefined
+                    }
+                    readingAnchorRef={isActive ? readingAnchorRef : undefined}
+                    scrollToPageRef={isActive ? scrollToPageRef : undefined}
+                  />
+                </PdfCommentInteraction>
+              </div>
+            </ErrorBoundary>
+          );
+        })}
+      </div>
+    );
+  };
+
+  const compilerControls = useMemo(
+    () =>
+      toolbarContent ??
+      (!isStandalonePdf ? (
+        <ButtonGroup
+          variant="plain"
+          aria-label="Compilation"
+          className="flex h-7 shrink-0 items-center rounded-md border border-border/70 bg-muted/50 transition-opacity"
+        >
+          <Hint content="Recompile">
+            <Button
+              ref={recompileButtonRef}
+              variant="ghost"
+              size="sm"
+              className={cn(
+                "h-7 shrink-0 gap-1 rounded-md text-xs",
+                hideRecompileLabel
+                  ? "justify-center px-0"
+                  : "justify-start px-2",
+              )}
+              style={{
+                width: hideRecompileLabel
+                  ? RECOMPILE_ICON_BUTTON_WIDTH
+                  : RECOMPILE_BUTTON_WIDTH,
+              }}
+              onClick={() => handleCompile(true)}
+              disabled={!hasTexProject || isSaving || isCompiling}
+              aria-label="Recompile"
+            >
+              <span className="inline-flex size-3.5 shrink-0 items-center justify-center">
+                <RefreshCwIcon
+                  className={cn(
+                    "size-3.5",
+                    (isSaving || isCompiling) && "animate-spin",
+                  )}
+                />
+              </span>
+              <span className={hideRecompileLabel ? "hidden" : undefined}>
+                {isSaving
+                  ? "Saving..."
+                  : isCompiling
+                    ? "Compiling..."
+                    : "Recompile"}
+              </span>
+            </Button>
+          </Hint>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="-ml-0.5 h-7 w-6 rounded-md"
+                aria-label="Compilation options"
+              >
+                <ChevronDownIcon className="size-3.5" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuLabel>
+                <span className="inline-flex items-center gap-1.5">
+                  {/* Material Design Icons engine-outline; see public/licenses/material-design-icons.txt. */}
+                  <svg
+                    aria-hidden="true"
+                    viewBox="0 0 24 24"
+                    fill="currentColor"
+                    className="size-3.5 text-muted-foreground"
+                  >
+                    <path d="M8,10H16V18H11L9,16H7V11M7,4V6H10V8H7L5,10V13H3V10H1V18H3V15H5V18H8L10,20H18V16H20V19H23V9H20V12H18V8H12V6H15V4H7Z" />
+                  </svg>
+                  <span>Compiler settings</span>
+                </span>
+              </DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuRadioGroup
+                value={compilerChoice}
+                onValueChange={(value) =>
+                  setCompilerChoice(value as CompilerChoice)
+                }
+              >
+                <DropdownMenuRadioItem
+                  value="latexmk:pdflatex"
+                  indicatorPosition="end"
+                  indicator={<CheckIcon className="size-4" />}
+                  onSelect={(event) => event.preventDefault()}
+                >
+                  pdfLaTeX
+                </DropdownMenuRadioItem>
+                <DropdownMenuRadioItem
+                  value="latexmk:xelatex"
+                  indicatorPosition="end"
+                  indicator={<CheckIcon className="size-4" />}
+                  onSelect={(event) => event.preventDefault()}
+                >
+                  XeLaTeX
+                </DropdownMenuRadioItem>
+                <DropdownMenuRadioItem
+                  value="latexmk:lualatex"
+                  indicatorPosition="end"
+                  indicator={<CheckIcon className="size-4" />}
+                  onSelect={(event) => event.preventDefault()}
+                >
+                  LuaLaTeX
+                </DropdownMenuRadioItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuRadioItem
+                  value="tectonic"
+                  indicatorPosition="end"
+                  indicator={<CheckIcon className="size-4" />}
+                  onSelect={(event) => event.preventDefault()}
+                >
+                  Tectonic
+                </DropdownMenuRadioItem>
+              </DropdownMenuRadioGroup>
+              <DropdownMenuSeparator />
+              <DropdownMenuCheckboxItem
+                className="justify-between gap-8"
+                indicator={null}
+                checked={autoCompile}
+                onCheckedChange={(enabled) => {
+                  if (projectRoot) setProjectAutoCompile(projectRoot, enabled);
+                }}
+                onSelect={(event) => event.preventDefault()}
+              >
+                <span>Auto compile</span>
+                <SettingsSwitch checked={autoCompile} size="sm" indicatorOnly />
+              </DropdownMenuCheckboxItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </ButtonGroup>
+      ) : null),
+    [
+      toolbarContent,
+      isStandalonePdf,
+      compilerChoice,
+      setCompilerChoice,
+      autoCompile,
+      setProjectAutoCompile,
+      projectRoot,
+      isSaving,
+      isCompiling,
+      effectiveCompileError,
+      hasTexProject,
+      hasCurrentPdfData,
+      hideRecompileLabel,
+      handleCompile,
+    ],
+  );
+  const pageCounterLabel = useMemo(
+    () => (
+      <>
+        <span data-pdf-page-current>{currentPage}</span>
+        <span>/</span>
+        <span>{numPages}</span>
+      </>
+    ),
+    [currentPage, numPages],
+  );
+  const pageControls = useMemo(
+    () =>
+      hasCurrentPdfData && (
+        <>
+          <div
+            role="group"
+            aria-label="PDF pages"
+            className="flex shrink-0 items-center"
+          >
+            {!hidePageStepButtons ? (
+              <Hint content="Page Up">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className={PAGE_STEP_CLASS}
+                  onClick={() => goToPage(currentPage - 1)}
+                  disabled={currentPage <= 1}
+                  aria-label="Page Up"
+                >
+                  <ChevronUpIcon className="size-3.5" />
+                </Button>
+              </Hint>
+            ) : null}
+            <div data-pdf-page-indicator className="relative flex shrink-0">
+              <Hint content="Click to jump to page">
+                <button
+                  type="button"
+                  className={`${PAGE_COUNTER_CLASS} rounded-md text-muted-foreground hover:bg-muted ${isEditingPage ? "invisible" : ""}`}
+                  onClick={() => {
+                    setIsEditingPage(true);
+                    setPageInputValue(String(currentPage));
+                  }}
+                  aria-label="Click to jump to page"
+                >
+                  {pageCounterLabel}
+                </button>
+              </Hint>
+              {isEditingPage && (
+                <input
+                  ref={pageInputRef}
+                  type="text"
+                  inputMode="numeric"
+                  aria-label="Page number"
+                  className="absolute inset-0 h-7 w-full min-w-0 rounded-md border border-input bg-background px-1 text-center text-foreground text-xs tabular-nums outline-none focus:border-ring"
+                  value={pageInputValue}
+                  onChange={(e) => setPageInputValue(e.target.value)}
+                  onBlur={handlePageInputCommit}
+                  onKeyDown={(e) => {
+                    if (isComposingKey(e) || e.defaultPrevented) return;
+                    if (e.key === "Enter" || e.key === "Escape") {
+                      e.preventDefault();
+                      e.stopPropagation();
+                    }
+                    if (e.key === "Enter") handlePageInputCommit();
+                    if (e.key === "Escape") {
+                      setIsEditingPage(false);
+                      setPageInputValue(String(currentPage));
+                    }
+                  }}
+                />
+              )}
+            </div>
+            {!hidePageStepButtons ? (
+              <Hint content="Page Down">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className={PAGE_STEP_CLASS}
+                  onClick={() => goToPage(currentPage + 1)}
+                  disabled={currentPage >= numPages}
+                  aria-label="Page Down"
+                >
+                  <ChevronDownIcon className="size-3.5" />
+                </Button>
+              </Hint>
+            ) : null}
+          </div>
+          <div
+            data-pdf-page-separator
+            aria-hidden="true"
+            className="h-4 w-px shrink-0 bg-border"
+          />
+          <Hint content="Fit width">
+            <Button
+              variant="ghost"
+              size="icon"
+              className={`size-7 shrink-0 border ${fitMode === "fit-width" ? "border-input bg-background text-foreground hover:bg-background" : "border-transparent"}`}
+              onClick={() => selectFitMode("fit-width")}
+              aria-label="Fit width"
+              aria-pressed={fitMode === "fit-width"}
+            >
+              <MoveHorizontalIcon className="size-3.5" />
+            </Button>
+          </Hint>
+          <Hint content="Fit height">
+            <Button
+              variant="ghost"
+              size="icon"
+              className={`size-7 shrink-0 border ${fitMode === "fit-height" ? "border-input bg-background text-foreground hover:bg-background" : "border-transparent"}`}
+              onClick={() => selectFitMode("fit-height")}
+              aria-label="Fit height"
+              aria-pressed={fitMode === "fit-height"}
+            >
+              <MoveVerticalIcon className="size-3.5" />
+            </Button>
+          </Hint>
+          <PdfZoomControl
+            scale={scale}
+            onChange={(value) => {
+              setFitMode(null);
+              setScale(value);
+            }}
+            zoomIn={zoomIn}
+            zoomOut={zoomOut}
+          />
+          {!hidePageStepButtons && (
+            <div className="h-4 w-px shrink-0 bg-border" />
+          )}
+          <Hint content="Export PDF">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-7"
+              onClick={handleExport}
+              aria-label="Export PDF"
+            >
+              <DownloadIcon className="size-3.5" />
+            </Button>
+          </Hint>
+        </>
+      ),
+    [
+      hasCurrentPdfData,
+      hidePageStepButtons,
+      currentPage,
+      numPages,
+      pageCounterLabel,
+      goToPage,
+      isEditingPage,
+      pageInputValue,
+      handlePageInputCommit,
+      zoomOut,
+      zoomIn,
+      scale,
+      fitMode,
+      handleExport,
+    ],
+  );
+
+  // Probes share the counter label and sizing with the visible controls.
+  // Reuse their element tree
+  // during source edits; browser layout still measures them on toolbar resize.
+  const toolbarWidthProbes = useMemo(
+    () => (
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute -z-10 h-0 overflow-hidden opacity-0"
+      >
+        <div
+          ref={toolbarProbeLevel0Ref}
+          className="flex w-max shrink-0 items-center gap-1"
+        >
+          <div className="flex shrink-0 items-center">
+            <div className={PAGE_STEP_CLASS} />
+            <div className={PAGE_COUNTER_CLASS}>{pageCounterLabel}</div>
+            <div className={PAGE_STEP_CLASS} />
+          </div>
+          <div className="h-4 w-px shrink-0" />
+          <div className="h-7 w-[98px] shrink-0" />
+          <div className="size-7 shrink-0" />
+          <div className="size-7 shrink-0" />
+          <div className="h-4 w-px shrink-0" />
+          <div className="size-7 shrink-0" />
+        </div>
+        <div
+          ref={toolbarProbeLevel2Ref}
+          className="flex w-max shrink-0 items-center gap-1"
+        >
+          <div className={PAGE_COUNTER_CLASS}>{pageCounterLabel}</div>
+          <div className="h-4 w-px shrink-0" />
+          <div className="size-7 shrink-0" />
+          <div className="size-7 shrink-0" />
+          <div className="h-7 w-[98px] shrink-0" />
+          <div className="size-7 shrink-0" />
+        </div>
+      </div>
+    ),
+    [pageCounterLabel],
+  );
+
+  return (
+    <div
+      ref={previewContainerRef}
+      data-preview-pane
+      className="@container/pv relative flex h-full flex-col bg-muted/50"
+    >
+      <WorkspacePanelHeader
+        ref={toolbarRowRef}
+        data-pdf-toolbar
+        className={
+          toolbarContent
+            ? "h-auto min-h-12 flex-wrap gap-x-2 gap-y-1 py-1.5"
+            : undefined
+        }
+      >
+        <div
+          ref={toolbarLeftControlsRef}
+          className={
+            toolbarContent
+              ? "flex min-w-[180px] flex-1 items-center gap-1"
+              : "flex items-center gap-1"
+          }
+        >
+          {compilerControls}
+        </div>
+        {!toolbarContent && (
+          <div data-window-drag-region className="flex-1 self-stretch" />
+        )}
+        <div
+          ref={toolbarRightControlsRef}
+          className="ml-auto flex shrink-0 items-center gap-1"
+        >
+          {pageControls}
+          <ProblemsMotion
+            kind="button"
+            open={showPdfCommentControls && !commentsPanelOpen}
+          >
+            <div
+              data-pdf-comments-summary
+              className="flex shrink-0 items-center"
+            >
+              <div
+                aria-hidden="true"
+                className="mx-1 h-4 w-px shrink-0 bg-border"
+              />
+              <CommentsSummaryButton
+                comments={activeFileComments}
+                onOpen={() => saveCommentsPanelOpen(panelsProjectKey, true)}
+              />
+            </div>
+          </ProblemsMotion>
+        </div>
+      </WorkspacePanelHeader>
+      <ProblemsMotion
+        kind="bar"
+        open={showPdfCommentControls && commentsPanelOpen}
+      >
+        <CommentsPanel
+          comments={activeFileComments}
+          filter={commentFilter}
+          onFilter={(filter) => saveCommentFilter(panelsProjectKey, filter)}
+          onClose={() => saveCommentsPanelOpen(panelsProjectKey, false)}
+          onNavigate={(comment) => void navigateCommentInPdf(comment.id)}
+        />
+      </ProblemsMotion>
+      {toolbarWidthProbes}
+      {renderContent()}
+      {/* PDF selection toolbar */}
+      {!isolatedSnapshot && pdfSelection && (
+        <SelectionToolbar
+          position={pdfSelection.position}
+          getAnchor={getPdfToolbarAnchor}
+          contextLabel={pdfContextLabel}
+          actions={pdfToolbarActions}
+          aiEnabled={aiEnabled}
+          onAction={handlePdfToolbarAction}
+          onDismiss={handlePdfToolbarDismiss}
+        />
+      )}
+    </div>
+  );
+}

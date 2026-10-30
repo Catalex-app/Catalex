@@ -1,0 +1,41 @@
+Catalex spelling components
+
+Hunspell 1.7.3, https://github.com/hunspell/hunspell/tree/v1.7.3
+Available under MPL 1.1 / GPL 2.0-or-later / LGPL 2.1-or-later.
+Distributed here under MPL 1.1. See hunspell.txt and hunspell-MPL-1.1.txt.
+Source: https://github.com/hunspell/hunspell/tree/v1.7.3
+
+WebAssembly build and TypeScript bindings: @farscrl/hunspell-wasm 1.0.1
+https://github.com/farscrl/hunspell-wasm
+MIT license for bindings: hunspell-wasm.txt.
+The package includes the compiled Hunspell engine. Its reproducible build
+uses the repository's native/Dockerfile and native/build.sh.
+
+Dictionaries: unmodified en_US.aff/.dic and en_GB.aff/.dic from
+https://github.com/overleaf/dictionaries/tree/v0.0.3/dictionaries
+These files retain their upstream licenses, as described in that repository's
+README. The repository-wide AGPL license is not substituted for those licenses.
+
+US English: SCOWL and its component word lists under the permissive terms
+reproduced in spelling-en-US.txt. Includes the copyright and permission notices
+of Kevin Atkinson, Princeton University, J Ross Beresford, and Geoff Kuenning.
+Copyright (c) J Ross Beresford 1993-1999. All Rights Reserved.
+
+UK English: the dictionary and affix file identify their license as LGPL.
+Authors include Kevin Atkinson, David Bartlett, Brian Kelk, Andrew Brown,
+Marco A.G.Pinto, and contributors. See spelling-en-GB.txt for upstream notices,
+and spelling-LGPL-3.0.txt and spelling-GPL-3.0.txt for license terms. The
+file-specific notices take precedence over the Debian package's broad en/*
+summary. Upstream license: https://github.com/marcoagpinto/aoo-mozilla-en-dict/blob/master/LICENSE
+Upstream readme: https://github.com/LibreOffice/dictionaries/blob/master/en/README_en_GB.txt
+
+The complete dictionary source is the unmodified plain-text .aff/.dic files
+shipped as separate assets with the application. Copies and their pinned blob
+identifiers are also in src/renderer/lib/spelling/dictionaries/ in the Catalex
+source repository. No dictionary contents have been modified by Catalex.
+These third-party files retain their respective licenses; Catalex's root MIT
+license does not replace them.
+
+Catalex's editor integration is original code. Overleaf application code and
+its AGPL scientific supplement are not included. Base dictionary parity alone
+does not provide Overleaf's additional scientific vocabulary.

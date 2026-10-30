@@ -1,0 +1,255 @@
+:root {
+  color-scheme: light;
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif,
+    "Apple Color Emoji", "Segoe UI Emoji";
+  font-synthesis: none;
+}
+
+html,
+body {
+  min-height: 100%;
+  margin: 0;
+}
+
+body {
+  background: #ffffff;
+  color: #1f2328;
+  overflow-wrap: anywhere;
+}
+
+body[data-color-scheme="dark"] {
+  color-scheme: dark;
+  background: #0d1117;
+  color: #e6edf3;
+}
+
+body[data-preview-theme="typora"] {
+  background: var(--bg-color, #ffffff);
+  color: var(--text-color, #1f2328);
+}
+
+#write {
+  box-sizing: border-box;
+  width: min(100%, 980px);
+  min-height: 100vh;
+  margin: 0 auto;
+  padding: 48px clamp(28px, 6vw, 72px) 80px;
+  font-size: 16px;
+  line-height: 1.6;
+}
+
+#write > :first-child {
+  margin-top: 0 !important;
+}
+
+#write > :last-child {
+  margin-bottom: 0 !important;
+}
+
+body[data-preview-theme="github"] #write a {
+  color: #0969da;
+  text-decoration: none;
+}
+
+body[data-preview-theme="github"][data-color-scheme="dark"] #write a {
+  color: #58a6ff;
+}
+
+body[data-preview-theme="github"] #write a:hover {
+  text-decoration: underline;
+}
+
+body[data-preview-theme="github"] #write h1,
+body[data-preview-theme="github"] #write h2,
+body[data-preview-theme="github"] #write h3,
+body[data-preview-theme="github"] #write h4,
+body[data-preview-theme="github"] #write h5,
+body[data-preview-theme="github"] #write h6 {
+  margin-top: 24px;
+  margin-bottom: 16px;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+body[data-preview-theme="github"] #write h1,
+body[data-preview-theme="github"] #write h2 {
+  padding-bottom: 0.3em;
+  border-bottom: 1px solid #d0d7de;
+}
+
+body[data-preview-theme="github"][data-color-scheme="dark"] #write h1,
+body[data-preview-theme="github"][data-color-scheme="dark"] #write h2 {
+  border-bottom-color: #21262d;
+}
+
+body[data-preview-theme="github"] #write h1 {
+  font-size: 2em;
+}
+
+body[data-preview-theme="github"] #write h2 {
+  font-size: 1.5em;
+}
+
+body[data-preview-theme="github"] #write h3 {
+  font-size: 1.25em;
+}
+
+body[data-preview-theme="github"] #write h4 {
+  font-size: 1em;
+}
+
+body[data-preview-theme="github"] #write h5 {
+  font-size: 0.875em;
+}
+
+body[data-preview-theme="github"] #write h6 {
+  color: #59636e;
+  font-size: 0.85em;
+}
+
+body[data-preview-theme="github"][data-color-scheme="dark"] #write h6 {
+  color: #8b949e;
+}
+
+body[data-preview-theme="github"] #write p,
+body[data-preview-theme="github"] #write blockquote,
+body[data-preview-theme="github"] #write ul,
+body[data-preview-theme="github"] #write ol,
+body[data-preview-theme="github"] #write dl,
+body[data-preview-theme="github"] #write table,
+body[data-preview-theme="github"] #write pre,
+body[data-preview-theme="github"] #write details {
+  margin-top: 0;
+  margin-bottom: 16px;
+}
+
+body[data-preview-theme="github"] #write ul,
+body[data-preview-theme="github"] #write ol {
+  padding-left: 2em;
+}
+
+body[data-preview-theme="github"] #write li + li {
+  margin-top: 0.25em;
+}
+
+body[data-preview-theme="github"] #write blockquote {
+  padding: 0 1em;
+  color: #59636e;
+  border-left: 0.25em solid #d0d7de;
+}
+
+body[data-preview-theme="github"][data-color-scheme="dark"] #write blockquote {
+  color: #8b949e;
+  border-left-color: #30363d;
+}
+
+body[data-preview-theme="github"] #write code,
+body[data-preview-theme="github"] #write tt {
+  padding: 0.2em 0.4em;
+  border-radius: 6px;
+  background: rgba(175, 184, 193, 0.2);
+  font-family:
+    ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, Liberation Mono,
+    monospace;
+  font-size: 85%;
+}
+
+body[data-preview-theme="github"] #write pre {
+  overflow: auto;
+  padding: 16px;
+  border-radius: 6px;
+  background: #f6f8fa;
+  line-height: 1.45;
+}
+
+body[data-preview-theme="github"][data-color-scheme="dark"] #write pre {
+  background: #161b22;
+}
+
+body[data-preview-theme="github"] #write pre code {
+  display: inline;
+  max-width: auto;
+  margin: 0;
+  padding: 0;
+  overflow: visible;
+  border: 0;
+  background: transparent;
+  font-size: 100%;
+  line-height: inherit;
+  word-wrap: normal;
+}
+
+body[data-preview-theme="github"] #write table {
+  display: block;
+  width: max-content;
+  max-width: 100%;
+  overflow: auto;
+  border-spacing: 0;
+  border-collapse: collapse;
+}
+
+body[data-preview-theme="github"] #write table th,
+body[data-preview-theme="github"] #write table td {
+  padding: 6px 13px;
+  border: 1px solid #d0d7de;
+}
+
+body[data-preview-theme="github"] #write table tr {
+  border-top: 1px solid #d0d7de;
+  background: #ffffff;
+}
+
+body[data-preview-theme="github"] #write table tr:nth-child(2n) {
+  background: #f6f8fa;
+}
+
+body[data-preview-theme="github"][data-color-scheme="dark"] #write table th,
+body[data-preview-theme="github"][data-color-scheme="dark"] #write table td,
+body[data-preview-theme="github"][data-color-scheme="dark"] #write table tr {
+  border-color: #30363d;
+}
+
+body[data-preview-theme="github"][data-color-scheme="dark"] #write table tr {
+  background: #0d1117;
+}
+
+body[data-preview-theme="github"][data-color-scheme="dark"] #write table tr:nth-child(2n) {
+  background: #161b22;
+}
+
+body[data-preview-theme="github"] #write img {
+  box-sizing: content-box;
+  max-width: 100%;
+  height: auto;
+  border-radius: 6px;
+}
+
+body[data-preview-theme="github"] #write hr {
+  height: 0.25em;
+  margin: 24px 0;
+  padding: 0;
+  border: 0;
+  background: #d0d7de;
+}
+
+body[data-preview-theme="github"][data-color-scheme="dark"] #write hr {
+  background: #30363d;
+}
+
+body[data-preview-theme="github"] #write input[type="checkbox"] {
+  margin: 0 0.35em 0.25em -1.6em;
+  vertical-align: middle;
+}
+
+body[data-preview-theme="github"] #write .katex-display {
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0.35rem 0;
+}
+
+@media (max-width: 640px) {
+  #write {
+    padding: 28px 20px 56px;
+  }
+}

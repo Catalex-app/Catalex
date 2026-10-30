@@ -1,0 +1,71 @@
+{
+  "fill": "automatic",
+  "groups": [
+    {
+      "blend-mode": "multiply",
+      "blur-material": null,
+      "hidden": true,
+      "layers": [
+        {
+          "blend-mode-specializations": [
+            {
+              "value": "normal"
+            },
+            {
+              "appearance": "dark",
+              "value": "normal"
+            }
+          ],
+          "fill-specializations": [
+            {
+              "appearance": "dark",
+              "value": "automatic"
+            }
+          ],
+          "image-name": "Cat-pen.svg",
+          "name": "Cat-pen"
+        }
+      ],
+      "lighting": "individual",
+      "position": {
+        "scale": 1.41,
+        "translation-in-points": [5, -40]
+      },
+      "shadow": {
+        "kind": "none",
+        "opacity": 0.5
+      },
+      "specular": false,
+      "translucency": {
+        "enabled": true,
+        "value": 0.5
+      }
+    },
+    {
+      "blend-mode": "multiply",
+      "layers": [
+        {
+          "image-name": "Cat-leaf.svg",
+          "name": "Cat-leaf"
+        }
+      ],
+      "position": {
+        "scale": 1.38,
+        "translation-in-points": [-33, -32]
+      },
+      "shadow": {
+        "kind": "none",
+        "opacity": 0.5
+      },
+      "specular": false,
+      "translucency": {
+        "enabled": true,
+        "value": 0.5
+      }
+    }
+  ],
+  "supported-platforms": {
+    "circles": ["watchOS"],
+    "squares": "shared"
+  }
+}

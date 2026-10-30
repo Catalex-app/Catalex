@@ -1,0 +1,94 @@
+use bson::{Bson, Document};
+use crate::errors::CannotApplyOperationForTypes;
+use crate::vm::update_operators::{UpdateOperator, UpdateResult};
+use crate::vm::update_operators::document_path::{get_path, set_path};
+use crate::Result;
+
+pub(crate) struct MulOperator {
+    doc: Document
+}
+
+impl MulOperator {
+
+    pub fn compile(doc: Document) -> Result<MulOperator> {
+        <dyn UpdateOperator>::validate_key(&doc)?;
+        Ok(MulOperator {
+            doc
+        })
+    }
+
+    fn mul_numeric(key: &str, a: &Bson, b: &Bson) -> Result<Bson> {
+        let val = match (a, b) {
+            (Bson::Int32(a), Bson::Int32(b)) => Bson::Int32(*a * *b),
+            (Bson::Int32(a), Bson::Int64(b)) => Bson::Int64(*a as i64 * *b),
+            (Bson::Int32(a), Bson::Double(b)) => Bson::Double(*a as f64 * *b),
+            (Bson::Int64(a), Bson::Int64(b)) => Bson::Int64(*a * *b),
+            (Bson::Int64(a), Bson::Int32(b)) => Bson::Int64(*a * *b as i64),
+            (Bson::Int64(a), Bson::Double(b)) => Bson::Double(*a as f64 * *b),
+            (Bson::Double(a), Bson::Double(b)) => Bson::Double(*a * *b),
+            (Bson::Double(a), Bson::Int32(b)) => Bson::Double(*a * *b as f64),
+            (Bson::Double(a), Bson::Int64(b)) => Bson::Double(*a * *b as f64),
+
+            _ => {
+                return Err(CannotApplyOperationForTypes {
+                    op_name: "$mul".into(),
+                    field_name: key.into(),
+                    field_type: a.to_string(),
+                    target_type: b.to_string(),
+                }
+                    .into());
+            }
+        };
+        Ok(val)
+    }
+
+    fn mul_field(doc: &mut Document, key: &str, value: Bson) -> Result<()> {
+        let new_value = match get_path(doc, key)? {
+            Some(original_value) => {
+                MulOperator::mul_numeric(key, original_value, &value)?
+            }
+
+            None => match value {
+                Bson::Int32(_) => Bson::Int32(0),
+                Bson::Int64(_) => Bson::Int64(0),
+                Bson::Double(_) => Bson::Double(0.0),
+                Bson::Decimal128(_) => Bson::Decimal128(
+                    "0".parse().expect("zero is a valid Decimal128"),
+                ),
+                _ => {
+                    return Err(CannotApplyOperationForTypes {
+                        op_name: "$mul".into(),
+                        field_name: key.into(),
+                        field_type: "missing".into(),
+                        target_type: value.to_string(),
+                    }
+                    .into());
+                }
+            },
+        };
+        set_path(doc, key, new_value)?;
+        Ok(())
+    }
+
+}
+
+impl UpdateOperator for MulOperator {
+
+        fn name(&self) -> &str {
+            "mul"
+        }
+
+        fn update(&self, value: &mut Bson) -> Result<UpdateResult> {
+            let doc = value.as_document_mut().unwrap();
+
+            let mut updated = false;
+            for (k, v) in self.doc.iter() {
+                MulOperator::mul_field(doc, k, v.clone())?;
+                updated = true;
+            }
+
+            Ok(UpdateResult {
+                updated,
+            })
+        }
+}

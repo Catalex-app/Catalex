@@ -1,0 +1,46 @@
+/* Chromium's axis-specific scrollbar sizing keeps horizontal scrolling visible. */
+.editor-with-minimap .cm-editor .cm-scroller { scrollbar-width: auto; scrollbar-color: auto; }
+.editor-with-minimap .cm-editor .cm-scroller::-webkit-scrollbar { width: 0; }
+/* Match the card's 4px gutter gap; retain its existing left alignment. */
+.editor-with-minimap .cm-inlineCommentCard { width: calc(100% + 20px); }
+.editor-minimap { position: absolute; inset: 0 0 0 auto; width: 36px; color: var(--muted-foreground); background: var(--background); user-select: none; }
+.editor-minimap-settings { display: grid; place-items: center; width: 28px; height: 28px; margin: 3px 4px; border-radius: 5px; cursor: pointer; opacity: .7; }
+.editor-minimap-settings:hover, .editor-minimap-settings[data-state="open"] { background: var(--muted); color: var(--foreground); opacity: 1; }
+.editor-minimap-settings[data-filtered="true"] { color: var(--foreground); opacity: 1; }
+.editor-minimap-track { position: absolute; inset: 36px 4px 8px; }
+.editor-minimap-scrubber { position: absolute; inset: 0; width: 100%; height: 100%; cursor: pointer; border-radius: 4px; touch-action: none; }
+.editor-minimap-viewport { position: absolute; inset-inline: 0; border: 1px solid color-mix(in oklab, var(--muted-foreground) 28%, transparent); border-radius: 4px; background: color-mix(in oklab, var(--muted-foreground) 10%, transparent); pointer-events: none; }
+.editor-minimap:hover .editor-minimap-viewport { background: color-mix(in oklab, var(--muted-foreground) 15%, transparent); }
+.editor-minimap-mark { position: absolute; left: 50%; width: 26px; transform: translateX(-50%); display: flex; align-items: center; justify-content: center; min-height: 10px; border-radius: 3px; cursor: pointer; z-index: 1; }
+.editor-minimap-colors { display: flex; flex-direction: row; width: 22px; height: 3px; gap: 1px; pointer-events: none; }
+.editor-minimap-stroke { flex: 1 1 0; min-width: 0; height: 3px; border-radius: 1px; background: var(--minimap-color); opacity: .8; transition: opacity 120ms, transform 120ms; }
+.editor-minimap-stroke:is([data-kind="add"], [data-kind="modify"], [data-kind="delete"]) { order: 0; }
+.editor-minimap-stroke[data-kind="human"] { order: 1; }
+.editor-minimap-stroke[data-kind="agent"] { order: 2; }
+.editor-minimap-stroke[data-kind="error"] { order: 3; }
+.editor-minimap-stroke[data-kind="warning"] { order: 4; }
+.editor-minimap-mark:hover .editor-minimap-stroke, .editor-minimap-mark:focus-visible .editor-minimap-stroke { opacity: 1; transform: scaleX(1.18); }
+:is(.editor-minimap, .editor-minimap-card) [data-kind="add"] { --minimap-color: #22c55e; }
+:is(.editor-minimap, .editor-minimap-card) [data-kind="modify"] { --minimap-color: #3b82f6; }
+:is(.editor-minimap, .editor-minimap-card) :is([data-kind="delete"], [data-kind="error"]) { --minimap-color: #ef4444; }
+:is(.editor-minimap, .editor-minimap-card) [data-kind="human"] { --minimap-color: #d49a00; }
+:is(.editor-minimap, .editor-minimap-card) [data-kind="agent"] { --minimap-color: #7352b3; }
+:is(.editor-minimap, .editor-minimap-card) [data-kind="warning"] { --minimap-color: #f97316; }
+
+.editor-minimap button:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
+.editor-minimap-card { width: min(340px, calc(100vw - 32px)); padding: 0; user-select: text; }
+.editor-minimap-card-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px 6px; font-size: 11px; font-weight: 600; }
+.editor-minimap-card-heading span { color: var(--muted-foreground); font-size: 10px; font-weight: 400; }
+.editor-minimap-card-items { max-height: 280px; overflow-y: auto; padding: 4px; }
+.editor-minimap-card-item { display: block; width: 100%; padding: 8px; border-radius: 5px; text-align: left; cursor: pointer; }
+.editor-minimap-card-item:hover, .editor-minimap-card-item:focus-visible { background: var(--muted); }
+.editor-minimap-card-title { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; }
+.editor-minimap-card-title > span:last-child { margin-left: auto; padding-left: 8px; font-size: 10px; font-weight: 400; color: var(--muted-foreground); white-space: nowrap; }
+.editor-minimap-dot { width: 6px; height: 6px; flex-shrink: 0; border-radius: 2px; background: var(--minimap-color); }
+.editor-minimap-detail, .editor-minimap-before { display: block; margin-top: 6px; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; line-height: 1.5; }
+.editor-minimap-before { color: var(--muted-foreground); text-decoration: line-through; }
+@media (prefers-reduced-motion: reduce) { .editor-minimap-stroke { transition: none; } }
+
+.editor-minimap-settings:disabled { opacity: .3; cursor: default; background: transparent; }
+:is(.editor-minimap-stroke, .editor-minimap-dot):is([data-kind="review"], [data-kind="conflict"]) { background: var(--review-stack); height: var(--review-height, 3px); }
+.editor-minimap-colors:has([data-review-versions]) { height: auto; align-items: center; }

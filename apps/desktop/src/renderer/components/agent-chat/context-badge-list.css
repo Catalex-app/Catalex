@@ -1,0 +1,78 @@
+.context-badge-presence[data-context-enter="true"] {
+  animation: context-badge-enter 140ms cubic-bezier(0.2, 0, 0.2, 1) 80ms both;
+}
+
+.context-badge-presence[data-context-presence="exiting"] {
+  pointer-events: none;
+  animation: context-badge-exit 120ms ease-out both;
+}
+
+@keyframes context-badge-enter {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes context-badge-exit {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .context-badge-presence[data-context-enter="true"] {
+    animation: context-badge-fade 80ms linear both;
+  }
+  .context-badge-presence[data-context-presence="exiting"] {
+    animation: context-badge-exit 80ms linear both;
+  }
+}
+
+@keyframes context-badge-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* The highlight is a masked copy so only the passing wave glows. */
+[data-context-label] {
+  position: relative;
+}
+
+[data-context-glow] {
+  position: absolute;
+  inset: -4px 0;
+  padding: 4px 0;
+  pointer-events: none;
+  opacity: 0;
+  color: #2563eb;
+  text-shadow: 0 0 4px rgb(37 99 235 / 35%);
+  mask-image: linear-gradient(90deg, transparent 38%, #000 48%, #000 52%, transparent 62%);
+  mask-size: 300% 100%;
+  mask-repeat: no-repeat;
+  mask-position: 100% 0;
+}
+
+.dark [data-context-glow] {
+  color: #60a5fa;
+  text-shadow: 0 0 4px rgb(96 165 250 / 45%);
+}
+
+.context-badge-presence[data-context-attention="true"][data-context-enter="true"][data-context-presence="present"] [data-context-glow] {
+  animation: context-badge-attention 2000ms linear 220ms 1;
+}
+
+@keyframes context-badge-attention {
+  0% { mask-position: 100% 0; opacity: 0; }
+  8%, 92% { opacity: 1; }
+  100% { mask-position: 0% 0; opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .context-badge-presence[data-context-attention="true"][data-context-enter="true"][data-context-presence="present"] [data-context-glow] {
+    animation: none;
+  }
+}
+
+[data-comment-chip] [data-context-glow],
+.dark [data-comment-chip] [data-context-glow] {
+  color: #fff;
+  text-shadow: 0 0 5px #fff, 0 0 10px rgb(255 255 255 / 70%);
+}

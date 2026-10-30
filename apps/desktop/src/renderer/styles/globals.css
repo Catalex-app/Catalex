@@ -1,0 +1,771 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "./ui-themes.css";
+@import "./focus.css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: "Geist", system-ui, sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, monospace;
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  /* Inset app panels balance soft corners with their narrow outer gutters. */
+  --radius-panel: calc(var(--radius) + 2px);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 8px);
+  --radius-3xl: calc(var(--radius) + 12px);
+  --radius-4xl: calc(var(--radius) + 16px);
+}
+
+:root {
+  --segmented-control-outline: color-mix(in oklab, var(--border) 70%, transparent);
+  --radius: 0.625rem;
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.145 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.145 0 0);
+  --primary: oklch(0.205 0 0);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.205 0 0);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --accent: oklch(0.97 0 0);
+  --accent-foreground: oklch(0.205 0 0);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: oklch(0.708 0 0);
+  --chart-1: oklch(0.646 0.222 41.116);
+  --chart-2: oklch(0.6 0.118 184.704);
+  --chart-3: oklch(0.398 0.07 227.392);
+  --chart-4: oklch(0.828 0.189 84.429);
+  --chart-5: oklch(0.769 0.188 70.08);
+  --sidebar: oklch(0.985 0 0);
+  --sidebar-foreground: oklch(0.145 0 0);
+  --sidebar-primary: oklch(0.205 0 0);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.97 0 0);
+  --sidebar-accent-foreground: oklch(0.205 0 0);
+  --sidebar-border: oklch(0.922 0 0);
+  --sidebar-ring: oklch(0.708 0 0);
+}
+
+.dark {
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.205 0 0);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.205 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.922 0 0);
+  --primary-foreground: oklch(0.205 0 0);
+  --secondary: oklch(0.269 0 0);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+  --accent: oklch(0.269 0 0);
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.704 0.191 22.216);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.556 0 0);
+  --chart-1: oklch(0.488 0.243 264.376);
+  --chart-2: oklch(0.696 0.17 162.48);
+  --chart-3: oklch(0.769 0.188 70.08);
+  --chart-4: oklch(0.627 0.265 303.9);
+  --chart-5: oklch(0.645 0.246 16.439);
+  --sidebar: oklch(0.205 0 0);
+  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar-primary: oklch(0.488 0.243 264.376);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.269 0 0);
+  --sidebar-accent-foreground: oklch(0.985 0 0);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: oklch(0.556 0 0);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html {
+    @apply overscroll-y-none scroll-smooth;
+    /* macOS overlay titlebar inset — traffic lights safe area */
+    --titlebar-height: 0px;
+    --traffic-light-width: 72px;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+html.solar-mode body::after {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483647;
+  pointer-events: none;
+  content: "";
+  background: rgba(255, 215, 96, var(--solar-mode-opacity, 0.12));
+  mix-blend-mode: multiply;
+}
+
+.settings-number-input::-webkit-outer-spin-button,
+.settings-number-input::-webkit-inner-spin-button {
+  margin: 0;
+  appearance: none;
+}
+
+/* Sidebar scrollbar styling */
+.bg-sidebar ::-webkit-scrollbar {
+  width: 6px;
+}
+
+.bg-sidebar ::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.bg-sidebar ::-webkit-scrollbar-thumb {
+  background: var(--sidebar-border);
+  border-radius: 3px;
+}
+
+.bg-sidebar ::-webkit-scrollbar-thumb:hover {
+  background: var(--sidebar-ring);
+}
+
+.bg-sidebar {
+  scrollbar-width: thin;
+  scrollbar-color: var(--sidebar-border) transparent;
+}
+
+.bg-sidebar * {
+  scrollbar-width: thin;
+  scrollbar-color: var(--sidebar-border) transparent;
+}
+
+/* Workspace controls: layout is shared by every visual theme. */
+.sidebar-utility-controls {
+  container: sidebar-utilities / inline-size;
+}
+
+@container sidebar-utilities (max-width: 180px) {
+  .sidebar-utility-controls kbd {
+    display: none;
+  }
+}
+
+.assistant-mode-switch {
+  box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--border) 50%, transparent);
+}
+
+.assistant-mode-tab {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  border: 1px solid transparent;
+  transition:
+    color 160ms ease,
+    background-color 160ms ease,
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    transform 160ms ease;
+}
+
+.assistant-mode-tab > span {
+  position: relative;
+  z-index: 1;
+}
+
+.assistant-mode-tab[aria-selected="true"] {
+  transform: translateY(-0.5px);
+}
+
+[data-workspace-panel-screen="true"] {
+  position: relative;
+  isolation: isolate;
+}
+
+/* Shared segmented-control stroke; inset avoids changing group dimensions. */
+.segmented-control {
+  outline: 1px solid var(--segmented-control-outline);
+  outline-offset: -1px;
+}
+
+/* Zero-width separators keep adjoining buttons flush. Modern controls inset
+   the shared stroke; Classic retains its full-height dividers. */
+.button-group-separator {
+  position: relative;
+  align-self: stretch;
+  flex-shrink: 0;
+  width: 0;
+  pointer-events: none;
+}
+
+.button-group-separator::before {
+  position: absolute;
+  inset-block: 0;
+  left: 0;
+  width: 1px;
+  background: var(--border);
+  content: "";
+}
+
+:root:not([data-ui-theme="classic"]) .button-group-separator::before {
+  inset-block: 8px;
+}
+
+@layer components {
+  /* Half-mode tabs touch; outlined tabs supply their own edge separation. */
+  [data-chat-tab-dividers] [data-chat-tab-strip] > [data-chat-tab] + [data-chat-tab]::before,
+  [data-chat-tab-dividers] > [data-new-chat-tab]::before {
+    position: absolute;
+    top: 50%;
+    left: 0;
+    width: 1px;
+    height: 0.75rem;
+    background: var(--border);
+    content: "";
+    pointer-events: none;
+    transform: translateY(-50%);
+  }
+
+  [data-chat-tab-dividers] [data-chat-tab-strip] > [data-chat-tab]:is([data-active="true"], :hover, :focus-within)::before,
+  [data-chat-tab-dividers] [data-chat-tab-strip] > [data-chat-tab]:is([data-active="true"], :hover, :focus-within) + [data-chat-tab]::before,
+  [data-chat-tab-dividers] > [data-new-chat-tab]:has([data-chat-tab]:is([data-active="true"], :hover, :focus-within))::before,
+  [data-chat-tab-dividers]:has([data-chat-tab-strip] > [data-chat-tab]:last-child:is([data-active="true"], :hover, :focus-within)) > [data-new-chat-tab]::before {
+    opacity: 0;
+  }
+
+  /* Composite tabs paint their stroke above sliding content, without outlining
+     nested action buttons or letting opaque panels cover the outer edge. */
+  :where([data-slot="button-group"]) :where([data-button-group-item])::after {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    border-radius: inherit;
+    content: "";
+    pointer-events: none;
+  }
+
+  /* Low specificity lets individual controls retain theme and focus overrides. */
+  :where([data-slot="button-group"]) :where(
+    button[aria-selected],
+    button[aria-pressed]
+  ):where(:hover, :focus-visible, [aria-selected="true"], [aria-pressed="true"], [data-active="true"]),
+  :where([data-slot="button-group"]) :where([data-button-group-item]):where(:hover, :focus-within, [data-active="true"])::after {
+    outline: 1px solid var(--border);
+    outline-offset: -1px;
+  }
+}
+
+.assistant-mode-tab:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 1px;
+}
+
+.app-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(
+      in oklch,
+      var(--muted-foreground) 45%,
+      transparent
+    )
+    transparent;
+}
+
+.app-scrollbar::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+  background: transparent;
+}
+
+.app-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.app-scrollbar::-webkit-scrollbar-track-piece {
+  background: transparent;
+}
+
+.app-scrollbar::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+.app-scrollbar::-webkit-scrollbar-thumb {
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background-color: color-mix(
+    in oklch,
+    var(--muted-foreground) 45%,
+    transparent
+  );
+  background-clip: content-box;
+}
+
+.app-scrollbar::-webkit-scrollbar-thumb:hover {
+  background-color: color-mix(
+    in oklch,
+    var(--muted-foreground) 70%,
+    transparent
+  );
+}
+
+.scrollbar-none {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+.chat-markdown {
+  max-width: none;
+  color: var(--foreground);
+  font-size: 0.875rem;
+  line-height: 1.58;
+}
+
+.chat-markdown > :first-child {
+  margin-top: 0;
+}
+
+.chat-markdown > :last-child {
+  margin-bottom: 0;
+}
+
+.chat-markdown h1,
+.chat-markdown h2,
+.chat-markdown h3,
+.chat-markdown h4 {
+  margin: 0.85rem 0 0.3rem;
+  color: var(--foreground);
+  font-size: inherit;
+  line-height: inherit;
+  font-weight: 700;
+}
+
+.chat-markdown h1 {
+  margin-top: 0.15rem;
+}
+
+.chat-markdown p {
+  margin: 0.3rem 0;
+}
+
+.chat-markdown ul,
+.chat-markdown ol {
+  margin: 0.45rem 0;
+  padding-left: 1.25rem;
+}
+
+.chat-markdown ul {
+  list-style: disc;
+}
+
+.chat-markdown ol {
+  list-style: decimal;
+}
+
+.chat-markdown li {
+  margin: 0.22rem 0;
+  padding-left: 0.1rem;
+}
+
+.chat-markdown li > ul,
+.chat-markdown li > ol {
+  margin: 0.25rem 0;
+}
+
+.chat-markdown blockquote {
+  margin: 0.6rem 0;
+  border-left: 2px solid var(--border);
+  padding-left: 0.75rem;
+  color: var(--muted-foreground);
+}
+
+.chat-markdown a {
+  color: var(--foreground);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.chat-markdown code {
+  border-radius: 0.375rem;
+  background: var(--muted);
+  padding: 0.08rem 0.35rem;
+  font-size: 0.92em;
+  color: var(--foreground);
+}
+
+.chat-markdown pre {
+  margin: 0.65rem 0;
+  overflow-x: auto;
+  border-radius: 0.625rem;
+  background: var(--muted);
+  padding: 0.75rem;
+}
+
+.chat-markdown pre code {
+  border-radius: 0;
+  background: transparent;
+  padding: 0;
+}
+
+.chat-markdown table {
+  margin: 0.65rem 0;
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85em;
+}
+
+.chat-markdown th,
+.chat-markdown td {
+  border: 1px solid var(--border);
+  padding: 0.35rem 0.5rem;
+  text-align: left;
+}
+
+.chat-markdown th {
+  background: var(--muted);
+  font-weight: 600;
+}
+
+/* MuPDF text selection layer */
+.mupdf-text-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: auto;
+}
+
+.mupdf-text-layer text {
+  fill: transparent;
+  white-space: pre;
+  cursor: text;
+}
+
+.mupdf-text-layer text::selection {
+  background-color: rgba(118, 186, 247, 0.44);
+  fill: transparent;
+}
+
+/* MuPDF link overlay layer */
+.mupdf-link-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  pointer-events: none;
+}
+
+.mupdf-link-layer a {
+  background: rgba(134, 239, 172, 0.3);
+  border-radius: 1px;
+  position: absolute;
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+@keyframes workspace-drawer-tv-off {
+  0% {
+    transform: scale3d(1, 1, 1);
+    opacity: 1;
+    filter: brightness(1);
+  }
+
+  18% {
+    transform: scale3d(1, 0.45, 1);
+    opacity: 0.98;
+    filter: brightness(1.08);
+  }
+
+  32% {
+    transform: scale3d(1, 0.11, 1);
+    opacity: 0.9;
+    filter: brightness(1.16);
+  }
+
+  58% {
+    transform: scale3d(1, 0.028, 1);
+    opacity: 0.82;
+    filter: brightness(1.24);
+  }
+
+  74% {
+    transform: scale3d(1, 0.018, 1);
+    opacity: 0.78;
+    filter: brightness(1.28);
+  }
+
+  88% {
+    transform: scale3d(1, 0.011, 1);
+    opacity: 0.46;
+    filter: brightness(1.34);
+  }
+
+  100% {
+    transform: scale3d(1, 0.004, 1);
+    opacity: 0;
+    filter: brightness(1.36);
+  }
+}
+
+@keyframes drawer-line-expand {
+  0% {
+    transform: scaleY(0.02);
+  }
+  100% {
+    transform: scaleY(1);
+  }
+}
+
+@keyframes drawer-opacity-reveal {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes composer-rush-exit-panel {
+  0% {
+    transform: translate3d(0, 0, 0) scale3d(1, 1, 1);
+    animation-timing-function: cubic-bezier(0.74, 0.01, 0.99, 0.32);
+  }
+
+  38% {
+    transform: translate3d(0, 24%, 0) scale3d(1, 0.82, 1);
+    animation-timing-function: cubic-bezier(0.8, 0, 1, 0.26);
+  }
+
+  72% {
+    transform: translate3d(0, 72%, 0) scale3d(1, 0.64, 1);
+  }
+
+  100% {
+    transform: translate3d(0, 105%, 0) scale3d(1, 0.5, 1);
+  }
+}
+
+@keyframes composer-rush-exit-drawer {
+  0% {
+    transform: translate3d(0, 0, 0) scale3d(1, 1, 1);
+    animation-timing-function: cubic-bezier(0.74, 0.01, 0.99, 0.32);
+  }
+
+  38% {
+    transform: translate3d(0, calc(24% + 14px), 0) scale3d(1, 0.82, 1);
+    animation-timing-function: cubic-bezier(0.8, 0, 1, 0.26);
+  }
+
+  72% {
+    transform: translate3d(0, calc(72% + 44px), 0) scale3d(1, 0.64, 1);
+  }
+
+  100% {
+    transform: translate3d(0, calc(105% + 56px), 0) scale3d(1, 0.5, 1);
+  }
+}
+
+@keyframes welcome-empty-arrow-draw {
+  from {
+    opacity: 1;
+    stroke-dashoffset: 1;
+  }
+
+  to {
+    opacity: 1;
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes welcome-empty-arrow-head-draw {
+  from {
+    opacity: 1;
+    stroke-dashoffset: 1;
+  }
+
+  to {
+    opacity: 1;
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes welcome-empty-note-type {
+  from {
+    clip-path: inset(0 100% 0 0);
+  }
+
+  to {
+    clip-path: inset(0 -0.2em 0 0);
+  }
+}
+
+@keyframes welcome-empty-note-unclip {
+  from,
+  to {
+    clip-path: none;
+  }
+}
+
+.welcome-empty-arrow-stroke,
+.welcome-empty-arrow-head {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+}
+
+.welcome-empty-arrow-head {
+  opacity: 0;
+}
+
+.welcome-empty-arrow-stroke {
+  opacity: 0;
+  animation: welcome-empty-arrow-draw 700ms cubic-bezier(0.4, 0, 0.2, 1)
+    350ms forwards;
+}
+
+.welcome-empty-arrow-head-upper {
+  animation: welcome-empty-arrow-head-draw 220ms ease-out 1050ms forwards;
+}
+
+.welcome-empty-arrow-head-lower {
+  animation: welcome-empty-arrow-head-draw 220ms ease-out 1110ms forwards;
+}
+
+.welcome-empty-note-line {
+  display: block;
+  width: max-content;
+  clip-path: inset(0 100% 0 0);
+}
+
+.welcome-empty-note-line-first {
+  animation:
+    welcome-empty-note-type 620ms steps(19, end) 1370ms both,
+    welcome-empty-note-unclip 1ms linear 1990ms forwards;
+}
+
+.welcome-empty-note-line-second {
+  animation:
+    welcome-empty-note-type 360ms steps(9, end) 2030ms both,
+    welcome-empty-note-unclip 1ms linear 2390ms forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .welcome-empty-arrow-stroke,
+  .welcome-empty-arrow-head,
+  .welcome-empty-note-line {
+    animation: none;
+    clip-path: none;
+    opacity: 1;
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes pdf-comment-enter {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes pdf-comment-exit {
+  from { opacity: 1; transform: translateY(0); }
+  to { opacity: 0; transform: translateY(-4px); }
+}
+.pdf-comment-enter { animation: pdf-comment-enter 140ms ease-out; }
+.pdf-comment-exit { animation: pdf-comment-exit 140ms ease-in forwards; }
+@media (prefers-reduced-motion: reduce) {
+  .pdf-comment-enter, .pdf-comment-exit { animation: none; }
+}
+
+/* Match handle outlines to their author color on a light page. */
+[data-comment-range-handle] {
+  --comment-range-handle-outline: currentColor;
+}
+.dark [data-comment-range-handle] {
+  --comment-range-handle-outline: white;
+}
+
+/* Native selection owns text; the viewer paints continuous line highlights. */
+.pdf-selection-managed .mupdf-text-layer text::selection {
+  background-color: transparent;
+}
+.pdf-selection-highlight {
+  fill: rgba(118, 186, 247, 0.44);
+  pointer-events: none;
+}
+
+/* Desktop shell defaults: opt readable content in once at its shared boundary. */
+body { -webkit-user-select: none; user-select: none; }
+input, textarea, [contenteditable="true"], .cm-content,
+[data-selectable-content], .selectable-content, .chat-markdown, .select-text,
+.cm-inlineCommentText, pre,
+.mupdf-text-layer text {
+  -webkit-user-select: text;
+  user-select: text;
+}
+button, [role="button"], [role="tab"], .cm-gutters {
+  -webkit-user-select: none;
+  user-select: none;
+}
+.pdf-selection-managed .mupdf-page::selection,
+.pdf-selection-managed .mupdf-page > canvas::selection,
+.pdf-selection-managed .mupdf-text-layer::selection,
+.pdf-selection-managed .mupdf-text-layer *::selection {
+  background-color: transparent;
+}
+.mupdf-page canvas { -webkit-user-select: none; user-select: none; }
+
+/* Native window dragging stays limited to the empty toolbar regions. */
+[data-window-drag-region] { -webkit-app-region: drag; }
+[data-window-drag-region] :is(button, input, select, textarea, a) { -webkit-app-region: no-drag; }
+
+@keyframes onboarding-page-enter {
+  from { opacity: 0; transform: translateX(var(--onboarding-slide-x, 24px)); }
+  to { opacity: 1; transform: translateX(0); }
+}
+@keyframes onboarding-title-character {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.onboarding-page-enter { animation: onboarding-page-enter 220ms ease-out both; }
+.onboarding-title-character { animation: onboarding-title-character 1ms step-end both; }
+@media (prefers-reduced-motion: reduce) {
+  .onboarding-page-enter, .onboarding-title-character { animation: none; }
+}

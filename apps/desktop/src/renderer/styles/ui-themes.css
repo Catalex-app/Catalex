@@ -1,0 +1,585 @@
+/* Themes style controls without changing workspace layout or features. Classic
+   keeps its compact toolbar sizing. The root scope also reaches portalled UI. */
+:root {
+  --workspace-accent: #fb923c;
+}
+
+:root[data-workspace-mode="duet"] {
+  --workspace-accent: #4f9c45;
+}
+
+:root[data-ui-theme="classic"] {
+  --artisan-surface-radius: 4px;
+  --classic-surface: #f8f8f5;
+  --classic-border: #777872;
+  --classic-foreground: #4e4f49;
+  --classic-foreground-active: #20211e;
+  --classic-foreground-hover: #20211e;
+  --classic-disabled: #777872;
+  --classic-gradient: linear-gradient(180deg, #fff 0%, #f1f1ed 100%);
+  --classic-pressed-surface: #f6f6f2;
+  --classic-pressed-gradient: linear-gradient(180deg, #f4f4f0 0%, #f8f8f5 100%);
+  --classic-shadow: 0 2px 4px -2px rgb(39 40 36 / 24%);
+  --classic-pressed-shadow:
+    inset 0 1px 2px rgb(83 84 78 / 10%),
+    0 1px 3px -2px rgb(39 40 36 / 18%);
+  --classic-tab-marker: #d2d2cd;
+  --classic-tab-marker-hover: #a8a9a3;
+  --classic-panel-shadow:
+    inset 0 1px 1px rgb(255 255 255 / 72%),
+    inset 0 0 5px rgb(66 67 62 / 7%),
+    inset 0 -1px 2px rgb(34 35 32 / 3%);
+  --popover: var(--classic-surface);
+  --popover-foreground: var(--classic-foreground-active);
+}
+
+:root.dark[data-ui-theme="classic"] {
+  --classic-surface: #333431;
+  --classic-border: #1b1c1a;
+  --classic-foreground: #d0d0ca;
+  --classic-foreground-active: #f4f4f1;
+  --classic-foreground-hover: #fff;
+  --classic-disabled: #85867f;
+  --classic-gradient: linear-gradient(180deg, #353633 0%, #272825 100%);
+  --classic-pressed-surface: #222321;
+  --classic-pressed-gradient: linear-gradient(180deg, #1f201e 0%, #252623 100%);
+  --classic-shadow: 0 2px 4px -2px rgb(0 0 0 / 58%);
+  --classic-pressed-shadow:
+    inset 0 1px 2px rgb(0 0 0 / 36%),
+    0 1px 3px -2px rgb(0 0 0 / 56%);
+  --classic-tab-marker: #50514d;
+  --classic-tab-marker-hover: #777872;
+  --classic-panel-shadow:
+    inset 0 1px 1px rgb(255 255 255 / 7%),
+    inset 0 0 8px rgb(0 0 0 / 38%),
+    inset 0 -2px 5px rgb(0 0 0 / 20%);
+}
+
+[data-ui-theme="classic"] [data-workspace-mode-area="true"],
+[data-ui-theme="classic"] [data-workspace-mode-content="true"] {
+  border-radius: 0;
+}
+
+[data-ui-theme="classic"] [data-workspace-panel-screen="true"] {
+  border-radius: var(--artisan-surface-radius);
+}
+
+[data-ui-theme="classic"] [data-workspace-panel-screen="true"]::after {
+  position: absolute;
+  z-index: 10;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: var(--classic-panel-shadow);
+  content: "";
+  pointer-events: none;
+}
+
+[data-ui-theme="classic"] .editor-file-tab,
+[data-ui-theme="classic"] [data-review-file-navigation] {
+  border-radius: 0;
+}
+
+[data-ui-theme="classic"] [data-review-file-navigation] {
+  background-color: var(--review-navigation-color);
+  color: white;
+}
+
+[data-ui-theme="classic"] [data-review-file-navigation] > button:hover {
+  background-color: rgb(255 255 255 / 16%);
+}
+
+[data-ui-theme="classic"] .editor-file-tab {
+  position: relative;
+  overflow: hidden;
+  border-color: transparent;
+  background-color: var(--classic-surface);
+  color: var(--classic-foreground);
+  box-shadow: none;
+}
+
+[data-ui-theme="classic"] .editor-file-tab[data-active="true"] {
+  color: var(--classic-foreground-active);
+}
+
+[data-ui-theme="classic"] .editor-file-tab::after {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 3px;
+  background-color: var(--classic-tab-marker);
+  content: "";
+  pointer-events: none;
+}
+
+[data-ui-theme="classic"] .editor-file-tab[data-active="true"]::after {
+  background-color: var(--review-tab-marker, var(--workspace-accent));
+}
+
+[data-ui-theme="classic"] .editor-file-tab:not([data-active="true"]):hover {
+  color: var(--classic-foreground-hover);
+}
+
+[data-ui-theme="classic"] .editor-file-tab:not([data-active="true"]):hover::after {
+  background-color: var(--classic-tab-marker-hover);
+}
+
+[data-ui-theme="classic"] .editor-file-tab-icon,
+[data-ui-theme="classic"] .editor-file-tab-close {
+  color: inherit;
+}
+
+[data-ui-theme="classic"] .assistant-mode-switch,
+[data-ui-theme="classic"] .workspace-view-mode-switch {
+  outline: none;
+  background-color: transparent;
+  box-shadow: none;
+}
+
+[data-ui-theme="classic"] .git-actions-control[data-git-actions-standard="true"] {
+  height: 24px;
+  gap: 0;
+  border: 0;
+  background-color: transparent;
+  box-shadow: none;
+}
+
+[data-ui-theme="classic"] .git-actions-control[data-git-actions-abort-merge="true"] .git-actions-primary {
+  --classic-foreground: var(--color-red-700);
+  --classic-foreground-hover: var(--color-red-800);
+}
+
+.dark[data-ui-theme="classic"] .git-actions-control[data-git-actions-abort-merge="true"] .git-actions-primary {
+  --classic-foreground: var(--color-red-300);
+  --classic-foreground-hover: var(--color-red-200);
+}
+
+.workspace-history-group .workspace-history-control:first-child {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+  border-right-width: 0;
+}
+
+.workspace-history-group .workspace-history-control:last-child {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
+:root:not([data-ui-theme="classic"]) .workspace-history-group .workspace-history-control:last-child {
+  border-left-width: 0;
+}
+
+:root[data-ui-theme="classic"] .workspace-history-separator {
+  display: none;
+}
+
+/* Follow the toolbar's existing compact state, including narrower split headers. */
+[data-git-actions-compact-root]:has([data-git-actions-compact="true"]) .workspace-history-rewind-control {
+  width: 2rem;
+  padding-inline: 0;
+}
+
+[data-git-actions-compact-root]:has([data-git-actions-compact="true"]) .workspace-history-rewind-label {
+  display: none;
+}
+
+/* Each segment owns its left divider; only the last closes the right edge. */
+[data-ui-theme="classic"] .assistant-mode-tab,
+[data-ui-theme="classic"] .workspace-view-mode-tab,
+[data-ui-theme="classic"] .git-actions-control[data-git-actions-standard="true"] .git-actions-primary,
+[data-ui-theme="classic"] .git-actions-control[data-git-actions-standard="true"] .git-actions-menu,
+[data-ui-theme="classic"] .workspace-history-control {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  box-sizing: border-box;
+  outline: none;
+  border-style: solid;
+  border-color: var(--classic-border);
+  background-color: var(--classic-surface);
+  background-image: var(--classic-gradient);
+  color: var(--classic-foreground);
+  box-shadow: var(--classic-shadow);
+  transform: none;
+  transition:
+    color 160ms ease,
+    box-shadow 160ms ease;
+}
+
+[data-ui-theme="classic"] .assistant-mode-switch {
+  gap: 0;
+}
+
+[data-ui-theme="classic"] .workspace-view-mode-switch {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  width: 92px;
+  height: 24px;
+  gap: 0;
+  padding: 0;
+  border: 0;
+}
+
+[data-ui-theme="classic"] .workspace-view-mode-tab {
+  width: 100%;
+  height: 100%;
+}
+
+[data-ui-theme="classic"] .assistant-mode-tab,
+[data-ui-theme="classic"] .workspace-view-mode-tab,
+[data-ui-theme="classic"] .git-actions-control[data-git-actions-standard="true"] .git-actions-primary {
+  border-width: 1px 0 1px 1px;
+}
+
+[data-ui-theme="classic"] .assistant-mode-tab,
+[data-ui-theme="classic"] .workspace-view-mode-tab {
+  border-radius: 0;
+}
+
+[data-ui-theme="classic"] .assistant-mode-tab:last-child,
+[data-ui-theme="classic"] .workspace-view-mode-tab:last-child {
+  border-right-width: 1px;
+}
+
+[data-ui-theme="classic"] .git-actions-control[data-git-actions-standard="true"] .git-actions-primary,
+[data-ui-theme="classic"] .git-actions-control[data-git-actions-standard="true"] .git-actions-menu,
+[data-ui-theme="classic"] .workspace-history-control {
+  height: 24px;
+}
+
+[data-ui-theme="classic"] .git-actions-control[data-git-actions-standard="true"] .git-actions-menu {
+  margin-left: 0;
+  border-width: 1px;
+}
+
+[data-ui-theme="classic"] .assistant-mode-tab:first-child,
+[data-ui-theme="classic"] .workspace-view-mode-tab:first-child,
+[data-ui-theme="classic"] .git-actions-control[data-git-actions-standard="true"] .git-actions-primary {
+  border-radius: 8px 0 0 8px;
+}
+
+[data-ui-theme="classic"] .assistant-mode-tab:last-child,
+[data-ui-theme="classic"] .workspace-view-mode-tab:last-child,
+[data-ui-theme="classic"] .git-actions-control[data-git-actions-standard="true"] .git-actions-menu {
+  border-radius: 0 8px 8px 0;
+}
+
+[data-ui-theme="classic"] .assistant-mode-tab:first-child {
+  border-radius: 9px 0 0 9px;
+}
+
+[data-ui-theme="classic"] .assistant-mode-tab:last-child {
+  border-radius: 0 9px 9px 0;
+}
+
+[data-ui-theme="classic"] .workspace-history-control {
+  border-width: 1px;
+  border-radius: 8px;
+}
+
+[data-ui-theme="classic"] .workspace-view-mode-tab > *,
+[data-ui-theme="classic"] .git-actions-control[data-git-actions-standard="true"] .git-actions-primary > *,
+[data-ui-theme="classic"] .git-actions-control[data-git-actions-standard="true"] .git-actions-menu > *,
+[data-ui-theme="classic"] .workspace-history-control > * {
+  position: relative;
+  z-index: 1;
+}
+
+[data-ui-theme="classic"] .assistant-mode-tab:not([aria-selected="true"])::before,
+[data-ui-theme="classic"] .workspace-view-mode-tab:not([aria-selected="true"])::before,
+[data-ui-theme="classic"] .git-actions-control[data-git-actions-standard="true"] .git-actions-primary::before,
+[data-ui-theme="classic"] .git-actions-control[data-git-actions-standard="true"] .git-actions-menu::before,
+[data-ui-theme="classic"] .workspace-history-control::before {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  border-radius: inherit;
+  background-image: var(--classic-pressed-gradient);
+  opacity: 0;
+  transition: opacity 160ms ease;
+  content: "";
+  pointer-events: none;
+}
+
+[data-ui-theme="classic"] .assistant-mode-tab:not([aria-selected="true"]):hover,
+[data-ui-theme="classic"] .workspace-view-mode-tab:not([aria-selected="true"]):hover,
+[data-ui-theme="classic"] .git-actions-control[data-git-actions-standard="true"] .git-actions-primary:hover,
+[data-ui-theme="classic"] .git-actions-control[data-git-actions-standard="true"] .git-actions-menu:hover,
+[data-ui-theme="classic"] .workspace-history-control:hover {
+  color: var(--classic-foreground-hover);
+  box-shadow: var(--classic-pressed-shadow);
+}
+
+[data-ui-theme="classic"] .assistant-mode-tab:not([aria-selected="true"]):hover::before,
+[data-ui-theme="classic"] .workspace-view-mode-tab:not([aria-selected="true"]):hover::before,
+[data-ui-theme="classic"] .git-actions-control[data-git-actions-standard="true"] .git-actions-primary:hover::before,
+[data-ui-theme="classic"] .git-actions-control[data-git-actions-standard="true"] .git-actions-menu:hover::before,
+[data-ui-theme="classic"] .workspace-history-control:hover::before {
+  opacity: 1;
+}
+
+[data-ui-theme="classic"] .assistant-mode-tab[aria-selected="true"],
+[data-ui-theme="classic"] .workspace-view-mode-tab[aria-selected="true"],
+[data-ui-theme="classic"] .git-actions-control[data-git-actions-standard="true"] .git-actions-menu:disabled {
+  background-color: var(--classic-pressed-surface);
+  background-image: var(--classic-pressed-gradient);
+  color: var(--classic-foreground-active);
+  box-shadow: var(--classic-pressed-shadow);
+  transform: none;
+}
+
+[data-ui-theme="classic"] .git-actions-control[data-git-actions-standard="true"] .git-actions-menu:disabled {
+  opacity: 1;
+  color: var(--classic-disabled);
+}
+
+[data-ui-theme="classic"] .git-actions-control[data-git-actions-standard="true"] .git-actions-menu:disabled svg {
+  opacity: 0.5;
+}
+
+[data-ui-theme="classic"] .workspace-view-mode-tab[aria-selected="true"] {
+  color: var(--workspace-accent);
+}
+
+[data-ui-theme="classic"] :is(
+  .assistant-mode-tab,
+  .workspace-view-mode-tab,
+  .git-actions-primary,
+  .git-actions-menu,
+  .workspace-history-control
+):focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 1px;
+}
+
+/* Shared portal surfaces use the same palette as the active workspace. */
+[data-ui-theme="classic"] :is(
+  [data-ui-surface="popover"],
+  [data-slot="dialog-content"],
+  [data-slot="alert-dialog-content"],
+  [data-slot="popover-content"],
+  [data-slot="dropdown-menu-content"],
+  [data-slot="dropdown-menu-sub-content"],
+  [data-slot="context-menu-content"],
+  [data-slot="context-menu-sub-content"],
+  [data-slot="select-content"]
+) {
+  border-radius: var(--artisan-surface-radius);
+  border-color: var(--popup-surface-border);
+  background-color: var(--popup-surface-background);
+  color: var(--popover-foreground);
+}
+
+/* The same corner treatment reaches custom, editor, and portalled popups.
+   Keep tooltip colors independent from the glass surface palette. */
+:root[data-ui-theme="classic"] :is(
+  .popup-glass,
+  .cm-tooltip,
+  [data-slot="tooltip-content"],
+  [data-sonner-toast],
+  [role="dialog"]
+) {
+  border-radius: var(--artisan-surface-radius);
+}
+
+/* Artisan glass: fine grain over a translucent body with soft outer shadows. */
+:root[data-ui-theme="classic"] {
+  --popup-surface-background: var(--background);
+  --glass-surface-wash: linear-gradient(135deg, rgb(255 255 255 / 24%), rgb(255 255 255 / 3%) 65%);
+  --popup-surface-texture: url("../assets/artisan-glass-grain.svg"), var(--glass-surface-wash);
+  --popup-surface-texture-size: 48px 48px, 100% 100%;
+  --popup-surface-border: rgb(48 50 52 / 20%);
+  --popup-surface-shadow: 0 12px 32px -8px rgb(25 30 40 / 22%);
+}
+
+:root.dark[data-ui-theme="classic"] {
+  --glass-surface-wash: linear-gradient(135deg, rgb(255 255 255 / 9%), rgb(255 255 255 / 1%) 65%);
+  --popup-surface-border: rgb(196 198 200 / 25%);
+  --popup-surface-shadow: 0 12px 32px -8px rgb(0 0 0 / 40%);
+}
+
+@supports (backdrop-filter: blur(10px)) {
+  :root[data-ui-theme="classic"] {
+    --popup-surface-background: color-mix(in srgb, var(--background) 58%, transparent);
+    --popup-surface-filter: blur(10px) saturate(110%);
+  }
+
+  :root.dark[data-ui-theme="classic"] {
+    --popup-surface-background: color-mix(in srgb, var(--background) 95%, transparent);
+    --popup-surface-filter: blur(18px) saturate(110%);
+  }
+}
+
+/* Shared modern popup finish. Components keep their layout and can override
+   individual properties with ordinary utilities or inline styles. */
+:root:not([data-ui-theme="classic"]) {
+  --popup-surface-background: var(--popover);
+  --popup-surface-foreground: var(--popover-foreground);
+  --popup-surface-border: color-mix(in srgb, var(--border) 80%, transparent);
+  --popup-surface-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 12%),
+    0 4px 12px rgb(0 0 0 / 8%),
+    0 12px 32px rgb(0 0 0 / 10%);
+}
+
+@supports (backdrop-filter: blur(18px)) {
+  :root:not([data-ui-theme="classic"]) {
+    --popup-surface-background: color-mix(in srgb, var(--popover) 86%, transparent);
+    --popup-surface-filter: blur(18px) saturate(90%);
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  :root[data-ui-theme="classic"],
+  :root.dark[data-ui-theme="classic"] {
+    --popup-surface-background: var(--background);
+    --popup-surface-filter: none;
+  }
+
+  :root:not([data-ui-theme="classic"]) {
+    --popup-surface-background: var(--popover);
+    --popup-surface-filter: none;
+  }
+}
+
+/* CodeMirror owns these surfaces rather than rendering a React primitive. */
+:root .cm-tooltip {
+  background-color: var(--popup-surface-background);
+  border-color: var(--popup-surface-border);
+  box-shadow: var(--popup-surface-shadow);
+  backdrop-filter: var(--popup-surface-filter, none);
+  background-image: var(--popup-surface-texture, none);
+  background-size: var(--popup-surface-texture-size, auto);
+}
+
+@layer components {
+  .popup-glass {
+    /* Grain is painted behind content, keeping text and hit targets crisp. */
+    background-image: var(--popup-surface-texture, none);
+    background-size: var(--popup-surface-texture-size, auto);
+    backdrop-filter: var(--popup-surface-filter, none);
+  }
+}
+
+:root:not([data-ui-theme="classic"]) [data-slot="context-menu-content"] {
+  border-radius: 12px;
+}
+
+:root:not([data-ui-theme="classic"]) [data-slot="context-menu-separator"] {
+  margin-inline: 4px;
+}
+
+/* A quiet accent marks the selected Modern mode without a heavy fill. */
+:root:not([data-ui-theme="classic"]) .assistant-mode-tab[aria-selected="true"] {
+  box-shadow: none;
+}
+
+:root .assistant-mode-tab > span {
+  position: relative;
+}
+
+/* Optical alignment for the shorter Duet label, in either selection state. */
+:root .assistant-mode-tab[data-assistant-mode-option="duet"] > span {
+  transform: translateX(1px);
+}
+
+:root .assistant-mode-tab[aria-selected="true"] > span::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: -2px;
+  transform: translateX(-50%);
+  width: 10px;
+  height: 2px;
+  border-radius: 2px;
+  background-color: var(--workspace-accent);
+}
+
+:root.dark .assistant-mode-tab[aria-selected="true"] > span::before {
+  box-shadow: 0 0 5px color-mix(in srgb, var(--workspace-accent) 55%, transparent);
+}
+
+/* Match the comment controls' 120ms horizontal confirmation swap. */
+[data-slot="context-menu-item"].trash-context-menu-item {
+  display: grid;
+  gap: 0;
+  overflow: hidden;
+  padding: 0;
+}
+
+.trash-context-menu-item > span {
+  grid-area: 1 / 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: inherit;
+  pointer-events: none;
+  transition: transform 120ms ease-out, opacity 120ms ease-out;
+}
+
+.trash-menu-confirmation {
+  background: #dc2626;
+  color: #fff;
+  opacity: 0;
+  transform: translateX(-100%);
+}
+
+.trash-menu-confirmation svg {
+  color: #fff;
+}
+
+.trash-context-menu-item[data-confirming="true"] .trash-menu-label {
+  opacity: 0;
+  transform: translateX(100%);
+}
+
+.trash-context-menu-item[data-confirming="true"] .trash-menu-confirmation {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .trash-context-menu-item > span {
+    transition: none;
+  }
+}
+
+/* Shared opacity-only motion for context menus and editor popups. */
+:root {
+  --popup-fade-duration: 200ms;
+  --popup-fade-easing: cubic-bezier(0.2, 0, 0.2, 1);
+}
+
+@keyframes popup-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes popup-fade-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+[data-slot="context-menu-content"] {
+  /* Radix fixes sideOffset at 2px. Add 6px on the resolved side;
+     collisionPadding reserves space for this static offset. */
+  position: relative;
+  top: 8px;
+
+}
+
+[data-slot="context-menu-content"][data-side="right"] { left: 6px; }
+[data-slot="context-menu-content"][data-side="left"] { left: -6px; }
+/* Shared by Radix popups and custom portal surfaces. */
+.popup-motion {
+  animation: popup-fade-in var(--popup-fade-duration) var(--popup-fade-easing);
+}
+.popup-motion[data-state="closed"] {
+  animation-name: popup-fade-out;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .popup-motion { animation: none; }
+}

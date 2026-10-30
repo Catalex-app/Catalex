@@ -1,0 +1,28 @@
+diff --git a/dist/index.cjs b/dist/index.cjs
+index 147bba16b8a3be0f1c11fcae4ada3978bde34b3e..a16cec1546101faabb097992e5d086c9644ce8dd 100644
+--- a/dist/index.cjs
++++ b/dist/index.cjs
+@@ -1565,7 +1565,8 @@ function deletionWidget(state, chunk, hideContent) {
+         }
+         if (hideContent || chunk.fromA >= chunk.toA)
+             return dom;
+-        let text = view.state.field(originalDoc).sliceString(chunk.fromA, chunk.endA);
++        // Cached widgets retain their chunk offsets; read from the matching document snapshot.
++        let text = state.field(originalDoc).sliceString(chunk.fromA, chunk.endA);
+         let lang = syntaxHighlightDeletions && state.facet(language.language);
+         let line = makeLine();
+         let changes = chunk.changes, changeI = 0, inside = false;
+diff --git a/dist/index.js b/dist/index.js
+index f1d8bbe219abd275045630610b626897507c3996..d2bdb8cd702a87fe79ed886fe683f38e0b7ad1ee 100644
+--- a/dist/index.js
++++ b/dist/index.js
+@@ -1563,7 +1563,8 @@ function deletionWidget(state, chunk, hideContent) {
+         }
+         if (hideContent || chunk.fromA >= chunk.toA)
+             return dom;
+-        let text = view.state.field(originalDoc).sliceString(chunk.fromA, chunk.endA);
++        // Cached widgets retain their chunk offsets; read from the matching document snapshot.
++        let text = state.field(originalDoc).sliceString(chunk.fromA, chunk.endA);
+         let lang = syntaxHighlightDeletions && state.facet(language);
+         let line = makeLine();
+         let changes = chunk.changes, changeI = 0, inside = false;

@@ -1,0 +1,198 @@
+name: Build and Prepare Electron Release
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: electron-build-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  validate:
+    name: Validate release and source
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm branding:check
+      - run: pnpm version:check
+      - run: pnpm exec biome ci
+      - run: node --test scripts/*.test.mjs
+      - name: Check release tag and changelog
+        if: github.ref_type == 'tag'
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: node scripts/release-notes.mjs "$RELEASE_TAG"
+
+  build:
+    name: Build ${{ matrix.platform }} (${{ matrix.arch }})
+    needs: validate
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos
+            arch: arm64
+            runner: macos-26
+    env:
+      # Publisher signing/notarization is not configured. Builds receive no release token.
+      CSC_IDENTITY_AUTO_DISCOVERY: "false"
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/backend -> target
+
+      - name: Install macOS native dependencies
+        run: brew install pkg-config icu4c harfbuzz graphite2 freetype fontconfig
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm branding:check
+      - run: pnpm version:check
+      - run: pnpm --filter @catalex/desktop-sidecar typecheck
+      - run: pnpm --filter @catalex/desktop-sidecar test
+      - run: pnpm --filter @catalex/desktop electron:typecheck
+
+      - name: Build distributable
+        run: pnpm package:desktop
+
+      - name: Test frontend
+        run: pnpm --filter @catalex/desktop test
+
+      - name: Test Electron host
+        run: pnpm --filter @catalex/desktop test:electron
+
+      - name: Test native service and integration lifecycle
+        # Reuse build-native's macOS pkg-config environment.
+        # This runs the full Cargo suite, including integration tests.
+        run: pnpm build:native --test
+
+      - name: Upload installers
+        # Only release runs need to transfer an installer to another job.
+        if: github.ref_type == 'tag' && github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: catalex-electron-${{ matrix.platform }}-${{ matrix.arch }}
+          path: apps/desktop/release/*.dmg
+          if-no-files-found: error
+          retention-days: 1
+
+  release:
+    name: Prepare draft GitHub release
+    # Serialize draft preparation across tags without dropping pending releases.
+    concurrency:
+      group: electron-release-prepare
+      queue: max
+      cancel-in-progress: false
+    if: github.ref_type == 'tag' && github.event_name != 'pull_request'
+    needs: [validate, build]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      actions: write
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+      # Retry a completed draft without needing its deleted temporary artifact.
+      - name: Check whether release is already prepared
+        id: existing-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          ready=false
+          if state=$(gh release view "$RELEASE_TAG" --json isDraft,assets --jq \
+            '(.isDraft == false) or any(.assets[]; (.name | endswith(".dmg")) and .state == "uploaded" and .size > 0)'); then
+            ready=$state
+          fi
+          echo "ready=$ready" >> "$GITHUB_OUTPUT"
+      - uses: actions/download-artifact@v4
+        if: steps.existing-release.outputs.ready != 'true'
+        with:
+          name: catalex-electron-macos-arm64
+          path: installers
+      - name: Prepare draft installers and changelog
+        if: steps.existing-release.outputs.ready != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/release-notes.mjs "$RELEASE_TAG" > release-notes.md
+          # Require the macOS installer before creating a release.
+          shopt -s failglob
+          mac=(installers/*.dmg)
+          if [[ ${#mac[@]} != 1 ]]; then
+            echo "Expected exactly one macOS DMG; found ${#mac[@]}." >&2
+            exit 1
+          fi
+          product_name=$(node -p "require('./branding.json').productName")
+          prerelease=false
+          if [[ "$RELEASE_TAG" == *-* ]]; then prerelease=true; fi
+          # A retry may resume a draft, but must never replace published files.
+          if state=$(gh release view "$RELEASE_TAG" --json isDraft --jq '.isDraft'); then
+            if [[ "$state" == false ]]; then
+              echo "Release $RELEASE_TAG is already published; leaving it unchanged."
+              exit 0
+            fi
+          else
+            gh release create "$RELEASE_TAG" --verify-tag --draft \
+              --title "$product_name $RELEASE_TAG" --notes-file release-notes.md --prerelease="$prerelease" --latest=false
+          fi
+          gh release upload "$RELEASE_TAG" "${mac[@]}" --clobber
+          gh release edit "$RELEASE_TAG" --notes-file release-notes.md --prerelease="$prerelease" --latest=false
+      # Publishing and selecting Latest are manual steps after installer review.
+      - name: Delete temporary installer after draft upload
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_RUN_ID: ${{ github.run_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Keep the artifact until the draft or published release has an uploaded DMG.
+          ready=$(gh api "repos/$GH_REPO/releases/tags/$RELEASE_TAG" --jq \
+            'any(.assets[]; (.name | endswith(".dmg")) and .state == "uploaded" and .size > 0)')
+          if [[ "$ready" != true ]]; then
+            echo "Release upload could not be verified; keeping the temporary artifact." >&2
+            exit 1
+          fi
+          # Scope deletion to this run and the exact installer artifact name.
+          artifact_ids=$(gh api --paginate "repos/$GH_REPO/actions/runs/$RELEASE_RUN_ID/artifacts?per_page=100" \
+            --jq '.artifacts[] | select(.name == "catalex-electron-macos-arm64") | .id')
+          while IFS= read -r artifact_id; do
+            [[ -n "$artifact_id" ]] || continue
+            gh api --method DELETE "repos/$GH_REPO/actions/artifacts/$artifact_id"
+          done <<< "$artifact_ids"

@@ -1,0 +1,17 @@
+packages:
+  - apps/*
+
+onlyBuiltDependencies:
+  - bun
+  - electron
+  - esbuild
+
+overrides:
+  rollup: ">=4.58.0"
+  serialize-javascript: ">=6.0.3"
+  undici: ">=7.24.0"
+  flatted: ">=3.4.0"
+  hono: ">=4.12.7"
+
+patchedDependencies:
+  '@codemirror/merge@6.12.0': patches/@codemirror__merge@6.12.0.patch

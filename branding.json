@@ -1,0 +1,6 @@
+{
+  "productName": "Catalex",
+  "namespace": "catalex",
+  "appId": "com.catalex.desktop",
+  "profileDirectory": "Catalex-Electron"
+}

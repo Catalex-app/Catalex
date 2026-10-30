@@ -1,0 +1,64 @@
+/* Match AgentChatDrawer's composer entrance timing and gentle overshoot. */
+.problems-motion {
+  --problems-motion-duration: 210ms;
+  --problems-motion-ease: cubic-bezier(0.18, 1.15, 0.24, 1);
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+.problems-motion--bar {
+  height: 0;
+  transition: height var(--problems-motion-duration) var(--problems-motion-ease);
+}
+
+.problems-motion--bar[data-open="true"] {
+  height: 3rem;
+}
+
+.problems-motion--button {
+  display: grid;
+  grid-template-columns: 0fr;
+  /* Remove the header's gap while the count button is collapsed. */
+  margin-left: -0.5rem;
+  transition:
+    grid-template-columns var(--problems-motion-duration) var(--problems-motion-ease),
+    margin-left var(--problems-motion-duration) var(--problems-motion-ease);
+}
+
+.problems-motion--button[data-open="true"] {
+  grid-template-columns: 1fr;
+  margin-left: 0;
+}
+
+.problems-motion-clip {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.problems-motion-content {
+  opacity: 0;
+  transform: translateY(-100%);
+  visibility: hidden;
+  transition:
+    transform var(--problems-motion-duration) var(--problems-motion-ease),
+    opacity 170ms cubic-bezier(0.18, 0.9, 0.24, 1),
+    visibility 0s var(--problems-motion-duration);
+}
+
+.problems-motion--button .problems-motion-content {
+  width: max-content;
+}
+
+.problems-motion[data-open="true"] > .problems-motion-clip > .problems-motion-content {
+  opacity: 1;
+  transform: translateY(0);
+  visibility: visible;
+  transition-delay: 0s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .problems-motion,
+  .problems-motion-content {
+    transition: none;
+  }
+}

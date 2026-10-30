@@ -1,0 +1,67 @@
+/* A single inset line stays legible on compact toolbars without a wide halo.
+   Keep surface shadows (including Classic's bevel) separate from focus. */
+:root :is(
+  button,
+  [role="button"],
+  [role="tab"],
+  [data-slot="button"],
+  [data-slot="input"],
+  [data-slot="textarea"]:not([readonly]),
+  [data-slot="select-trigger"],
+  [data-slot="dropdown-menu-trigger"],
+  [data-slot="popover-trigger"]
+):focus-visible {
+  --tw-ring-shadow: 0 0 #0000;
+  --tw-ring-offset-shadow: 0 0 #0000;
+  outline: 1.5px solid currentColor;
+  outline-offset: -3px;
+}
+
+/* Radix restores focus on dismissal. Chromium can carry :focus-visible from
+   the menu to its trigger even when the dismissal came from a pointer. */
+:root[data-input-modality="pointer"] :is(
+  button,
+  [role="button"],
+  [role="tab"],
+  [data-slot="button"],
+  [data-slot="input"],
+  [data-slot="textarea"]:not([readonly]),
+  [data-slot="select-trigger"],
+  [data-slot="dropdown-menu-trigger"],
+  [data-slot="popover-trigger"]
+):focus-visible {
+  outline: none;
+}
+
+@media (forced-colors: active) {
+  :root :is(
+    button,
+    [role="button"],
+    [role="tab"],
+    [data-slot="button"],
+    [data-slot="input"],
+    [data-slot="textarea"]:not([readonly]),
+    [data-slot="select-trigger"],
+    [data-slot="dropdown-menu-trigger"],
+    [data-slot="popover-trigger"]
+  ):focus-visible {
+    outline-color: Highlight;
+  }
+}
+
+/* File activation belongs to the visible tab, not its text-sized child.
+   The separate close action retains its own rounded keyboard target. */
+:root .editor-file-tab .editor-file-tab-activate:focus-visible {
+  outline: none;
+}
+
+:root:not([data-input-modality="pointer"]) .editor-file-tab:has(.editor-file-tab-activate:focus-visible) {
+  outline: 1.5px solid currentColor;
+  outline-offset: -3px;
+}
+
+@media (forced-colors: active) {
+  :root .editor-file-tab:has(.editor-file-tab-activate:focus-visible) {
+    outline-color: Highlight;
+  }
+}

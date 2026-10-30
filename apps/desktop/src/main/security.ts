@@ -1,0 +1,3 @@
+import { ASSET_PROTOCOL } from "../branding";
+// CodeMirror inserts styles at runtime; MuPDF compiles WebAssembly in a worker.
+export const RENDERER_CSP = `default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' ${ASSET_PROTOCOL}: https://fonts.gstatic.com data:; connect-src 'self' ${ASSET_PROTOCOL}: https://api.zotero.org https://ccfddl.github.io https://ccfddl.com https://fonts.googleapis.com https://fonts.gstatic.com; img-src 'self' ${ASSET_PROTOCOL}: data: blob:; worker-src 'self' blob:; frame-src 'self' blob:; object-src 'self' blob:`;

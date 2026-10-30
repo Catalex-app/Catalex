@@ -1,0 +1,128 @@
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+
+# Dependencies
+node_modules
+.pnp
+.pnp.js
+package-lock.json
+
+# Private local task configuration
+.githubissues.json
+
+# Local env files (keep empty example templates trackable)
+.env
+.env.*
+!.env.example
+!.env.*.example
+.release-env.sh
+
+# Testing
+coverage
+
+# Local browser sessions, package cache, and generated verification artifacts
+.playwright-cli/
+.pnpm-store/
+output/
+
+# Turbo
+.turbo
+
+# Vercel
+.vercel
+
+# Build Outputs
+.next/
+out/
+build
+dist
+tsconfig.tsbuildinfo
+*.tsbuildinfo
+
+# Rust
+Cargo.lock
+!apps/desktop/backend/Cargo.lock
+!packages/document-core/Cargo.lock
+packages/document-core/target/
+apps/desktop/src/renderer/lib/document-core.generated.ts
+apps/desktop/src/renderer/lib/document-core.generated.ts.*.tmp
+apps/desktop/backend/.cargo/config.toml
+
+# Debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Misc
+.DS_Store
+
+# Private keys and signing credentials
+*.pem
+*.key
+*.p8
+*.p12
+*.pfx
+*.keystore
+id_rsa
+id_ed25519
+
+*.acn
+*.acr
+*.alg
+*.aux
+*.bak
+*.bbl
+*.bcf
+*.blg
+*.brf
+*.bst
+*.dvi
+*.fdb_latexmk
+*.fls
+*.glg
+*.glo
+*.gls
+*.idx
+*.ilg
+*.ind
+*.ist
+*.lof
+*.log
+*.lol
+*.lot
+*.maf
+*.mtc
+*.mtc1
+*.nav
+*.nlo
+*.nls
+*.out
+*.pdf
+!apps/desktop/public/examples/**/*.pdf
+!apps/desktop/src/renderer/dev/fixtures/pdf-comments/multipage.pdf
+!apps/desktop/src/renderer/dev/fixtures/pdf-comments/lists.pdf
+!apps/desktop/src/renderer/dev/fixtures/pdf-comments/hyperlinks.pdf
+*.pyg
+*.run.xml
+*.snm
+*.synctex.gz
+*.tex.backup
+*.tex~
+*.thm
+*.toc
+*.vrb
+*.xdy
+*.xml
+*blx.bib
+.bak
+.mtc
+build/
+reference_pr
+reference_pr_claude
+external-libs/
+
+# Electron build output
+apps/desktop/release/
+
+# Checked-in packaging assets
+!apps/desktop/build/
+!apps/desktop/build/**

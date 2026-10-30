@@ -1,0 +1,114 @@
+[
+  {
+    "id": "interleaved",
+    "label": "Interleaved edits",
+    "description": "Two conflicts interleaved with independent edits from both sides. Check that recruitment, automation, calibration, validation, and reporting edits survive mixed choices.",
+    "base": "# Riverside study\n\n## Recruitment\nSites: one clinic.\nEligibility: adults aged 18–65.\nConsent: written consent before enrollment.\n\n## Sampling\nSample count: 10.\nSampling: random selection.\nReview: manual inspection.\n\n## Quality control\nCalibration: once per day.\nInstrument: reference sensor.\nValidation: blinded review.\nAudit: retain source measurements.\n\n## Analysis\nEstimator: mean.\nUncertainty: standard deviation.\nMissing data: omit incomplete rows.\n\n## Reporting\nPublish the protocol and anonymized results.\n",
+    "current": "# Riverside study\n\n## Recruitment\nSites: two clinics.\nEligibility: adults aged 18–65.\nConsent: written consent before enrollment.\n\n## Sampling\nSample count: 20.\nSampling: random selection.\nReview: manual inspection.\n\n## Quality control\nCalibration: twice per day.\nInstrument: reference sensor.\nValidation: blinded review.\nAudit: retain source measurements.\n\n## Analysis\nEstimator: trimmed mean.\nUncertainty: standard deviation.\nMissing data: omit incomplete rows.\n\n## Reporting\nPublish the protocol and anonymized results.\n",
+    "agent": "# Riverside study\n\n## Recruitment\nSites: one clinic.\nEligibility: adults aged 18–65.\nConsent: written consent before enrollment.\n\n## Sampling\nSample count: 15.\nSampling: random selection.\nReview: automated inspection.\n\n## Quality control\nCalibration: once per day.\nInstrument: reference sensor.\nValidation: blinded review with reproducible scripts.\nAudit: retain source measurements.\n\n## Analysis\nEstimator: median.\nUncertainty: standard deviation.\nMissing data: omit incomplete rows.\n\n## Reporting\nPublish the protocol and anonymized results and analysis code.\n",
+    "segments": [
+      {
+        "kind": "resolved",
+        "content": "# Riverside study\n\n## Recruitment\nSites: two clinics.\nEligibility: adults aged 18–65.\nConsent: written consent before enrollment.\n\n## Sampling\n"
+      },
+      {
+        "kind": "conflict",
+        "ancestor": "Sample count: 10.\n",
+        "current": "Sample count: 20.\n",
+        "agent": "Sample count: 15.\n"
+      },
+      {
+        "kind": "resolved",
+        "content": "Sampling: random selection.\nReview: automated inspection.\n\n## Quality control\nCalibration: twice per day.\nInstrument: reference sensor.\nValidation: blinded review with reproducible scripts.\nAudit: retain source measurements.\n\n## Analysis\n"
+      },
+      {
+        "kind": "conflict",
+        "ancestor": "Estimator: mean.\n",
+        "current": "Estimator: trimmed mean.\n",
+        "agent": "Estimator: median.\n"
+      },
+      {
+        "kind": "resolved",
+        "content": "Uncertainty: standard deviation.\nMissing data: omit incomplete rows.\n\n## Reporting\nPublish the protocol and anonymized results and analysis code.\n"
+      }
+    ]
+  },
+  {
+    "id": "partial-overlap",
+    "label": "Partial multiline overlap",
+    "description": "The user changes lines 1–2 while the agent changes lines 2–3 and inserts a line. A second overlap has different boundaries. Resolve each complete region without losing neighboring changes.",
+    "base": "# Riverside study\n\n## Processing pipeline\nInput: raw measurements.\nNormalize: population mean.\nFilter: remove missing values.\nEstimate: arithmetic mean.\nValidate: one held-out sample.\nOutput: summary table.\n\n## Reproducibility\nSeed: 42.\nRecord the environment and library versions.\nArchive the source measurements.\n\n## Interpretation\nEvidence: preliminary.\nLimitations: small cohort.\nRecommendation: repeat the study.\n\n## Appendix\nContact the study coordinator for the protocol.\n",
+    "current": "# Riverside study\n\n## Processing pipeline\nInput: raw measurements.\nNormalize: site-specific mean.\nFilter: retain flagged values.\nEstimate: arithmetic mean.\nValidate: one held-out sample.\nOutput: summary table.\n\n## Reproducibility\nSeed: 2026.\nRecord the environment and library versions.\nArchive the source measurements.\n\n## Interpretation\nEvidence: promising.\nLimitations: uneven site coverage.\nRecommendation: repeat the study.\n\n## Appendix\nContact the study coordinator for the protocol.\n",
+    "agent": "# Riverside study\n\n## Processing pipeline\nInput: raw measurements.\nNormalize: population mean.\nFilter: impute missing values.\nEstimate: robust median.\nUncertainty: bootstrap intervals.\nValidate: one held-out sample.\nOutput: summary table.\n\n## Reproducibility\nSeed: 42.\nRecord the environment and library versions.\nArchive the source measurements and preprocessing script.\n\n## Interpretation\nEvidence: preliminary.\nLimitations: measurement noise.\nRecommendation: preregister a replication.\n\n## Appendix\nContact the study coordinator for the protocol and runnable notebook.\n",
+    "segments": [
+      {
+        "kind": "resolved",
+        "content": "# Riverside study\n\n## Processing pipeline\nInput: raw measurements.\n"
+      },
+      {
+        "kind": "conflict",
+        "ancestor": "Normalize: population mean.\nFilter: remove missing values.\nEstimate: arithmetic mean.\n",
+        "current": "Normalize: site-specific mean.\nFilter: retain flagged values.\nEstimate: arithmetic mean.\n",
+        "agent": "Normalize: population mean.\nFilter: impute missing values.\nEstimate: robust median.\nUncertainty: bootstrap intervals.\n"
+      },
+      {
+        "kind": "resolved",
+        "content": "Validate: one held-out sample.\nOutput: summary table.\n\n## Reproducibility\nSeed: 2026.\nRecord the environment and library versions.\nArchive the source measurements and preprocessing script.\n\n## Interpretation\n"
+      },
+      {
+        "kind": "conflict",
+        "ancestor": "Evidence: preliminary.\nLimitations: small cohort.\nRecommendation: repeat the study.\n",
+        "current": "Evidence: promising.\nLimitations: uneven site coverage.\nRecommendation: repeat the study.\n",
+        "agent": "Evidence: preliminary.\nLimitations: measurement noise.\nRecommendation: preregister a replication.\n"
+      },
+      {
+        "kind": "resolved",
+        "content": "\n## Appendix\nContact the study coordinator for the protocol and runnable notebook.\n"
+      }
+    ]
+  },
+  {
+    "id": "insert-delete",
+    "label": "Insertions and deletions",
+    "description": "Competing insertions have an empty ancestor; deletion versus modification has an empty current or agent version. Try all three choices and undo before applying.",
+    "base": "# Riverside study\n\n## Registration\nProtocol: approved.\n\n## Legacy analysis\nUse the pilot-only correction factor.\nKeep the legacy calibration table.\n\n## Audit trail\nRecord the run identifier.\nRetain the raw measurements.\nSign the final report.\n\n## Exploratory analysis\nInclude exploratory subgroup estimates.\nDescribe exploratory comparisons.\n\n## Delivery\nPublish the final report.\n",
+    "current": "# Riverside study\n\n## Registration\nProtocol: approved.\nRegistration: local registry R-20.\n\n## Legacy analysis\n\n## Audit trail\nRecord the run identifier and reviewer.\nRetain the raw measurements.\nSign the final report.\n\n## Exploratory analysis\nInclude age-adjusted exploratory subgroup estimates.\nDescribe exploratory comparisons.\n\n## Delivery\nPublish the final report.\n",
+    "agent": "# Riverside study\n\n## Registration\nProtocol: approved.\nRegistration: international registry R-15.\n\n## Legacy analysis\nUse the revised pilot correction factor.\nKeep the legacy calibration table.\n\n## Audit trail\nRecord the run identifier.\nRetain the raw measurements.\nSign the final report.\n\n## Exploratory analysis\n\n## Delivery\nPublish the final report and machine-readable tables.\n",
+    "segments": [
+      {
+        "kind": "resolved",
+        "content": "# Riverside study\n\n## Registration\nProtocol: approved.\n"
+      },
+      {
+        "kind": "conflict",
+        "ancestor": "",
+        "current": "Registration: local registry R-20.\n",
+        "agent": "Registration: international registry R-15.\n"
+      },
+      {
+        "kind": "resolved",
+        "content": "\n## Legacy analysis\n"
+      },
+      {
+        "kind": "conflict",
+        "ancestor": "Use the pilot-only correction factor.\nKeep the legacy calibration table.\n",
+        "current": "",
+        "agent": "Use the revised pilot correction factor.\nKeep the legacy calibration table.\n"
+      },
+      {
+        "kind": "resolved",
+        "content": "\n## Audit trail\nRecord the run identifier and reviewer.\nRetain the raw measurements.\nSign the final report.\n\n## Exploratory analysis\n"
+      },
+      {
+        "kind": "conflict",
+        "ancestor": "Include exploratory subgroup estimates.\nDescribe exploratory comparisons.\n",
+        "current": "Include age-adjusted exploratory subgroup estimates.\nDescribe exploratory comparisons.\n",
+        "agent": ""
+      },
+      {
+        "kind": "resolved",
+        "content": "\n## Delivery\nPublish the final report and machine-readable tables.\n"
+      }
+    ]
+  }
+]

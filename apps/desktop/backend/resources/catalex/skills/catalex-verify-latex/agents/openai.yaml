@@ -1,0 +1,6 @@
+interface:
+  display_name: "Verify LaTeX"
+  short_description: "Compile, repair, and inspect LaTeX output"
+  default_prompt: "Use $catalex-verify-latex to verify and repair my LaTeX changes."
+policy:
+  allow_implicit_invocation: true

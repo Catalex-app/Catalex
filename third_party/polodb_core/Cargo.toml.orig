@@ -1,0 +1,38 @@
+[package]
+name = "polodb_core"
+version = "5.3.0"
+authors = ["Vincent Chan <okcdz@diverse.space>"]
+license = "Apache-2.0"
+edition = "2018"
+repository = "https://github.com/PoloDB/PoloDB"
+description = "An embedded document database"
+keywords = ["database", "embedded", "cross-platform"]
+
+[lib]
+name = "polodb_core"
+path = "lib.rs"
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+libc = "0.2"
+bson = "2.14.0"
+getrandom = { version = "0.2.3" }
+byteorder = "1.5.0"
+serde = { version = "1.0.207", features = ["rc"] }
+uuid = { version = "1.10.0", features = [
+    "atomic",
+    "v1",
+    "v4",
+    "rng",
+] }
+thiserror = "1.0.63"
+indexmap = { version = "2.4.0", features = ["serde"] }
+regex = "1.10"
+polodb-librocksdb-sys = { path = "../librocksdb-sys", version = "9.0.0-alpha.2", features = ["default", "mt_static"] }
+
+[dev-dependencies]
+polodb_line_diff = { path = "../polodb_line_diff" }
+csv = "1.2.1"
+
+[target.'cfg(windows)'.dependencies]
+winapi = { version = "0.3.9", features = ["fileapi", "namedpipeapi"] }

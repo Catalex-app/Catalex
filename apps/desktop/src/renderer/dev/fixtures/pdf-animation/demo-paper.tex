@@ -1,0 +1,86 @@
+% !TEX program = pdflatex
+\documentclass[11pt,a4paper]{article}
+\usepackage[margin=25mm]{geometry}
+\usepackage{amsmath}
+\title{A Small Study of Writing Workflows}
+\author{Catalex Demo Project}
+\date{}
+\begin{document}
+\maketitle
+\begin{abstract}
+This sample paper provides three pages of text, equations, and a table for
+exploring the PDF workspace. All results are invented for demonstration.
+\end{abstract}
+\section{Introduction}
+Writing involves moving between ideas, source text, and the finished document.
+A useful workspace keeps those views close without competing for attention.
+This example explores how an author might compare several revision workflows.
+
+The central question is whether a compact conversation helps the author stay
+focused, and when a larger conversation becomes useful. Neither layout is
+expected to fit every task. The author should be able to switch layouts while
+keeping the same passage in view.
+\subsection{Study questions}
+\begin{enumerate}
+\item How often do authors switch between source and preview?
+\item Does a larger conversation help with longer explanations?
+\item Can readers return to the same passage after changing the layout?
+\end{enumerate}
+\paragraph{Reading exercise.}
+Scroll to the second page, then switch between Split and PDF or between Half
+and Full chat. Use Fit width or Fit height to compare the two fitting modes.
+
+\newpage
+\section{Method}
+Each participant revises two short passages using both workspace layouts.
+The order is counterbalanced, and each passage has the same target length.
+Participants can inspect the PDF at any time while editing the source.
+
+We summarize the revision cost as
+\begin{equation}
+C = \alpha T + \beta S + \gamma E,
+\end{equation}
+where $T$ is task time, $S$ is the number of view switches, and $E$ counts
+remaining errors. The weights express the relative importance of each term;
+they are not measurements from a real study.
+
+\subsection{Procedure}
+\begin{enumerate}
+\item Read the passage and identify its main argument.
+\item Ask for a clearer introduction without changing the technical claims.
+\item Review the suggestion and keep only useful changes.
+\item Inspect the PDF and rate the ease of recovering the reading position.
+\end{enumerate}
+\subsection{Observations}
+The source and preview support different kinds of inspection. Source text
+helps with precise edits, while the PDF exposes page breaks, spacing, and the
+overall shape of the document. A stable preview makes those transitions easier
+to follow.
+
+\newpage
+\section{Illustrative Results}
+\begin{center}
+\begin{tabular}{lrrr}
+\hline
+Workflow & Time (min) & View switches & Rating (1--7) \\
+\hline
+Compact chat & 12.4 & 18 & 5.8 \\
+Expanded chat & 11.7 & 14 & 6.1 \\
+Flexible layout & 10.9 & 12 & 6.4 \\
+\hline
+\end{tabular}
+\end{center}
+These invented values simply provide a table to examine at different zoom
+levels. They do not establish that one workflow is better than another.
+
+\section{Discussion}
+Compact and expanded layouts can serve complementary purposes. A short
+question may fit naturally beside the draft, while a long explanation may
+benefit from more room. The transition should help the author follow the
+conversation without pulling attention toward the page resize.
+
+\section{Conclusion}
+A predictable workspace preserves context through ordinary layout changes.
+The same source remains editable, the PDF remains readable, and the author
+decides which view is most useful for the next step.
+\end{document}

@@ -1,0 +1,94 @@
+.history-snapshot-content {
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  flex: 1;
+  overflow: hidden;
+}
+
+.history-snapshot-panes {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  height: 100%;
+  overflow: hidden;
+}
+
+.history-snapshot-pane {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+  background: var(--background);
+}
+
+.history-snapshot-legend {
+  display: flex;
+  gap: 12px;
+  white-space: nowrap;
+  font-size: 9px;
+  font-weight: 400;
+}
+
+.history-snapshot-legend [data-change="added"] {
+  color: var(--chart-2);
+}
+
+.history-snapshot-legend [data-change="removed"] {
+  color: var(--destructive);
+}
+
+.history-snapshot-source {
+  min-width: 0;
+  min-height: 0;
+  flex: 1;
+  overflow: hidden;
+}
+
+.history-snapshot-source:focus-within {
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--ring) 50%, transparent);
+}
+
+.history-snapshot-empty {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 0;
+  min-width: 0;
+  height: 100%;
+  padding: 28px;
+  text-align: center;
+  color: var(--muted-foreground);
+}
+
+.history-snapshot-empty p {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.history-snapshot-empty > span {
+  max-width: 240px;
+  font-size: 11px;
+  line-height: 1.65;
+}
+
+.history-snapshot-large-notice {
+  flex: none;
+  margin: 0;
+  padding: 9px 18px;
+  border-bottom: 1px solid var(--border);
+  color: var(--muted-foreground);
+  background: var(--muted);
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .history-snapshot-empty .animate-spin {
+    animation: none;
+  }
+}

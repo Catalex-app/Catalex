@@ -1,0 +1,26 @@
+.toaster [data-sonner-toast][data-styled="true"] [data-action] {
+  max-width: 120px;
+  height: auto;
+  min-height: 24px;
+  padding-block: 4px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.toaster [data-sonner-toast][data-styled="true"] [data-close-button] {
+  left: auto;
+  right: 0;
+  transform: translate(35%, -35%);
+}
+
+/* Reveal on hover or keyboard focus; keep it visible on touch devices. */
+@media (hover: hover) {
+  .toaster [data-sonner-toast][data-styled="true"] [data-close-button] {
+    opacity: 0;
+  }
+
+  .toaster [data-sonner-toast][data-styled="true"]:hover [data-close-button],
+  .toaster [data-sonner-toast][data-styled="true"]:focus-within [data-close-button] {
+    opacity: 1;
+  }
+}
