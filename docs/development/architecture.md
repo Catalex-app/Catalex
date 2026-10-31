@@ -75,7 +75,7 @@ preserved. Any future exclusion from release builds is a separate behavior chang
 
 Place new feature UI with its owning component directory and focused tests next
 to the module they exercise. Keep tests spanning stores or application boundaries
-in `src/renderer/__tests__/`. See [testing conventions](testing/README.md) for
+in `src/renderer/__tests__/`. See [testing conventions](../testing/README.md) for
 placement, runner commands, and harness documentation.
 
 ## Workspace appearance

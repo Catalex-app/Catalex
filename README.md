@@ -26,9 +26,9 @@
 | Overleaf / GitHub sync through the app's Git GUI | ✓ | | | ✓ |
 | Live co-editing | | ✓ | | |
 
-## Desktop development and builds
+## Documentation
 
-See [Contributing](CONTRIBUTING.md), [build commands](docs/desktop-setup.md#desktop-development-and-builds), and [the repository map](docs/architecture.md).
+See the [user guide](https://ricercarg.github.io/catalex.github.io/docs/) for setup, writing, agents, and syncing your project.
 
 ## Current limitations
 

@@ -1,6 +1,6 @@
 # Catalex Agent Notes
 
-See [Contributing](CONTRIBUTING.md), [the repository map](docs/architecture.md), and [testing conventions](docs/testing/README.md) for setup, module boundaries, and checks.
+See [Contributing](CONTRIBUTING.md), [the repository map](docs/development/architecture.md), and [testing conventions](docs/testing/README.md) for setup, module boundaries, and checks.
 
 ## Implementation Guidelines
 
