@@ -1707,7 +1707,7 @@ export function SettingsWindow() {
         section: "about",
         label: "Source",
         valueLabel: "GitHub",
-        searchText: ["Source", "GitHub", "github.com/RicercarG/TexBuddy"],
+        searchText: ["Source", "GitHub", "github.com/RicercarG/Catalex"],
       },
     ];
 
@@ -3038,7 +3038,7 @@ export function SettingsWindow() {
                           asChild
                         >
                           <a
-                            href="https://github.com/RicercarG/TexBuddy"
+                            href="https://github.com/RicercarG/Catalex"
                             target="_blank"
                             rel="noopener noreferrer"
                           >

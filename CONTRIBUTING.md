@@ -38,7 +38,7 @@ vcpkg install "harfbuzz[graphite2]:x64-windows-static-md" freetype:x64-windows-s
 ### Setup
 
 ```bash
-git clone https://github.com/RicercarG/Catalex-public.git Catalex
+git clone https://github.com/RicercarG/Catalex.git Catalex
 cd Catalex
 pnpm install --frozen-lockfile
 ```
