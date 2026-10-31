@@ -75,7 +75,7 @@ const save = () => writeFileSync(process.env.TEST_STATE, JSON.stringify(state));
 if (args.includes("DELETE")) process.exit(scenario.deleteFails ? 1 : 0);
 let data;
 if (args[0] === "release" && args[1] === "view") {
-  if (!state.exists) process.exit(1);
+  if (!state.exists || scenario.releaseReadFails) process.exit(1);
   data = state;
 } else if (args[0] === "release" && args[1] === "create") {
   if (scenario.createFails) process.exit(1);
@@ -94,7 +94,8 @@ if (args[0] === "release" && args[1] === "view") {
   if (args.includes("--latest") || args.includes("--latest=true")) state.latest = true;
   save(); process.exit(0);
 } else if (args.some(arg => arg.includes("/releases/tags/"))) {
-  if (scenario.releaseReadFails) process.exit(1);
+  // GitHub's published-release tag endpoint does not return drafts.
+  if (scenario.releaseReadFails || state.isDraft) process.exit(1);
   data = { draft: state.isDraft, assets: state.assets };
 } else if (args.some(arg => arg.includes("/actions/runs/"))) {
   if (scenario.listFails) process.exit(1);
@@ -236,7 +237,14 @@ test("cleanup deletes only this run's installer after verifying its draft upload
   for (const draft of [true, false]) {
     const { result, calls } = runStep(t, cleanup, { draft });
     assert.equal(result.status, 0, result.stderr);
-    assert.ok(calls[0].includes("repos/owner/repo/releases/tags/v0.1.0"));
+    assert.deepEqual(calls[0].slice(0, 3), ["release", "view", "v0.1.0"]);
+    assert.ok(calls[0].includes("--repo"));
+    assert.ok(calls[0].includes("owner/repo"));
+    assert.ok(
+      !calls.some((args) =>
+        args.some((arg) => arg.includes("/releases/tags/")),
+      ),
+    );
     assert.ok(
       calls[1].includes(
         "repos/owner/repo/actions/runs/123/artifacts?per_page=100",

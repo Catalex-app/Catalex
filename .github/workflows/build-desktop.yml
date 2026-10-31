@@ -183,7 +183,7 @@ jobs:
         run: |
           set -euo pipefail
           # Keep the artifact until the draft or published release has an uploaded DMG.
-          ready=$(gh api "repos/$GH_REPO/releases/tags/$RELEASE_TAG" --jq \
+          ready=$(gh release view "$RELEASE_TAG" --repo "$GH_REPO" --json assets --jq \
             'any(.assets[]; (.name | endswith(".dmg")) and .state == "uploaded" and .size > 0)')
           if [[ "$ready" != true ]]; then
             echo "Release upload could not be verified; keeping the temporary artifact." >&2
