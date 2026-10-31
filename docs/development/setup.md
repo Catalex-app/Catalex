@@ -1,48 +1,49 @@
 # Development setup
 
-This guide is for building Catalex from source. To use the packaged app, see [Getting started](../getting-started.md).
+Build Catalex from source with the steps below. To use the packaged app, see [Getting started](../getting-started.md).
 
-## Prerequisites
+## Platform status
 
-Install Node.js 24+, the pnpm version declared in `package.json`, and a stable Rust toolchain. Add the WebAssembly target used by the document core:
+| Platform | Current status |
+| --- | --- |
+| macOS, Apple Silicon | Build and packaging verified locally and in CI; packaged-app behavior checked locally. Current releases target this platform. |
+| Windows | Experimental source-build and NSIS packaging paths exist; builds, installers, and app behavior are not verified. |
+| Linux | Experimental source-build and AppImage packaging paths exist; builds, installers, and app behavior are not verified. |
+
+Intel Mac builds are also unverified. Build on the operating system and architecture you intend to run; the native Rust helper is compiled for the build machine. The current GitHub Actions matrix builds macOS ARM64 only.
+
+## Tools
+
+Install [Git](https://git-scm.com/downloads), [Node.js](https://nodejs.org/en/download) 24 to match CI, and a stable [Rust toolchain](https://rustup.rs/). Rust must be available in your terminal.
+
+Enable [Corepack](https://github.com/nodejs/corepack#how-to-install) so `pnpm` uses the version pinned in `package.json`:
 
 ```sh
+corepack enable
 rustup target add wasm32-unknown-unknown
 ```
 
-Install the native Tectonic dependencies for your platform.
+If Corepack is missing, install it with `npm install --global corepack` first. The WebAssembly target is needed to build Catalex's document core.
 
-On macOS:
+## macOS dependencies
+
+Install Xcode Command Line Tools if you do not already have Xcode or its command-line tools:
+
+```sh
+xcode-select --install
+```
+
+Wait for installation to finish. Then install the native libraries with [Homebrew](https://brew.sh/):
 
 ```sh
 brew install pkg-config icu4c harfbuzz graphite2 freetype fontconfig
 ```
 
-On Ubuntu:
-
-```sh
-sudo apt install build-essential pkg-config libicu-dev libgraphite2-dev libharfbuzz-dev libfreetype6-dev libfontconfig1-dev
-```
-
-On Windows, install Visual Studio Build Tools with the C++ workload, then configure vcpkg in PowerShell:
-
-```powershell
-git clone https://github.com/microsoft/vcpkg.git C:\vcpkg
-C:\vcpkg\bootstrap-vcpkg.bat
-[Environment]::SetEnvironmentVariable("VCPKG_ROOT", "C:\vcpkg", "User")
-$path = [Environment]::GetEnvironmentVariable("PATH", "User")
-[Environment]::SetEnvironmentVariable("PATH", "$path;C:\vcpkg", "User")
-[Environment]::SetEnvironmentVariable("TECTONIC_DEP_BACKEND", "vcpkg", "User")
-[Environment]::SetEnvironmentVariable("VCPKGRS_TRIPLET", "x64-windows-static-md", "User")
-```
-
-Restart PowerShell, then install the libraries:
-
-```powershell
-vcpkg install "harfbuzz[graphite2]:x64-windows-static-md" freetype:x64-windows-static-md icu:x64-windows-static-md fontconfig:x64-windows-static-md
-```
+The build script discovers the Homebrew library paths and bundles the required non-system libraries with the app.
 
 ## Run and build
+
+After installing the dependencies for your platform:
 
 ```sh
 git clone https://github.com/RicercarG/Catalex.git
@@ -51,27 +52,60 @@ pnpm install --frozen-lockfile
 pnpm dev:desktop
 ```
 
-`dev:desktop` prepares the Rust service and Claude bridge, then starts Electron with Vite. The packaged bridge uses Electron's Node runtime; installing and signing in to the Claude Code CLI is separate.
+The first build downloads dependencies and compiles the Rust service, so it can take a while. `dev:desktop` prepares the native service and Claude bridge, then starts Electron with Vite. Renderer edits reload automatically; restart after changing Electron or Rust code. Running Vite alone does not start the desktop app.
 
 | Command | Result |
 | --- | --- |
 | `pnpm build:desktop` | Production application directory |
-| `pnpm package:desktop` | Production build and platform installer in `apps/desktop/release/` |
-| `pnpm -C apps/desktop build` | Frontend TypeScript check and Vite bundle |
+| `pnpm package:desktop` | Production app and the build platform's installer in `apps/desktop/release/` |
+| `pnpm -C apps/desktop build` | Frontend TypeScript check and Vite bundle only |
 | `pnpm -C apps/desktop electron:typecheck` | Electron main/preload type check |
 
-The shell shortcuts are `./dev.sh` for development, `./dev.sh --once` to build and launch the production app, and `./build.sh` to package an installer. Renderer edits reload through Vite; restart after changing Electron or Rust code.
+On Apple Silicon, the production app is `apps/desktop/release/mac-arm64/Catalex.app`. Local builds do not require publisher signing credentials. Building an installer does not establish support on an unverified platform.
 
-Current release and runtime validation covers macOS ARM64. Windows and Linux targets still require platform build, runtime, and installer verification. The macOS build bundles non-system native libraries; Linux currently relies on system libraries.
+The bridge runs on Electron's bundled Node runtime. A local agent CLI is only needed to use that agent; LaTeXmk and a TeX distribution are only needed for the LaTeXmk compilation backend. See [Getting started](../getting-started.md) for these runtime tools.
 
-See [Testing](../testing/README.md), [Architecture](architecture.md), and [Releases](releases.md) for the remaining development workflow.
+On macOS or Linux, `./dev.sh` starts development, `./dev.sh --once` builds and launches the production app, and `./build.sh` packages an installer. On Windows, use the `pnpm` commands above.
+
+See [Testing](../testing/README.md), [Architecture](architecture.md), and [Releases](releases.md) for checks and release preparation.
+
+## Experimental platform setup
+
+Use these dependencies as a starting point for Windows and Linux development. Both platforms still need build, launch, persistence, and installer verification.
+
+### Linux
+
+On Ubuntu or Debian, install a C/C++ toolchain and the [Tectonic native dependencies](https://tectonic-typesetting.github.io/book/latest/howto/build-tectonic/external-dep-install.html):
+
+```sh
+sudo apt install build-essential pkg-config libicu-dev libgraphite2-dev libharfbuzz-dev libfreetype6-dev libfontconfig1-dev libssl-dev zlib1g-dev libpng-dev
+```
+
+Then use the shared run/build commands above. Electron also needs your distribution's desktop runtime libraries and a graphical session. Linux packaging currently relies on system native libraries; an AppImage is not yet a verified portable installer.
+
+### Windows
+
+Install Visual Studio Build Tools with the C++ workload and a Windows SDK. Use an x64 Developer PowerShell with the MSVC tools available, and the stable Rust MSVC toolchain.
+
+Set up [vcpkg](https://github.com/microsoft/vcpkg) and the native libraries:
+
+```powershell
+git clone https://github.com/microsoft/vcpkg.git "$env:USERPROFILE\vcpkg"
+& "$env:USERPROFILE\vcpkg\bootstrap-vcpkg.bat"
+$env:VCPKG_ROOT = "$env:USERPROFILE\vcpkg"
+$env:TECTONIC_DEP_BACKEND = "vcpkg"
+$env:VCPKGRS_TRIPLET = "x64-windows-static-md"
+& "$env:VCPKG_ROOT\vcpkg.exe" install "harfbuzz[graphite2]:x64-windows-static-md" freetype:x64-windows-static-md icu:x64-windows-static-md fontconfig:x64-windows-static-md
+```
+
+Use the shared run/build commands in that same terminal. Reapply the three environment variables in a new terminal. These commands target Windows x64; Windows ARM64 is not verified.
 
 ## App icons
 
-Export a square PNG or SVG, then run:
+Export a square PNG or SVG, then regenerate the packaging icons and browser favicon:
 
 ```sh
 pnpm icons:update -- /absolute/path/to/icon.png
 ```
 
-This updates the checked-in packaging icons and browser favicon. The Tauri CLI is only used as an icon converter.
+The icon script uses Bash and the Tauri CLI as an icon converter; it is separate from the Electron app build.
