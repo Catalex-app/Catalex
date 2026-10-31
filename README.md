@@ -6,7 +6,9 @@
 
 <p align="center"><img src="assets/readme/reaction.svg" width="620" alt="Human research plus agent collaboration, catalyzed by Catalex, produces a paper." /></p>
 
-<p align="center"><a href="https://github.com/RicercarG/Catalex/releases/download/v0.1.0/Catalex-0.1.0-arm64.dmg"><img src="https://img.shields.io/badge/Download-v0.1.0-27272a?style=for-the-badge&amp;logo=apple&amp;logoColor=white&amp;labelColor=27272a" alt="Download v0.1.0 for macOS (Apple Silicon)" /></a> <a href="https://ricercarg.github.io/catalex.github.io/"><img src="https://img.shields.io/badge/Website-555555?style=for-the-badge" alt="Website" /></a></p>
+<p align="center"><img src="https://img.shields.io/badge/Download-available_soon-27272a?style=for-the-badge&amp;logo=apple&amp;logoColor=white&amp;labelColor=27272a" alt="Download available soon for macOS" /></p>
+
+![Reviewing agent changes in a sample LaTeX project, with the proposed edits and compiled PDF visible.](assets/readme/agent-review.png)
 
 ## Why Catalex?
 
