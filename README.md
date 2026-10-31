@@ -40,10 +40,12 @@ See the [user guide](https://ricercarg.github.io/catalex.github.io/docs/) for se
 
 ## Acknowledgments
 
-Catalex builds on and takes inspiration from:
+Catalex started from [ClaudePrism](https://github.com/delibae/claude-prism), which builds on [Open Prism](https://github.com/assistant-ui/open-prism). Its writing workflow takes inspiration from [OpenAI Prism](https://openai.com/index/introducing-prism/), [Overleaf](https://www.overleaf.com/), and [LaTeX Workshop](https://github.com/James-Yu/LaTeX-Workshop).
 
-- [ClaudePrism](https://github.com/delibae/claude-prism), our starting point.
-- [Open Prism](https://github.com/assistant-ui/open-prism), ClaudePrism's foundation.
-- [OpenAI Prism](https://openai.com/index/introducing-prism/)
-- [Overleaf](https://www.overleaf.com/)
-- [LaTeX Workshop](https://github.com/James-Yu/LaTeX-Workshop)
+Special thanks to [OpenAI Codex](https://openai.com/codex/) for helping bring Catalex to life.
+
+The icon was drawn in Figma by [RicercarG](https://github.com/RicercarG), inspired by the [reference illustration](assets/icon-source/assets/cat-reference.png) below.
+
+<img src="assets/icon-source/assets/cat-reference.png" width="112" height="63" alt="Online cat illustration used as a reference for the Catalex icon" />
+
+<p align="center">Cheers!</p>
