@@ -19,6 +19,9 @@ test("discovery initializes the SDK without sending any user prompt and closes i
   let input!: Promise<IteratorResult<SDKUserMessage>>;
   const start = mock((args: Parameters<typeof query>[0]) => {
     expect(args.options).toMatchObject({
+      cwd: "/isolated",
+      settingSources: ["user"],
+      mcpServers: {},
       persistSession: false,
       tools: [],
       strictMcpConfig: true,
@@ -29,7 +32,7 @@ test("discovery initializes the SDK without sending any user prompt and closes i
       .next();
     return { supportedModels: async () => models, close } as unknown as Query;
   });
-  expect(await discoverClaudeModels("/claude", "/project", start)).toEqual(
+  expect(await discoverClaudeModels("/claude", "/isolated", start)).toEqual(
     models,
   );
   expect(await input).toEqual({ value: undefined, done: true });
@@ -45,7 +48,7 @@ test("discovery closes the SDK when initialization fails", async () => {
     close,
   })) as unknown as typeof query;
   await expect(
-    discoverClaudeModels("/claude", "/project", start),
+    discoverClaudeModels("/claude", "/isolated", start),
   ).rejects.toThrow("Unavailable");
   expect(close).toHaveBeenCalledTimes(1);
 });

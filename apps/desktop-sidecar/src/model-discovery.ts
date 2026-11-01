@@ -24,7 +24,9 @@ export async function discoverClaudeModels(
       pathToClaudeCodeExecutable: claudeCliPath,
       cwd,
       persistSession: false,
-      settingSources: ["user", "project", "local"],
+      // The catalogue uses account settings; it must not discover project
+      // configuration while initializing outside an active conversation.
+      settingSources: ["user"],
       settings: { disableAllHooks: true },
       tools: [],
       mcpServers: {},

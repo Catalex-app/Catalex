@@ -4,7 +4,7 @@
 
 ## [0.1.0-beta]
 
-The first public beta of Catalex, a free, local-first LaTeX writing workspace for Apple Silicon Macs, released under AGPL-3.0-or-later.
+The first public beta of Catalex, a free, local-first LaTeX writing workspace for Apple Silicon Macs.
 
 ### In this beta
 
@@ -17,17 +17,19 @@ The first public beta of Catalex, a free, local-first LaTeX writing workspace fo
 
 ### Install
 
-Requires macOS 13 or later on Apple Silicon. Install LaTeXmk through MacTeX or another TeX distribution for local compilation. Agent connections are optional; onboarding checks your tools when you first open Catalex.
+Requires macOS 13 or later on Apple Silicon. Install LaTeXmk through [MacTeX](https://tug.org/mactex/mactex-download.html) or another TeX distribution for local compilation. An onboarding wizard will check your latex compiler and agent availability when you first open Catalex.
 
-Download the DMG below, open it, and copy `Catalex.app` to Applications.
+Download the "Catalex-0.1.0-beta-arm64.dmg" below, open it, and copy `Catalex.app` to Applications.
 
-**This beta is for testing and is not signed with an Apple Developer ID or notarized.** macOS may block it. If you trust this download and accept the risk, run:
+**This is not yet signed so macOS may block it on first launch. You can remove its quarantine flag with terminal command:**
 
 ```sh
 xattr -dr com.apple.quarantine /Applications/Catalex.app
 ```
 
-This removes the quarantine flag from Catalex only. Use this beta at your own risk.
+This applies only to Catalex and does not disable Gatekeeper system-wide.
+
+You can also build Catalex from source. Bug reports and feedback are welcome as we refine the beta.
 
 ### Current limitations
 

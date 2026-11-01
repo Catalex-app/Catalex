@@ -104,7 +104,11 @@ for (const key of [
   delete env[key];
 let app;
 try {
-  app = await electron.launch({ args: [root], env, timeout: 30_000 });
+  const launch = process.env.CATALEX_SMOKE_EXECUTABLE
+    ? { executablePath: process.env.CATALEX_SMOKE_EXECUTABLE, args: [] }
+    : { args: [root] };
+  // Finder launches inherit `/`; metadata checks must remain safe from there.
+  app = await electron.launch({ ...launch, cwd: "/", env, timeout: 30_000 });
   const page = await app.firstWindow();
   await page.waitForFunction(() => !!window.catalex);
   const invoke = (command, args) =>
@@ -116,6 +120,14 @@ try {
       },
       { command, args },
     );
+  const status = await invoke("check_claude_status", {});
+  assert.equal(status.installed, true);
+  assert.equal(status.authenticated, true);
+  const models = await invoke("list_claude_models", {});
+  assert.ok(Array.isArray(models) && models.length > 0);
+  console.log(
+    "Installed Claude status and model discovery passed from a root-cwd app launch.",
+  );
   const workspace = await invoke("prepare_agent_workspace", {
     projectRoot: project,
     tabId: "permission",

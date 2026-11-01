@@ -1,5 +1,5 @@
 import { OnboardingTitle } from "@/components/onboarding-title";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTheme } from "next-themes";
 import { useSettingsStore } from "@/stores/settings-store";
 import {
@@ -76,8 +76,43 @@ export function OnboardingAppearance() {
   const settings = useSettingsStore();
   const { theme, setTheme } = useTheme();
   const [activeFile, setActiveFile] = useState<ExampleFile>("paper.tex");
+  const container = useRef<HTMLDivElement>(null);
+  const [previewReady, setPreviewReady] = useState(false);
+
+  useEffect(() => {
+    const page = container.current?.closest(".onboarding-page-enter");
+    const animations = page?.getAnimations() ?? [];
+    let disposed = false;
+    let paintFrame = 0;
+    let readyFrame = 0;
+    if (!animations.length) {
+      // Reduced motion and standalone previews need no entrance delay.
+      setPreviewReady(true);
+    } else {
+      void Promise.allSettled(
+        animations.map((animation) => animation.finished),
+      ).then(() => {
+        if (disposed) return;
+        // Present the final entrance frame before mounting CodeMirror.
+        paintFrame = requestAnimationFrame(() => {
+          readyFrame = requestAnimationFrame(() => {
+            if (!disposed) setPreviewReady(true);
+          });
+        });
+      });
+    }
+    return () => {
+      disposed = true;
+      cancelAnimationFrame(paintFrame);
+      cancelAnimationFrame(readyFrame);
+    };
+  }, []);
+
   return (
-    <div className="grid items-start gap-10 lg:min-h-0 lg:flex-1 lg:grid-cols-[minmax(280px,340px)_minmax(0,1fr)] lg:gap-16">
+    <div
+      ref={container}
+      className="grid items-start gap-10 lg:min-h-0 lg:flex-1 lg:grid-cols-[minmax(280px,340px)_minmax(0,1fr)] lg:gap-16"
+    >
       <div className="self-center">
         <h1
           id="onboarding-title"
@@ -159,7 +194,7 @@ export function OnboardingAppearance() {
                 diff={null}
                 content={examples[activeFile]}
                 path={activeFile}
-                loading={false}
+                loading={!previewReady}
                 previewLabel={activeFile}
               />
             </WorkspacePanel>

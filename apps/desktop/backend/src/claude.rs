@@ -130,7 +130,7 @@ async fn read_bridge_lines<R: AsyncRead + Unpin>(
     }
 }
 
-fn spawn_claude_bridge(args: &[&str]) -> Result<(mpsc::Receiver<BridgeEvent>, ClaudeBridgeChild), String> {
+fn spawn_claude_bridge(args: &[&str], cwd: Option<&std::path::Path>) -> Result<(mpsc::Receiver<BridgeEvent>, ClaudeBridgeChild), String> {
     let runtime = std::env::var_os("CATALEX_NODE_EXECUTABLE")
         .filter(|value| !value.is_empty())
         .ok_or("Electron did not provide the Claude bridge Node runtime.")?;
@@ -142,6 +142,9 @@ fn spawn_claude_bridge(args: &[&str]) -> Result<(mpsc::Receiver<BridgeEvent>, Cl
         // Set this only on our bridge, never on the Rust service environment.
         // The JS entry removes it before spawning Claude and its tool children.
         .env("ELECTRON_RUN_AS_NODE", "1");
+    if let Some(cwd) = cwd {
+        command.current_dir(cwd);
+    }
     spawn_bridge_process(command)
 }
 
@@ -1065,7 +1068,7 @@ async fn send_claude_agent_turn(
         return Ok(());
     }
 
-    let (receiver, mut child) = spawn_claude_bridge(&[])?;
+    let (receiver, mut child) = spawn_claude_bridge(&[], None)?;
     child
         .write(&request_bytes)
         .await
@@ -1101,11 +1104,12 @@ async fn send_claude_agent_turn(
 /// Discover the signed-in CLI's catalogue without starting a conversation.
 pub async fn list_claude_models(_window: WindowContext) -> Result<serde_json::Value, String> {
     let claude_cli_path = find_claude_binary()?;
-    let cwd = std::env::current_dir()
-        .map_err(|error| format!("Could not resolve the current directory: {error}"))?;
+    // GUI launches inherit `/` on macOS. Metadata discovery must not treat it
+    // as a project and scan unrelated protected folders. Keep HOME/config intact.
+    let directory = tempfile::tempdir().map_err(|error| error.to_string())?;
     let (mut receiver, child) = spawn_claude_bridge(&[
-        "--list-models", &claude_cli_path, &cwd.to_string_lossy(),
-    ])?;
+        "--list-models", &claude_cli_path, &directory.path().to_string_lossy(),
+    ], Some(directory.path()))?;
     let result = tokio::time::timeout(std::time::Duration::from_secs(35), async {
         let mut stdout = Vec::new();
         let mut stderr = String::new();
@@ -1144,7 +1148,7 @@ pub async fn read_claude_subscription_usage(_window: WindowContext) -> Result<se
     let directory = tempfile::tempdir().map_err(|error| error.to_string())?;
     let (mut receiver, child) = spawn_claude_bridge(&[
         "--subscription-usage", &cli, &directory.path().to_string_lossy(),
-    ])?;
+    ], Some(directory.path()))?;
     let result = tokio::time::timeout(std::time::Duration::from_secs(35), async {
         let mut stdout = Vec::new();
         let mut stderr = String::new();
@@ -1183,7 +1187,7 @@ pub async fn verify_claude_model(_window: WindowContext, model_id: String) -> Re
     let directory = tempfile::tempdir().map_err(|error| error.to_string())?;
     let (mut receiver, child) = spawn_claude_bridge(&[
         "--verify-model", &cli, &directory.path().to_string_lossy(), &model_id,
-    ])?;
+    ], Some(directory.path()))?;
     let result = tokio::time::timeout(std::time::Duration::from_secs(50), async {
         let mut stdout = Vec::new();
         let mut stderr = String::new();
@@ -1289,8 +1293,12 @@ pub async fn check_claude_status() -> Result<ClaudeStatus, String> {
         }
     };
 
-    // Verify binary actually works by running --version
-    let version_output = new_sync_command(&binary_path).arg("--version").output();
+    // Setup checks need account configuration, not a project working directory.
+    let directory = tempfile::tempdir().map_err(|error| error.to_string())?;
+    let version_output = new_sync_command(&binary_path)
+        .current_dir(directory.path())
+        .arg("--version")
+        .output();
 
     let version = match version_output {
         Ok(output) if output.status.success() => {
@@ -1312,6 +1320,7 @@ pub async fn check_claude_status() -> Result<ClaudeStatus, String> {
 
     // Check auth status
     let auth_output = new_sync_command(&binary_path)
+        .current_dir(directory.path())
         .args(["auth", "status"])
         .output();
 

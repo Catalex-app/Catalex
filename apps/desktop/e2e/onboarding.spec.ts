@@ -230,3 +230,121 @@ test("large screens cap the preview without a breakpoint width jump", async ({
   await page.setViewportSize({ width: 1280, height: 720 });
   await expect(preview).toHaveCSS("width", "780px");
 });
+
+test("preview waits for page entry and uses choices made while waiting", async ({
+  page,
+}) => {
+  await page.goto(demo);
+  await expect(page.locator("#loading-screen")).toHaveCount(0);
+  await page.addStyleTag({
+    content: ".onboarding-page-enter { animation-duration: 10s !important; }",
+  });
+  await page.evaluate(() => {
+    const mounts: boolean[] = [];
+    (window as unknown as { previewMounts: boolean[] }).previewMounts = mounts;
+    const seen = new WeakSet<Element>();
+    new MutationObserver(() => {
+      const editor = document.querySelector(
+        '[data-testid="onboarding-preview-editor"] .cm-editor',
+      );
+      if (!editor || seen.has(editor)) return;
+      seen.add(editor);
+      mounts.push(
+        editor
+          .closest(".onboarding-page-enter")!
+          .getAnimations()
+          .some((animation) => animation.playState === "running"),
+      );
+    }).observe(document.body, { childList: true, subtree: true });
+  });
+  await page
+    .getByRole("button", { name: "Let’s get started" })
+    .click({ force: true });
+  const preview = page.getByTestId("onboarding-preview-editor");
+  await expect(preview.getByRole("status")).toHaveText("Loading preview…");
+  await expect(preview.locator(".cm-editor")).toHaveCount(0);
+  await preview.evaluate((element) => {
+    for (const animation of element
+      .closest(".onboarding-page-enter")!
+      .getAnimations())
+      animation.currentTime = 8_000;
+  });
+  await page.screenshot({
+    path: "test-results/onboarding-preview-loading.png",
+  });
+  await page
+    .getByRole("button", { name: "notes.md", exact: true })
+    .click({ force: true });
+  await expect(preview.getByRole("toolbar")).toHaveAttribute(
+    "aria-label",
+    "notes.md",
+  );
+  await expect(preview.locator(".cm-editor")).toHaveCount(0);
+  await preview.evaluate((element) => {
+    for (const animation of element
+      .closest(".onboarding-page-enter")!
+      .getAnimations())
+      animation.finish();
+  });
+  await expect(preview.locator(".cm-content")).toContainText(
+    "Notes for our next paper",
+  );
+  await expect(preview.locator(".cm-editor")).toHaveCount(1);
+  expect(
+    await page.evaluate(
+      () => (window as unknown as { previewMounts: boolean[] }).previewMounts,
+    ),
+  ).toEqual([false]);
+});
+
+test("leaving during entry cancels preview setup and returning waits again", async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await page.goto(demo);
+  await expect(page.locator("#loading-screen")).toHaveCount(0);
+  await page.addStyleTag({
+    content: ".onboarding-page-enter { animation-duration: 10s !important; }",
+  });
+  await page
+    .getByRole("button", { name: "Let’s get started" })
+    .click({ force: true });
+  await expect(
+    page.getByTestId("onboarding-preview-editor").getByRole("status"),
+  ).toBeVisible();
+  await page
+    .getByRole("button", { name: "Continue", exact: true })
+    .click({ force: true });
+  await expect(page.getByTestId("onboarding-preview-editor")).toHaveCount(0);
+  await page
+    .getByRole("button", { name: "Back", exact: true })
+    .click({ force: true });
+  const preview = page.getByTestId("onboarding-preview-editor");
+  await expect(preview.locator(".cm-editor")).toHaveCount(0);
+  await preview.evaluate((element) => {
+    for (const animation of element
+      .closest(".onboarding-page-enter")!
+      .getAnimations())
+      animation.finish();
+  });
+  await expect(preview.locator(".cm-editor")).toHaveCount(1);
+  expect(errors).toEqual([]);
+});
+
+test("reduced motion initializes the preview without an entrance wait", async ({
+  page,
+}) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.goto(demo);
+  await expect(page.locator("#loading-screen")).toHaveCount(0);
+  await page.getByRole("button", { name: "Let’s get started" }).click();
+  const preview = page.getByTestId("onboarding-preview-editor");
+  await expect(preview.locator(".cm-content")).toContainText("documentclass");
+  expect(
+    await preview.evaluate(
+      (element) =>
+        element.closest(".onboarding-page-enter")!.getAnimations().length,
+    ),
+  ).toBe(0);
+});

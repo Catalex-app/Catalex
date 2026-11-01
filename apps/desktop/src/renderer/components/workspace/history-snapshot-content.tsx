@@ -242,9 +242,11 @@ export function HistorySnapshotContent({
                 size={20}
               />
               <p>
-                {currentWorkspace
-                  ? "Loading current file…"
-                  : "Loading snapshot…"}
+                {previewLabel
+                  ? "Loading preview…"
+                  : currentWorkspace
+                    ? "Loading current file…"
+                    : "Loading snapshot…"}
               </p>
             </div>
           ) : hasComparison ? (
