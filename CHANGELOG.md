@@ -29,7 +29,7 @@ xattr -dr com.apple.quarantine /Applications/Catalex.app
 
 This applies only to Catalex and does not disable Gatekeeper system-wide.
 
-You can also build Catalex from source. Bug reports and feedback are welcome as we refine the beta.
+You can also [build Catalex from source](https://github.com/Catalex-app/Catalex/blob/main/docs/development/setup.md). Bug reports and feedback are welcome as we refine the beta.
 
 ### Current limitations
 

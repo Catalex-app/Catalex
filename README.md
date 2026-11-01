@@ -6,19 +6,21 @@
 
 <p align="center"><img src="assets/readme/reaction.svg" width="620" alt="Human research plus agent collaboration, catalyzed by Catalex, produces a paper." /></p>
 
-<p align="center"><img src="https://img.shields.io/badge/Download-available_soon-27272a?style=for-the-badge&amp;logo=apple&amp;logoColor=white&amp;labelColor=27272a" alt="Download available soon for macOS" /></p>
+<p align="center"><a href="https://github.com/Catalex-app/Catalex/releases"><img src="https://img.shields.io/github/v/release/Catalex-app/Catalex?include_prereleases&amp;sort=semver&amp;style=for-the-badge&amp;logo=apple&amp;logoColor=white&amp;label=Download&amp;color=27272a&amp;labelColor=27272a" alt="Download Catalex for macOS — latest release" /></a></p>
 
 ![Reviewing agent changes in a sample LaTeX project, with the proposed edits and compiled PDF visible.](assets/readme/agent-review.png)
 
-## Beta testing
+## “Catalex is damaged and can’t be opened”?
 
-Catalex beta builds are for testing and are not signed with an Apple Developer ID or notarized. macOS may block the app. To test a build you trust, copy `Catalex.app` to Applications, then run:
+The current beta is not yet signed with an Apple Developer ID or notarized, so macOS may block it on first launch. If you encounterd "“Catalex is damaged and can’t be opened”, run this command in Terminal (only need to do it once):
 
 ```sh
 xattr -dr com.apple.quarantine /Applications/Catalex.app
 ```
 
-This removes the quarantine flag from Catalex. Only run it if you trust the download, and use beta builds at your own risk. Updates are manual.
+This applies only to Catalex and does not disable Gatekeeper system-wide.
+
+You can also [build Catalex from source](docs/development/setup.md). 
 
 ## Why Catalex?
 
