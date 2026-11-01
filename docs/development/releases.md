@@ -61,6 +61,8 @@ permission. Installers currently lack publisher signing/notarization, so operati
 systems may show security prompts or block opening them. In-app automatic updates
 remain disabled. Publishing downloads does not enable automatic updates.
 
+The app checks the public GitHub Releases API without authentication. It selects the highest newer semantic version with a matching uploaded macOS ARM64 installer, ignoring drafts and unsupported prerelease channels. Stable builds only offer stable releases; beta builds can offer newer beta or stable releases. One Electron main-process service checks once on app launch, every 24 hours while running, and after wake only when a check is due. Failed checks retry quietly after one hour. Manual refresh checks immediately and resets the daily deadline; simultaneous requests join a single in-flight check. Windows subscribe to revisioned snapshots and read the latest state on startup. Opening About and navigating between Welcome and projects never initiate a check. Known notices remain visible during checks and temporary failures. Install update opens the corresponding GitHub release page for manual installation. Skip this version saves each skipped version in shared application settings and keeps it skipped across windows, restarts, and explicit refreshes. Other versions remain eligible. View release opens a skipped release’s page while preserving its skip. This does not use an updater feed, download installers, or restart the app.
+
 Preview builds use ad-hoc macOS signatures for bundle integrity, with notarization
 explicitly disabled. They do not identify a publisher. The workflow verifies the
 packaged bundle with `codesign --verify --deep --strict` before preparing a draft.

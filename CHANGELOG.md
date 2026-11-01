@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Check GitHub Releases for updates from the welcome and project sidebars or Settings → About, with manual installation and remembered per-version skips.
+
 ## [0.1.0-beta]
 
 - First beta preview for Apple Silicon Macs, with local LaTeX writing, PDF previews, agent drafts, comments, recovery, and Git sync.

@@ -46,8 +46,16 @@ import {
 import { WorkspaceStateStorage } from "./workspace-state-storage";
 import { PdfSnapshots } from "./pdf-snapshots";
 import { RENDERER_CSP } from "./security";
+import { ReleaseUpdates } from "./release-updates";
+import { UpdateService } from "./update-service";
 
 const exec = promisify(execFile);
+const releaseUpdates = new ReleaseUpdates(
+  app.getVersion(),
+  process.platform,
+  process.arch,
+  (url, init) => net.fetch(url, init),
+);
 function environmentDirectory(value: string | undefined, fallback: string) {
   return value && path.isAbsolute(value) ? value : fallback;
 }
@@ -124,6 +132,14 @@ function send(win: BrowserWindow, event: string, payload?: unknown) {
   if (!win.isDestroyed())
     win.webContents.send("desktop:event", { event, payload });
 }
+
+const updateService = new UpdateService(
+  () => releaseUpdates.check(true),
+  (state) => {
+    for (const win of windows.values())
+      send(win, "desktop:updater:changed", state);
+  },
+);
 
 function trustedSender(
   event: Electron.IpcMainEvent | Electron.IpcMainInvokeEvent,
@@ -639,13 +655,10 @@ async function hostCommand(
       app.relaunch();
       app.quit();
       return { result: null };
+    case "desktop:updater:state":
+      return { result: updateService.getState() };
     case "desktop:updater:check":
-      return {
-        result: {
-          unavailable: true,
-          message: "Updates are unavailable in this Electron migration build.",
-        },
-      };
+      return { result: await updateService.check() };
     case "rerun_setup": {
       const main = await createWindow("main");
       if (main.isMinimized()) main.restore();
@@ -667,18 +680,21 @@ async function hostCommand(
       const provider = ["codex", "claude", "pi"].includes(args.provider)
         ? args.provider
         : "";
+      const section = ["agent", "storage", "about"].includes(args.section)
+        ? args.section
+        : null;
       const query = new URLSearchParams({ settings: "1" });
-      if (args.section === "agent" || args.section === "storage") {
-        query.set("section", args.section);
-        if (provider) query.set("provider", provider);
+      if (section) {
+        query.set("section", section);
+        if (section === "agent" && provider) query.set("provider", provider);
       }
       const existing = windows.has("settings");
       const settings = await createWindow("settings", `?${query}`);
-      if (existing && (args.section === "agent" || args.section === "storage"))
+      if (existing && section)
         send(
           settings,
           "settings-navigate",
-          args.section === "storage" ? "storage" : provider || "agent",
+          section === "agent" ? provider || "agent" : section,
         );
       return { result: null };
     }
@@ -993,8 +1009,11 @@ async function start() {
   ];
   Menu.setApplicationMenu(Menu.buildFromTemplate(menu));
   powerMonitor.on("resume", () => {
+    void updateService.checkIfDue();
     for (const win of windows.values()) send(win, "window-focus-restored");
   });
+  updateService.start();
+  app.once("will-quit", () => updateService.stop());
   await createWindow("main", process.env.CATALEX_TEST_QUERY ?? "");
   const cleanupCaches = () => {
     void managedStorage

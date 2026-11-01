@@ -1,3 +1,4 @@
+import { useUpdater } from "@/hooks/use-updater";
 import { usePiSetupStore } from "@/stores/pi-setup-store";
 import { usePiPathSettings } from "@/hooks/use-pi-path-settings";
 import {
@@ -56,8 +57,9 @@ import {
   CircleHelpIcon,
   CodeXmlIcon,
   FileCodeIcon,
+  ExternalLinkIcon,
   FolderOpenIcon,
-  GithubIcon,
+  CircleArrowUpIcon,
   HardDriveIcon,
   KeyboardIcon,
   type LucideIcon,
@@ -772,10 +774,18 @@ export function SettingsWindow() {
   useAppZoomShortcuts();
   const [activeSection, setActiveSection] = useState<SettingsSection>(() => {
     const section = new URLSearchParams(window.location.search).get("section");
-    return section === "agent" || section === "storage"
+    return section === "agent" || section === "storage" || section === "about"
       ? section
       : "appearance";
   });
+  const {
+    status: updateStatus,
+    checking: checkingUpdate,
+    checkForUpdate,
+    installUpdate,
+    skipUpdate,
+    openRelease,
+  } = useUpdater();
   const [agentProvider, setAgentProvider] = useState<DefaultAgent>(() => {
     const provider = new URLSearchParams(window.location.search).get(
       "provider",
@@ -789,8 +799,8 @@ export function SettingsWindow() {
   };
   useEffect(() => {
     const unlisten = listen<string>("settings-navigate", ({ payload }) => {
-      if (payload === "storage") {
-        setActiveSection("storage");
+      if (payload === "storage" || payload === "about") {
+        setActiveSection(payload);
         setSearchQuery("");
         setPendingScrollRowId(null);
       }
@@ -1696,18 +1706,25 @@ export function SettingsWindow() {
         searchText: ["Version", version || "Unknown"],
       },
       {
+        id: "about-updates",
+        section: "about",
+        label: "Updates",
+        searchText: [
+          "Updates",
+          "Check for updates",
+          "Download",
+          "GitHub",
+          "Manual installation",
+          "Install update",
+          "Skip this version",
+        ],
+      },
+      {
         id: "about-update-channel",
         section: "about",
         label: "Update Channel",
         valueLabel: "GitHub Releases",
         searchText: ["Update Channel", "GitHub Releases"],
-      },
-      {
-        id: "about-source",
-        section: "about",
-        label: "Source",
-        valueLabel: "GitHub",
-        searchText: ["Source", "GitHub", "github.com/RicercarG/Catalex"],
       },
     ];
 
@@ -3015,7 +3032,7 @@ export function SettingsWindow() {
 
                 {activeSection === "storage" && <StorageSettings />}
                 {activeSection === "about" && (
-                  <section>
+                  <section className="space-y-4">
                     <div>
                       <SettingsRow id="about-version" title="Version">
                         <span>{version || "Unknown"}</span>
@@ -3024,29 +3041,99 @@ export function SettingsWindow() {
                         id="about-update-channel"
                         title="Update Channel"
                       >
-                        <span className="inline-flex items-center gap-1.5">
-                          <CheckIcon className="size-3.5 text-muted-foreground" />
-                          GitHub Releases
-                        </span>
+                        <span>GitHub Releases</span>
                       </SettingsRow>
-                      <SettingsRow id="about-source" title="Source">
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          className="h-7 gap-1.5 px-2 font-normal text-foreground"
-                          asChild
-                        >
-                          <a
-                            href="https://github.com/RicercarG/Catalex"
-                            target="_blank"
-                            rel="noopener noreferrer"
+                    </div>
+                    <div
+                      data-settings-row-id="about-updates"
+                      className="scroll-mt-4"
+                    >
+                      <SettingsGroup
+                        title="Updates"
+                        titleAction={
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon-xs"
+                            aria-label="Check for updates"
+                            aria-busy={checkingUpdate}
+                            disabled={
+                              checkingUpdate ||
+                              updateStatus.state === "downloading" ||
+                              updateStatus.state === "installing" ||
+                              updateStatus.state === "ready"
+                            }
+                            onClick={() => void checkForUpdate()}
                           >
-                            <GithubIcon className="size-3.5" />
-                            GitHub
-                          </a>
-                        </Button>
-                      </SettingsRow>
+                            <RefreshCwIcon
+                              className={cn(
+                                "size-3.5",
+                                checkingUpdate && "animate-spin",
+                              )}
+                            />
+                          </Button>
+                        }
+                      >
+                        <div className="py-3">
+                          <div className="flex flex-wrap items-center justify-between gap-3">
+                            <div
+                              role="status"
+                              className="min-w-0 break-words text-sm"
+                            >
+                              {updateStatus.state === "available"
+                                ? `${updateStatus.version} available`
+                                : updateStatus.state === "skipped"
+                                  ? `Skipped ${updateStatus.version}`
+                                  : updateStatus.state === "up-to-date"
+                                    ? "Catalex is up to date."
+                                    : updateStatus.state === "error" ||
+                                        updateStatus.state === "unavailable"
+                                      ? updateStatus.message
+                                      : updateStatus.state === "downloading"
+                                        ? `Downloading… ${updateStatus.percent}%`
+                                        : updateStatus.state === "installing"
+                                          ? "Installing…"
+                                          : updateStatus.state === "ready"
+                                            ? "Restarting…"
+                                            : "Checking for updates…"}
+                            </div>
+                            {updateStatus.state === "skipped" && (
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                className="h-7 gap-1.5 px-2 font-normal text-xs"
+                                onClick={() => void openRelease()}
+                              >
+                                <ExternalLinkIcon className="size-3.5" />
+                                View release
+                              </Button>
+                            )}
+                            {updateStatus.state === "available" && (
+                              <div className="flex shrink-0 items-center gap-2">
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-7 px-2 font-normal text-xs"
+                                  onClick={skipUpdate}
+                                >
+                                  Skip this version
+                                </Button>
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  className="h-7 gap-2 bg-[#d96b17] px-2 text-white text-xs hover:bg-[#c55d10]"
+                                  onClick={() => void installUpdate()}
+                                >
+                                  <CircleArrowUpIcon className="size-4" />
+                                  Install update
+                                </Button>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </SettingsGroup>
                     </div>
                   </section>
                 )}

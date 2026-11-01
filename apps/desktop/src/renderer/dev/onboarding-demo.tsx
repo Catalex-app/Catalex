@@ -1,5 +1,6 @@
+import { useUpdaterStore } from "@/stores/updater-store";
 import { useSettingsStore } from "@/stores/settings-store";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { App } from "@/App";
 import { browserHarness } from "@/lib/desktop/bridge";
 import { useOnboardingStore } from "@/stores/onboarding-store";
@@ -204,6 +205,29 @@ function previewAgentState(value: string) {
 }
 
 const demoParams = new URLSearchParams(window.location.search);
+const DEMO_UPDATE_KEY = "catalex-demo-update-state";
+const DEMO_UPDATE_EVENT = "catalex:demo-updates-changed";
+let stopUpdateDemoSync: (() => void) | undefined;
+function setDemoUpdateState(value: string, broadcast = true) {
+  demoParams.set("update-demo", value === "current" ? "current" : "available");
+  const url = new URL(location.href);
+  url.searchParams.set("update-demo", demoParams.get("update-demo")!);
+  history.replaceState(null, "", url);
+  // Choosing the available fixture explicitly resets any earlier dummy-version skip.
+  if (
+    value !== "current" &&
+    useSettingsStore.getState().skippedUpdateVersions.includes("0.1.1-beta")
+  ) {
+    useSettingsStore.setState((state) => ({
+      skippedUpdateVersions: state.skippedUpdateVersions.filter(
+        (version) => version !== "0.1.1-beta",
+      ),
+    }));
+  }
+  if (broadcast)
+    localStorage.setItem(DEMO_UPDATE_KEY, demoParams.get("update-demo")!);
+  window.dispatchEvent(new Event(DEMO_UPDATE_EVENT));
+}
 const requestedScenario = demoParams.get("scenario") ?? "ready";
 let scenario = [
   "ready",
@@ -220,6 +244,15 @@ let scenario = [
   : "ready";
 export function initializeOnboardingDemo() {
   ensureDesktopBrowserMocks();
+  stopUpdateDemoSync?.();
+  if (demoParams.has("update-demo")) {
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === DEMO_UPDATE_KEY && event.newValue)
+        setDemoUpdateState(event.newValue, false);
+    };
+    window.addEventListener("storage", onStorage);
+    stopUpdateDemoSync = () => window.removeEventListener("storage", onStorage);
+  }
   // Keep the normal composer UI, but accept prompts locally in this demo.
   // No provider process, workspace edits, or real model requests are started.
   useAgentChatStore.setState({
@@ -307,6 +340,34 @@ export function initializeOnboardingDemo() {
     files: Record<string, string>;
   }[] = [];
   harness.invoke = async (command, args, options) => {
+    if (demoParams.has("update-demo")) {
+      if (command === "plugin:app|version") return "0.1.0-beta";
+      if (command === "desktop:updater:check") {
+        await new Promise((resolve) =>
+          window.setTimeout(
+            resolve,
+            Math.min(
+              10_000,
+              Math.max(0, Number(demoParams.get("update-delay")) || 350),
+            ),
+          ),
+        );
+        if (demoParams.get("update-demo") === "current") return null;
+        return {
+          mode: "manual",
+          version: "0.1.1-beta",
+          body: "A simulated unsigned beta update.",
+          releaseUrl:
+            "https://github.com/Catalex-app/Catalex/releases/tag/v0.1.1-beta",
+        };
+      }
+      if (command === "plugin:shell|open") {
+        window.alert(
+          `Demo: this would open GitHub for manual download and installation:\n\n${(args as { path: string }).path}\n\nNo download or restart takes place in this demo.`,
+        );
+        return null;
+      }
+    }
     const historyArgs = args as
       | {
           projectRoot?: string;
@@ -467,6 +528,9 @@ export function initializeOnboardingDemo() {
         "onboarding-demo": "",
         section: options?.section ?? "agent",
         provider: options?.provider ?? "codex",
+        ...(demoParams.has("update-demo")
+          ? { "update-demo": demoParams.get("update-demo") ?? "" }
+          : {}),
       }).toString();
       window.open(url.href, "catalex-demo-settings");
       return null;
@@ -599,6 +663,7 @@ export function initializeOnboardingDemo() {
     if (command === "plugin:shell|open") return null;
     return original(command, args, options);
   };
+  void useUpdaterStore.getState().checkForUpdate(false);
   if (demoParams.has("project")) {
     openDemoProject();
     setDemoProviders(demoParams.get("disabled") ?? "none");
@@ -612,6 +677,17 @@ export function OnboardingDemo({ onReady }: { onReady: () => void }) {
     demoParams.get("agent-state") ?? "working",
   );
   const [selected, setSelected] = useState(scenario);
+  const [updateState, setUpdateState] = useState(
+    demoParams.get("update-demo") === "current" ? "current" : "available",
+  );
+  useEffect(() => {
+    const refresh = () =>
+      setUpdateState(
+        demoParams.get("update-demo") === "current" ? "current" : "available",
+      );
+    window.addEventListener(DEMO_UPDATE_EVENT, refresh);
+    return () => window.removeEventListener(DEMO_UPDATE_EVENT, refresh);
+  }, []);
   const [heldQueueTurn, setHeldQueueTurn] = useState<ReturnType<
     typeof startPromptQueueDemo
   > | null>(null);
@@ -642,7 +718,21 @@ export function OnboardingDemo({ onReady }: { onReady: () => void }) {
         className="fixed right-3 bottom-1 z-50 flex items-center gap-2 rounded-md border bg-background/95 px-2 py-1 text-[10px] text-foreground shadow-sm"
         aria-label="Browser demo controls"
       >
-        <span>Browser demo · simulated services</span>
+        <span>
+          {demoParams.has("update-demo")
+            ? "Unsigned beta · 0.1.0-beta"
+            : "Browser demo · simulated services"}
+        </span>
+        {demoParams.has("update-demo") && (
+          <select
+            aria-label="Update state"
+            value={updateState}
+            onChange={(event) => setDemoUpdateState(event.target.value)}
+          >
+            <option value="available">Update available</option>
+            <option value="current">No update</option>
+          </select>
+        )}
         {demoParams.has("agent-state") && (
           <select
             aria-label="Agent status preview"

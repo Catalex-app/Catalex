@@ -5,6 +5,11 @@ export async function renderDebugWindow(
   root: Pick<Root, "render">,
   debugMode: string | null,
 ) {
+  if (debugMode === "updater") {
+    const { UpdaterHarness } = await import("./harnesses/updater-harness");
+    root.render(<UpdaterHarness />);
+    return;
+  }
   if (debugMode === "editor-minimap") {
     const { EditorMinimapHarness } = await import(
       "./harnesses/editor-minimap-harness"

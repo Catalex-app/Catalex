@@ -1,3 +1,4 @@
+import { useUpdater } from "@/hooks/use-updater";
 import { PRODUCT_NAME } from "../../../branding";
 import { CommentDeleteButtons } from "./editor/comment-delete-buttons";
 import { PROJECT_COMMENTS_REFRESH_EVENT } from "@/lib/workspace-events";
@@ -41,6 +42,7 @@ import {
 } from "react";
 import {
   FileTextIcon,
+  CircleArrowUpIcon,
   TriangleAlertIcon,
   CircleXIcon,
   FolderIcon,
@@ -165,13 +167,17 @@ const HANDWRITTEN_CJK_CAT_FONT = `"Hannotate SC", "Xingkai SC", "Kaiti SC", "STK
 const HANDWRITTEN_CJK_BOLD_SHADOW =
   "0.45px 0 currentColor, -0.45px 0 currentColor, 0 0.45px currentColor, 0 -0.45px currentColor";
 
-function openSettingsWindow() {
-  invoke("open_settings_window").catch((error) => {
-    log.error("Failed to open settings window", { error: String(error) });
-  });
+function openSettingsWindow(section?: "about") {
+  invoke("open_settings_window", section ? { section } : undefined).catch(
+    (error) => {
+      log.error("Failed to open settings window", { error: String(error) });
+    },
+  );
 }
 
 function SidebarUtilityControls() {
+  const { notice: updateStatus } = useUpdater();
+  const hasUpdate = updateStatus.state === "available";
   const { theme, setTheme } = useTheme();
   const ThemeIcon =
     theme === "system" ? MonitorIcon : theme === "dark" ? MoonIcon : SunIcon;
@@ -196,28 +202,64 @@ function SidebarUtilityControls() {
   );
 
   return (
-    <div className="sidebar-utility-controls flex shrink-0 items-center gap-2 border-sidebar-border border-t py-2">
+    <div
+      className="sidebar-utility-controls flex shrink-0 items-center gap-2 border-sidebar-border border-t py-2"
+      data-update-available={hasUpdate}
+    >
       <Hint content={shortcut ? `Settings (${shortcut})` : "Settings"}>
-        <SidebarRow asChild className="h-7 flex-1 text-xs">
+        <SidebarRow asChild className="sidebar-settings-button h-7 text-xs">
           <Button
             type="button"
             variant="ghost"
-            className="h-7 min-w-0 flex-1 justify-start gap-2 border-0 bg-muted/50 px-2 text-xs ring-1 ring-border ring-inset"
-            onClick={openSettingsWindow}
+            className="h-7 min-w-0 justify-start gap-2 border-0 bg-muted/50 px-2 text-xs ring-1 ring-border ring-inset"
+            onClick={() => openSettingsWindow()}
             aria-label="Settings"
           >
             <SidebarRowIcon>
               <SettingsIcon className="size-4" />
             </SidebarRowIcon>
-            <span>Settings</span>
+            <span data-settings-detail aria-hidden={hasUpdate}>
+              Settings
+            </span>
             {shortcut ? (
-              <kbd className="ml-auto min-w-0 truncate font-normal font-sans text-muted-foreground text-xs">
+              <kbd
+                data-settings-detail
+                aria-hidden={hasUpdate}
+                className="ml-auto min-w-0 truncate font-normal font-sans text-muted-foreground text-xs"
+              >
                 {shortcut}
               </kbd>
             ) : null}
           </Button>
         </SidebarRow>
       </Hint>
+      <div
+        className="sidebar-update-slot"
+        aria-hidden={!hasUpdate}
+        inert={!hasUpdate}
+      >
+        <Button
+          type="button"
+          className="@container/sidebar-update h-7 w-full min-w-0 gap-2 bg-[#d96b17] px-2 text-white text-xs hover:bg-[#c55d10]"
+          aria-label={
+            hasUpdate
+              ? `Update available: Catalex ${updateStatus.version}`
+              : "Update"
+          }
+          onClick={() => openSettingsWindow("about")}
+        >
+          <SidebarRowIcon>
+            <CircleArrowUpIcon className="size-4" />
+          </SidebarRowIcon>
+          <span>
+            Update
+            <span className="@[120px]/sidebar-update:inline hidden">
+              {" "}
+              available
+            </span>
+          </span>
+        </Button>
+      </div>
       <Popover open={appearanceOpen} onOpenChange={setAppearanceOpen}>
         <Hint content={`Appearance (${themeLabel})`}>
           <PopoverTrigger asChild>

@@ -15,6 +15,7 @@ import {
 
 beforeEach(() => {
   useSettingsStore.setState({
+    skippedUpdateVersions: [],
     modeThemes: { ...DEFAULT_MODE_THEMES },
     displayComments: true,
     showPdfComments: true,
@@ -825,4 +826,32 @@ describe("saved Pi paths", () => {
     expect(state().piBinaryPath).toBe("/bin two");
     expect(state().piConfigDirectory).toBe("/config two");
   });
+});
+
+it("preserves a previously saved skip and normalizes per-version skip lists", () => {
+  const merge = useSettingsStore.persist.getOptions().merge!;
+  const state = useSettingsStore.getState();
+  expect(
+    merge({ skippedUpdateVersion: "0.1.1-beta" }, state).skippedUpdateVersions,
+  ).toEqual(["0.1.1-beta"]);
+  expect(
+    merge(
+      {
+        skippedUpdateVersions: [
+          "0.1.1-beta",
+          null,
+          "",
+          "0.1.1-beta",
+          "0.1.2-beta",
+        ],
+      },
+      state,
+    ).skippedUpdateVersions,
+  ).toEqual(["0.1.1-beta", "0.1.2-beta"]);
+  expect(
+    merge(
+      { skippedUpdateVersions: [], skippedUpdateVersion: "0.1.1-beta" },
+      state,
+    ).skippedUpdateVersions,
+  ).toEqual([]);
 });

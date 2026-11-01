@@ -61,6 +61,7 @@ pnpm -C apps/desktop test:electron-smoke
 pnpm -C apps/desktop test:electron-persistence
 pnpm -C apps/desktop test:electron-profile
 pnpm -C apps/desktop test:electron-windows
+node apps/desktop/e2e/electron/updater-smoke.mjs
 ```
 
 Additional `e2e/electron/*-smoke.mjs` scripts exercise specific features, including comments, Git, agent drafts, native compilation, and restart recovery. Review each script's prerequisites before running it. Agent protocol fixtures use local scripted providers; real installed-agent tests must be explicitly selected and may depend on local credentials.

@@ -29,7 +29,6 @@ import { useAgentChatStore } from "@/stores/agent-chat-store";
 import { useClaudeSetupStore } from "@/stores/claude-setup-store";
 import { useCodexSetupStore } from "@/stores/codex-setup-store";
 import { usePiSetupStore } from "@/stores/pi-setup-store";
-import { useUpdater } from "@/hooks/use-updater";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -51,7 +50,6 @@ import {
 } from "./workspace/sidebar";
 import { cn } from "@/lib/utils";
 import { getElementFromNativeDropPosition } from "@/lib/desktop/native-drop";
-import type { UpdateStatus } from "@/hooks/use-updater";
 import { detectTexlive, type TexliveStatus } from "@/lib/latex-compiler";
 
 function formatRecentProjectTimestamp(lastOpened: number) {
@@ -152,7 +150,6 @@ export function ProjectPicker() {
   const [showBlankProjectDialog, setShowBlankProjectDialog] = useState(false);
   const [showOverleafCloneDialog, setShowOverleafCloneDialog] = useState(false);
   const [showTemplateGallery, setShowTemplateGallery] = useState(false);
-  const { status: updateStatus, installUpdate } = useUpdater();
 
   const projectOwners = useProjectOwnership();
   const recentProjects = useProjectStore((s) => s.recentProjects);
@@ -542,12 +539,6 @@ export function ProjectPicker() {
             >
               <span className="pointer-events-none">Recent Projects</span>
             </div>
-            <div className="flex w-24 shrink-0 justify-end">
-              <WelcomeUpdateBadge
-                updateStatus={updateStatus}
-                onInstall={installUpdate}
-              />
-            </div>
           </div>
 
           <div className="mt-0 min-h-0 flex-1">
@@ -731,89 +722,6 @@ export function ProjectPicker() {
         onOpenChange={setShowOverleafCloneDialog}
       />
     </div>
-  );
-}
-
-function WelcomeUpdateBadge({
-  updateStatus,
-  onInstall,
-}: {
-  updateStatus: UpdateStatus;
-  onInstall: () => void;
-}) {
-  const isAvailable = updateStatus.state === "available";
-  const isDownloading = updateStatus.state === "downloading";
-  const isInstalling =
-    updateStatus.state === "installing" || updateStatus.state === "ready";
-  const isBusy = isDownloading || isInstalling;
-  if (!isAvailable && !isBusy) return null;
-
-  const label = isDownloading
-    ? `${updateStatus.percent}%`
-    : isInstalling
-      ? updateStatus.state === "ready"
-        ? "Restarting"
-        : "Installing"
-      : "Update";
-  const ariaLabel = isDownloading
-    ? `Downloading update, ${updateStatus.percent}%`
-    : label;
-  const toneClasses = isBusy
-    ? "bg-sky-500/25 text-sky-700 ring-sky-500/40 dark:text-sky-300"
-    : "bg-orange-500/30 text-orange-700 ring-orange-500/45 hover:bg-orange-500/40 dark:text-orange-300";
-  const progressStyle =
-    isDownloading && updateStatus.percent > 0
-      ? {
-          background: `conic-gradient(currentColor ${Math.min(
-            100,
-            Math.max(0, updateStatus.percent),
-          )}%, transparent 0)`,
-        }
-      : undefined;
-
-  const badgeContent = (
-    <>
-      {isDownloading && (
-        <span
-          className="absolute inset-[3px] rounded-full opacity-25"
-          style={progressStyle}
-        />
-      )}
-      <span
-        className={cn(
-          "pointer-events-none absolute inset-0 flex items-center justify-center px-2 text-center text-[10px] transition-opacity duration-200 ease-out",
-          isBusy
-            ? "opacity-100"
-            : "opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100",
-        )}
-      >
-        <span className="max-w-full truncate whitespace-nowrap">{label}</span>
-      </span>
-      {!isBusy && (
-        <ArrowUpIcon
-          className={cn(
-            "pointer-events-none absolute inset-0 m-auto size-3 transition-opacity duration-150",
-            "group-hover:opacity-0 group-focus-visible:opacity-0",
-          )}
-        />
-      )}
-    </>
-  );
-
-  return (
-    <button
-      type="button"
-      onClick={isBusy ? undefined : onInstall}
-      disabled={isBusy}
-      className={cn(
-        "group pointer-events-auto relative inline-flex h-5 origin-right items-center justify-center overflow-hidden rounded-full ring-1 transition-[width] duration-200 ease-out focus-visible:outline-none disabled:cursor-default",
-        isBusy ? "w-full" : "w-5 hover:w-full focus-visible:w-full",
-        toneClasses,
-      )}
-      aria-label={ariaLabel}
-    >
-      {badgeContent}
-    </button>
   );
 }
 

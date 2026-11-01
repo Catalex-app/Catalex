@@ -83,6 +83,8 @@ export interface RootCompilerChoice {
 }
 
 export interface SettingsState {
+  skippedUpdateVersions: string[];
+  skipUpdateVersion: (version: string) => void;
   showAnswerCompletionTime: boolean;
   toggleAnswerTimeDisplay: () => void;
   workspacePreferencesByProject: Record<string, ProjectWorkspacePreferences>;
@@ -675,6 +677,18 @@ export function migrateSettingsState(persistedState: unknown) {
 export const useSettingsStore = create<SettingsState>()(
   persist(
     (set, get) => ({
+      skippedUpdateVersions: [],
+      skipUpdateVersion: (version) =>
+        set((state) =>
+          state.skippedUpdateVersions.includes(version)
+            ? state
+            : {
+                skippedUpdateVersions: [
+                  ...state.skippedUpdateVersions,
+                  version,
+                ],
+              },
+        ),
       showAnswerCompletionTime: false,
       toggleAnswerTimeDisplay: () =>
         set((state) => ({
@@ -1017,10 +1031,23 @@ export const useSettingsStore = create<SettingsState>()(
       version: 26,
       migrate: migrateSettingsState,
       merge: (persisted, current) => {
-        const saved = persisted as Partial<SettingsState> | undefined;
+        const saved = persisted as
+          | (Partial<SettingsState> & { skippedUpdateVersion?: unknown })
+          | undefined;
+        const skippedVersions = Array.isArray(saved?.skippedUpdateVersions)
+          ? saved.skippedUpdateVersions
+          : [saved?.skippedUpdateVersion];
         return {
           ...current,
           ...saved,
+          skippedUpdateVersions: [
+            ...new Set(
+              skippedVersions.filter(
+                (version): version is string =>
+                  typeof version === "string" && version.length > 0,
+              ),
+            ),
+          ],
           piBinaryPaths: normalizePiPaths(
             saved?.piBinaryPaths,
             saved?.piBinaryPath,

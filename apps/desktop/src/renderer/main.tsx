@@ -218,6 +218,10 @@ async function bootstrap() {
         );
     }
   }
+  if (window.catalex) {
+    const { initializeUpdater } = await import("./stores/updater-store");
+    await initializeUpdater();
+  }
   try {
     await initializeAppZoom();
   } catch (error) {
