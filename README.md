@@ -46,6 +46,6 @@ Special thanks to [OpenAI Codex](https://openai.com/codex/) for helping bring Ca
 
 The icon was drawn in Figma by [RicercarG](https://github.com/RicercarG), inspired by the [reference illustration](assets/icon-source/assets/cat-reference.png) below.
 
-<img src="assets/icon-source/assets/cat-reference.png" width="112" height="63" alt="Online cat illustration used as a reference for the Catalex icon" />
+<img src="assets/icon-source/assets/cat-reference.png" width="111" height="62" alt="Online cat illustration used as a reference for the Catalex icon" />
 
 Cheers!
