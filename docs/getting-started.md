@@ -16,7 +16,9 @@ This installs the TeX tools without the extra GUI apps. The full distribution is
 
 ## Open a project
 
-Packaged downloads are coming soon on [GitHub Releases](https://github.com/Catalex-app/Catalex/releases). For now, [build Catalex from source](development/setup.md), then follow the onboarding checks.
+Download the latest beta for Apple Silicon Macs from [GitHub Releases](https://github.com/Catalex-app/Catalex/releases). Open the DMG, drag **Catalex.app** to **Applications**, then launch Catalex and follow the onboarding checks.
+
+The beta is not yet signed or notarized, so macOS may block the first launch. Follow the instructions on the release page if you trust the download. You can also [build Catalex from source](development/setup.md).
 
 Choose **Open Folder** for an existing project, start a blank document, or choose a template. **Import from Overleaf** brings in a project through its [Git connection](sync-and-recovery.md#overleaf).
 
