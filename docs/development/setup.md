@@ -46,7 +46,7 @@ The build script discovers the Homebrew library paths and bundles the required n
 After installing the dependencies for your platform:
 
 ```sh
-git clone https://github.com/RicercarG/Catalex.git
+git clone https://github.com/Catalex-app/Catalex.git
 cd Catalex
 pnpm install --frozen-lockfile
 pnpm dev:desktop

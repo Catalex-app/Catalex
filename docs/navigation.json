@@ -1,8 +1,25 @@
 [
-  "README.md",
-  "getting-started.md",
-  "writing.md",
-  "agents.md",
-  "sync-and-recovery.md",
-  "under-the-hood.md"
+  {
+    "title": "User guide",
+    "pages": [
+      "README.md",
+      "getting-started.md",
+      "workspace.md",
+      "writing.md",
+      "comments.md",
+      "references.md",
+      "agents.md",
+      "sync-and-recovery.md"
+    ]
+  },
+  {
+    "title": "Development",
+    "pages": [
+      "development/README.md",
+      "development/setup.md",
+      "development/architecture.md",
+      "testing/README.md",
+      "development/releases.md"
+    ]
+  }
 ]

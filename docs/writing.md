@@ -1,29 +1,37 @@
 # Writing
 
-Open a file from the sidebar and start writing. Catalex saves your edits locally. Use **Artisan** for focused writing or **Duet** to work with an agent in the same workspace.
+Open a source file and start writing. Catalex saves edits automatically after a short pause; **⌘S** saves immediately. Source files stay in your project folder, while compilation output is kept in Catalex's cache.
 
-## Compile a LaTeX project
+## LaTeX
 
-Choose the main `.tex` file that brings the document together, then use the compile control in the PDF preview. In a project with several files, compile the main document rather than an included section.
+Choose the main `.tex` file that brings the document together, then click **Recompile** or press **⌘Enter** in the editor. In a project with several files, compile the root document rather than an included section. The preview's root controls let you work with more than one document in a project.
 
-Catalex supports LaTeXmk with your local TeX installation and the bundled Tectonic backend. Setup and **Settings → Rendering** let you choose the compilation backend. Select the LaTeX engine your project needs, such as pdfLaTeX, XeLaTeX, or LuaLaTeX, when using LaTeXmk.
+Catalex supports **LaTeXmk** with your local TeX installation and the bundled **Tectonic** backend. Choose defaults in **Settings → Rendering**, and use the compilation options for the current document. LaTeXmk supports **pdfLaTeX**, **XeLaTeX**, and **LuaLaTeX**; Tectonic uses a XeTeX-based engine. **Auto** engine selection uses the document's engine hints. An explicit choice takes precedence, and Catalex remembers the choice for that root document.
 
-Turn on automatic compilation if you want the PDF to update while you edit. For a large project, compiling when you are ready can keep writing more responsive.
+Automatic compilation is set per project. Change its default for new projects in Rendering settings. For a large paper, turning it off and recompiling when ready can keep editing more responsive.
 
-When a build fails, open the compilation errors and fix the first relevant error before compiling again. Check that the main file, engine, and required packages match the project. You can also attach the error to an agent conversation for help.
+### Read and navigate the PDF
 
-## Work with Markdown
+The PDF toolbar has page navigation, zoom, fit-width, fit-height, and export controls. Source/PDF navigation uses SyncTeX, and scroll synchronization can keep the two views near the same passage. Generated material may not map exactly to a source location.
 
-Open a `.md` file to write with a rendered preview. Choose preview themes in **Settings → Rendering**; light and dark appearances can use different themes. Use the Markdown preview's PDF export when you need a shareable copy.
+Select text in the source or PDF to [leave a comment](comments.md) or [give an agent context](agents.md#add-context). The preview also supports opening an existing PDF without a LaTeX source project.
 
-## Leave comments
+### Fix compilation errors
 
-Select a passage in the editor or PDF and add a comment. Comments keep feedback beside the relevant text; resolve them when the work is done. Agents can create and resolve comments too.
+Open the compilation diagnostics and start with the first relevant error. Check the selected root, engine, installation, and missing packages. Attach an error to an agent conversation when you want help; the agent can use Catalex's compiler and inspect the resulting pages.
 
-Comments are stored locally by Catalex. They do not travel with Git pushes or appear as Overleaf comments. See [Under the hood](under-the-hood.md#what-syncs) for what stays on this Mac.
+The app compiles a working copy outside your source folder. A failed build is reported as a failure rather than presented as a newly compiled PDF. LaTeXmk still uses the capabilities and configuration of your installed toolchain.
 
-## Make the workspace yours
+## Markdown
 
-Use **Settings → Appearance** for the workspace appearance, **Rendering** for document previews and compilation, and **Keyboard** to view or change shortcuts.
+Markdown has a rendered preview, including math and tables, and can be exported to PDF. Use the formatting toolbar or familiar editing shortcuts while keeping the file as ordinary Markdown.
 
-For larger edits, [ask an agent](agents.md). To recover an earlier version, use [Rewind](sync-and-recovery.md#rewind).
+In **Settings → Rendering**, choose a preview theme. You can assign separate light and dark themes and load themes from a Typora theme folder. These settings change the preview's presentation, not your document's Markdown.
+
+## Editing tools
+
+Use find and replace to work through a document, and the outline or minimap to move through longer files. The formatting toolbar provides common text, heading, list, link, and math actions appropriate to the active document.
+
+Spell check supports US and UK English and runs locally. In **Settings → Appearance**, enable it and choose the language. Use spelling suggestions or teach Catalex a word you want it to remember; code, commands, and other non-prose regions are handled separately from ordinary text.
+
+For citations, use your existing `.bib` files or connect [Zotero](references.md). For feedback, see [Comments](comments.md). Earlier file versions are available in [Rewind](sync-and-recovery.md#rewind).

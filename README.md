@@ -30,7 +30,7 @@
 
 ## Documentation
 
-See the [user guide](https://ricercarg.github.io/catalex.github.io/docs/) for setup, writing, agents, and syncing your project.
+See the [user guide](docs/README.md) for setup, writing, agents, and syncing your project.
 
 ## Current limitations
 
