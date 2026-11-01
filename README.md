@@ -6,7 +6,7 @@
 
 <p align="center"><img src="assets/readme/reaction.svg" width="620" alt="Human research plus agent collaboration, catalyzed by Catalex, produces a paper." /></p>
 
-<p align="center"><a href="https://github.com/Catalex-app/Catalex/releases"><img src="https://img.shields.io/github/v/release/Catalex-app/Catalex?include_prereleases&amp;sort=semver&amp;style=for-the-badge&amp;logo=apple&amp;logoColor=white&amp;label=Download&amp;color=27272a&amp;labelColor=27272a" alt="Download Catalex for macOS — latest release" /></a></p>
+<p align="center"><a href="https://github.com/Catalex-app/Catalex/releases"><img src="https://img.shields.io/github/v/release/Catalex-app/Catalex?include_prereleases&amp;sort=semver&amp;style=for-the-badge&amp;logo=apple&amp;logoColor=white&amp;label=Download&amp;color=27272a&amp;labelColor=27272a" alt="Download Catalex for macOS — latest release" /></a> <a href="https://catalex-app.github.io/"><img src="https://img.shields.io/badge/Website-555555?style=for-the-badge" alt="Website" /></a></p>
 
 ![Reviewing agent changes in a sample LaTeX project, with the proposed edits and compiled PDF visible.](assets/readme/agent-review.png)
 
