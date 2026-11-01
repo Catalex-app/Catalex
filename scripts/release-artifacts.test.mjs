@@ -210,6 +210,19 @@ test("prerelease versions create drafts marked as prereleases", (t) => {
   assert.equal(state.isDraft, true);
 });
 
+test("beta releases use a readable prefix title and remain unpublished", (t) => {
+  const { result, calls, state } = runStep(t, prepare, {
+    viewFails: true,
+    version: "0.1.0-beta",
+  });
+  assert.equal(result.status, 0, result.stderr);
+  const create = calls.find((args) => args[1] === "create");
+  assert.equal(create[create.indexOf("--title") + 1], "Catalex Beta 0.1.0");
+  assert.ok(create.includes("--prerelease=true"));
+  assert.ok(create.includes("--latest=false"));
+  assert.equal(state.isDraft, true);
+});
+
 test("completed draft and published retries skip the deleted temporary download", (t) => {
   for (const [scenario, expected] of [
     [{}, "true"],

@@ -22,6 +22,9 @@ module.exports = {
   asar: true,
   npmRebuild: false,
   mac: {
+    // Preview integrity signing does not identify a publisher or use credentials.
+    identity: "-",
+    notarize: false,
     target: "dmg",
     category: "public.app-category.productivity",
     icon: "build/icons/icon.icns",

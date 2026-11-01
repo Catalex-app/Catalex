@@ -1,6 +1,6 @@
 [package]
 name = "catalex-desktop"
-version = "0.1.0"
+version = "0.1.0-beta"
 description = "AI-powered LaTeX writing workspace"
 edition = "2021"
 license = "AGPL-3.0-or-later"

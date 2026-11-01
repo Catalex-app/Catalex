@@ -31,8 +31,12 @@ The current GitHub workflow builds a macOS ARM64 DMG. Windows and Linux
 are not included in its build matrix.
 It copies only that version's `CHANGELOG.md` entry into the release notes.
 A mismatched tag/version, missing notes, or failing build prevents draft preparation.
-Tags containing a prerelease suffix, such as `v0.1.0-beta.1`, prepare drafts
+Tags containing a prerelease suffix, such as `v0.1.0-beta`, prepare drafts
 marked as prereleases. A version bump without a pushed tag does not prepare a release.
+Use `0.1.0-beta` internally and `v0.1.0-beta` for the tag; the release title is
+`Catalex Beta 0.1.0`. Further previews can increase the base version, such as
+`0.1.1-beta`, without a separate beta counter. Each release gets a new version
+and installer. Signing status is stated separately in the release notes.
 
 The release job leaves the installer and changelog in a **draft release**. It
 never publishes a release or changes which published version is Latest. Once the
@@ -56,3 +60,8 @@ Repository Actions policies must allow the release job's `contents: write`
 permission. Installers currently lack publisher signing/notarization, so operating
 systems may show security prompts or block opening them. In-app automatic updates
 remain disabled. Publishing downloads does not enable automatic updates.
+
+Preview builds use ad-hoc macOS signatures for bundle integrity, with notarization
+explicitly disabled. They do not identify a publisher. The workflow verifies the
+packaged bundle with `codesign --verify --deep --strict` before preparing a draft.
+See the root README for the per-app quarantine command used to test these builds.

@@ -80,6 +80,11 @@ jobs:
       - name: Build distributable
         run: pnpm package:desktop
 
+      - name: Verify macOS bundle integrity
+        run: |
+          product_name=$(node -p "require('./branding.json').productName")
+          codesign --verify --deep --strict --verbose=2 "apps/desktop/release/mac-arm64/$product_name.app"
+
       - name: Test frontend
         run: pnpm --filter @catalex/desktop test
 
@@ -160,6 +165,11 @@ jobs:
           product_name=$(node -p "require('./branding.json').productName")
           prerelease=false
           if [[ "$RELEASE_TAG" == *-* ]]; then prerelease=true; fi
+          release_title="$product_name $RELEASE_TAG"
+          if [[ "$RELEASE_TAG" == *-beta ]]; then
+            beta_version=${RELEASE_TAG#v}
+            release_title="$product_name Beta ${beta_version%-beta}"
+          fi
           # A retry may resume a draft, but must never replace published files.
           if state=$(gh release view "$RELEASE_TAG" --json isDraft --jq '.isDraft'); then
             if [[ "$state" == false ]]; then
@@ -168,7 +178,7 @@ jobs:
             fi
           else
             gh release create "$RELEASE_TAG" --verify-tag --draft \
-              --title "$product_name $RELEASE_TAG" --notes-file release-notes.md --prerelease="$prerelease" --latest=false
+              --title "$release_title" --notes-file release-notes.md --prerelease="$prerelease" --latest=false
           fi
           gh release upload "$RELEASE_TAG" "${mac[@]}" --clobber
           gh release edit "$RELEASE_TAG" --notes-file release-notes.md --prerelease="$prerelease" --latest=false

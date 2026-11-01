@@ -2,7 +2,20 @@
 
 ## [Unreleased]
 
+## [0.1.0-beta]
+
+- First beta preview for Apple Silicon Macs, with local LaTeX writing, PDF previews, agent drafts, comments, recovery, and Git sync.
 - Adopt GNU AGPLv3-or-later for Catalex, preserving the Claude bridge's MIT license and upstream and third-party notices.
+- Improve macOS beta packaging and include installation instructions.
+- Updates are manual. This beta is not signed with an Apple Developer ID or notarized.
+
+Copy `Catalex.app` to Applications. If you trust the download and accept the risk of bypassing its quarantine protection, run:
+
+```sh
+xattr -dr com.apple.quarantine /Applications/Catalex.app
+```
+
+This command removes Catalex's quarantine flag. Use this beta at your own risk.
 
 ## [0.1.0]
 

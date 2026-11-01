@@ -10,6 +10,16 @@
 
 ![Reviewing agent changes in a sample LaTeX project, with the proposed edits and compiled PDF visible.](assets/readme/agent-review.png)
 
+## Beta testing
+
+Catalex beta builds are for testing and are not signed with an Apple Developer ID or notarized. macOS may block the app. To test a build you trust, copy `Catalex.app` to Applications, then run:
+
+```sh
+xattr -dr com.apple.quarantine /Applications/Catalex.app
+```
+
+This removes the quarantine flag from Catalex. Only run it if you trust the download, and use beta builds at your own risk. Updates are manual.
+
 ## Why Catalex?
 
 - **Built for writing.** A clean, polished workspace that keeps writing in focus and makes working with agents feel natural.
