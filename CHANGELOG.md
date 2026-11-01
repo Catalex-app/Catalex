@@ -2,27 +2,36 @@
 
 ## [Unreleased]
 
-- Check GitHub Releases for updates from the welcome and project sidebars or Settings → About, with manual installation and remembered per-version skips.
-
 ## [0.1.0-beta]
 
-- First beta preview for Apple Silicon Macs, with local LaTeX writing, PDF previews, agent drafts, comments, recovery, and Git sync.
-- Adopt GNU AGPLv3-or-later for Catalex, preserving the Claude bridge's MIT license and upstream and third-party notices.
-- Improve macOS beta packaging and include installation instructions.
-- Updates are manual. This beta is not signed with an Apple Developer ID or notarized.
+The first public beta of Catalex, a free, local-first LaTeX writing workspace for Apple Silicon Macs, released under AGPL-3.0-or-later.
 
-Copy `Catalex.app` to Applications. If you trust the download and accept the risk of bypassing its quarantine protection, run:
+### In this beta
+
+- A focused writing workspace with integrated agent conversations and PDF previews.
+- Local LaTeXmk compilation with your existing TeX installation.
+- Claude Code, Codex, and Pi support using your installed agents, subscriptions, and skills.
+- Agent changes prepared in isolated worktrees for your review before they are applied, with agent comment creation and resolution.
+- Local edit recovery and an in-app Git GUI for syncing project files with Overleaf or GitHub.
+- Update notifications for newer beta and stable releases, with manual installation and remembered per-version skips.
+
+### Install
+
+Requires macOS 13 or later on Apple Silicon. Install LaTeXmk through MacTeX or another TeX distribution for local compilation. Agent connections are optional; onboarding checks your tools when you first open Catalex.
+
+Download the DMG below, open it, and copy `Catalex.app` to Applications.
+
+**This beta is for testing and is not signed with an Apple Developer ID or notarized.** macOS may block it. If you trust this download and accept the risk, run:
 
 ```sh
 xattr -dr com.apple.quarantine /Applications/Catalex.app
 ```
 
-This command removes Catalex's quarantine flag. Use this beta at your own risk.
+This removes the quarantine flag from Catalex only. Use this beta at your own risk.
 
-## [0.1.0]
+### Current limitations
 
-- Introduce Catalex, a focused, local-first LaTeX writing workspace for Apple Silicon Macs.
-- Compile with local LaTeXmk and work with source files, PDF previews, and document comments in one workspace.
-- Connect installed Claude Code, Codex, or Pi agents with existing subscriptions and skills.
-- Review agent changes in private drafts, let agents create and resolve comments, and recover earlier edits through local history.
-- Sync project files with Overleaf or GitHub through the in-app Git controls.
+- Apple Silicon Macs only.
+- Local-first, without live multi-user collaboration. Use Git to share project changes.
+- Comments stay in Catalex and do not sync to Overleaf or GitHub.
+- Updates require a manual download and installation; automatic installation and restart are not enabled.
