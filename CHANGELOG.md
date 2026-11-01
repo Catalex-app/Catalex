@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Adopt GNU AGPLv3-or-later for Catalex, preserving the Claude bridge's MIT license and upstream and third-party notices.
+
 ## [0.1.0]
 
 - Introduce Catalex, a focused, local-first LaTeX writing workspace for Apple Silicon Macs.

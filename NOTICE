@@ -1,0 +1,47 @@
+Catalex
+Copyright (c) 2026 RicercarG and Catalex contributors
+
+Except where a component has a separate license, Catalex's original source
+code is licensed under the GNU Affero General Public License as published by
+the Free Software Foundation, either version 3 of the License, or (at your
+option) any later version (AGPL-3.0-or-later).
+
+This program is distributed in the hope that it will be useful, but WITHOUT
+ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+FITNESS FOR A PARTICULAR PURPOSE. See LICENSE for the full terms.
+
+Source code and contact: https://github.com/Catalex-app/Catalex
+For a released version, use its matching release tag and build instructions.
+
+Upstream code
+-------------
+Catalex started from ClaudePrism (https://github.com/delibae/claude-prism),
+which builds on Open Prism (https://github.com/assistant-ui/open-prism).
+Their copyright and MIT permission notices are preserved verbatim in
+LICENSES/upstream-MIT.txt. The AGPL terms for Catalex do not revoke the MIT
+permissions for that upstream code or change licenses of earlier versions.
+
+Claude bridge
+-------------
+The separately executed Claude bridge in apps/desktop-sidecar retains its
+MIT license (apps/desktop-sidecar/LICENSE and LICENSES/claude-bridge-MIT.txt).
+It bundles the Claude Agent SDK, which is not licensed under MIT or AGPL;
+its notice is preserved in LICENSES/claude-agent-sdk.txt.
+
+Third-party components
+----------------------
+Third-party code, fonts, dictionaries, artwork, and agent tools retain their
+own licenses and notices; they are not relicensed by this file.
+
+MuPDF by Artifex Software, Inc. is used under AGPL-3.0-or-later. Its source
+and licensing information are available at https://mupdf.com/ and
+https://github.com/ArtifexSoftware/mupdf.js.
+
+The Claude Agent SDK and Claude Code remain subject to Anthropic's terms:
+https://code.claude.com/docs/en/legal-and-compliance
+Catalex's license does not grant rights to Anthropic's SDK or agent tools.
+
+Additional notices are included with their respective components, including:
+- third_party/polodb_core/LICENSE (Apache-2.0)
+- apps/desktop/public/licenses/ (spelling, dictionaries, and bundled assets)
+- assets/readme/font-licenses.txt (SIL Open Font License 1.1)

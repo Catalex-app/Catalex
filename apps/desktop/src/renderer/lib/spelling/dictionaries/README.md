@@ -11,7 +11,7 @@ Unmodified data from [overleaf/dictionaries v0.0.3](https://github.com/overleaf/
 
 Verify with `git hash-object` before replacing these files. Replace an aff/dic pair together and retain its upstream notices. Vite emits these source-form text files as separate assets without inlining them, so the worker can load them offline under the desktop content policy.
 
-The US data retains SCOWL's permissive component terms. The UK affix header and upstream README identify LGPL licensing; the maintainer supplies LGPL v3. Its file-specific license must not be inferred from the generic Debian package en/* entry. The complete, unmodified dictionary source is distributed with the application. License texts and original notices ship in `apps/desktop/public/licenses/spelling-*`; the root MIT license does not replace third-party terms.
+The US data retains SCOWL's permissive component terms. The UK affix header and upstream README identify LGPL licensing; the maintainer supplies LGPL v3. Its file-specific license must not be inferred from the generic Debian package en/* entry. The complete, unmodified dictionary source is distributed with the application. License texts and original notices ship in `apps/desktop/public/licenses/spelling-*`; the root AGPL license does not replace third-party terms.
 
 Base dictionary source: https://github.com/overleaf/dictionaries/tree/v0.0.3
 

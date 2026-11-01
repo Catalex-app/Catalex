@@ -33,7 +33,7 @@ The complete dictionary source is the unmodified plain-text .aff/.dic files
 shipped as separate assets with the application. Copies and their pinned blob
 identifiers are also in src/renderer/lib/spelling/dictionaries/ in the Catalex
 source repository. No dictionary contents have been modified by Catalex.
-These third-party files retain their respective licenses; Catalex's root MIT
+These third-party files retain their respective licenses; Catalex's root AGPL
 license does not replace them.
 
 Catalex's editor integration is original code. Overleaf application code and

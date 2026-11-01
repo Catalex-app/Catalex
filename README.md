@@ -38,6 +38,10 @@ See the [user guide](docs/README.md) for setup, writing, agents, and syncing you
 - **Comments stay local.** Catalex comments do not sync to Overleaf or GitHub.
 - **No live collaboration.** Catalex is local-first. Collaborators can sync project files through GitHub, but shared multi-user editing is not supported.
 
+## License
+
+Catalex is licensed under the [GNU AGPLv3 or later](LICENSE). See [NOTICE](NOTICE) for the MIT-licensed Claude bridge, upstream notices, and third-party terms.
+
 ## Acknowledgments
 
 Catalex started from [ClaudePrism](https://github.com/delibae/claude-prism), which builds on [Open Prism](https://github.com/assistant-ui/open-prism). Its writing workflow takes inspiration from [OpenAI Prism](https://openai.com/index/introducing-prism/), [Overleaf](https://www.overleaf.com/), and [LaTeX Workshop](https://github.com/James-Yu/LaTeX-Workshop).

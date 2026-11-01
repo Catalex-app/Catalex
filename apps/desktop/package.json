@@ -87,5 +87,6 @@
   },
   "main": "dist/main/index.cjs",
   "description": "AI-powered LaTeX writing workspace",
-  "author": "Catalex contributors"
+  "author": "Catalex contributors",
+  "license": "AGPL-3.0-or-later"
 }

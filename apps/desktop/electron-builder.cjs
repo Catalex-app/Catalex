@@ -12,6 +12,9 @@ module.exports = {
     "!node_modules/**",
   ],
   extraResources: [
+    { from: "../../LICENSE", to: "licenses/Catalex-AGPL-3.0.txt" },
+    { from: "../../NOTICE", to: "licenses/Catalex-NOTICE.txt" },
+    { from: "../../LICENSES", to: "licenses/upstream" },
     { from: "dist/native", to: "native" },
     { from: "../desktop-sidecar/dist", to: "claude-bridge" },
     { from: `backend/resources/${branding.namespace}`, to: branding.namespace },
