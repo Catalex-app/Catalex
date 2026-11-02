@@ -4,8 +4,23 @@ import { fileURLToPath } from "node:url";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const mode = process.argv[2] ?? "build";
-if (process.argv.length > 3 || !["build", "dev", "package"].includes(mode)) {
-  throw new Error("Usage: build-desktop.mjs [build|dev|package]");
+if (
+  process.argv.length > 3 ||
+  !["build", "dev", "package", "signed"].includes(mode)
+) {
+  throw new Error("Usage: build-desktop.mjs [build|dev|package|signed]");
+}
+const signed = mode === "signed";
+if (signed && process.platform !== "darwin") {
+  throw new Error("Signed macOS packaging must run on a Mac.");
+}
+const environment = {
+  CSC_IDENTITY_AUTO_DISCOVERY: "false",
+  ...process.env,
+};
+if (signed) {
+  environment.CSC_IDENTITY_AUTO_DISCOVERY = "true";
+  environment.APPLE_KEYCHAIN_PROFILE ||= "catalex-notary";
 }
 const pnpm = process.env.npm_execpath;
 if (!pnpm) throw new Error("Run this script through pnpm.");
@@ -15,7 +30,7 @@ function run(...args) {
     cwd: root,
     stdio: "inherit",
     // Local builds should not silently select a certificate from the keychain.
-    env: { CSC_IDENTITY_AUTO_DISCOVERY: "false", ...process.env },
+    env: environment,
   });
   if (result.error) throw result.error;
   if (result.status !== 0) process.exit(result.status ?? 1);
@@ -36,9 +51,10 @@ if (mode === "dev") {
     "exec",
     "electron-builder",
     "--config",
-    "electron-builder.cjs",
+    signed ? "electron-builder.signed.cjs" : "electron-builder.cjs",
     "--publish",
     "never",
+    ...(signed ? ["--mac", "dmg"] : []),
     ...(mode === "build" ? ["--dir"] : []),
   );
 }

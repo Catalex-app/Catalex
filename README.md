@@ -6,21 +6,15 @@
 
 <p align="center"><img src="assets/readme/reaction.svg" width="620" alt="Human research plus agent collaboration, catalyzed by Catalex, produces a paper." /></p>
 
-<p align="center"><a href="https://github.com/Catalex-app/Catalex/releases"><img src="https://img.shields.io/github/v/release/Catalex-app/Catalex?include_prereleases&amp;sort=semver&amp;style=for-the-badge&amp;logo=apple&amp;logoColor=white&amp;label=Download&amp;color=27272a&amp;labelColor=27272a" alt="Download Catalex for macOS — latest release" /></a> <a href="https://catalex-app.github.io/"><img src="https://img.shields.io/badge/Website-555555?style=for-the-badge" alt="Website" /></a></p>
+<p align="center"><a href="https://github.com/Catalex-app/Catalex/releases"><img src="https://img.shields.io/github/v/release/Catalex-app/Catalex?sort=semver&amp;style=for-the-badge&amp;logo=apple&amp;logoColor=white&amp;label=Download&amp;color=27272a&amp;labelColor=27272a" alt="Download Catalex for macOS — latest release" /></a> <a href="https://catalex-app.github.io/"><img src="https://img.shields.io/badge/Website-555555?style=for-the-badge" alt="Website" /></a></p>
 
 ![Reviewing agent changes in a sample LaTeX project, with the proposed edits and compiled PDF visible.](assets/readme/agent-review.png)
 
-## “Catalex is damaged and can’t be opened”?
+## Install
 
-The current beta is not yet signed with an Apple Developer ID or notarized, so macOS may block it on first launch. If you encounterd "Catalex is damaged and can’t be opened", run this command in Terminal (only need to do it once):
+Download Catalex for Apple Silicon Macs from [GitHub Releases](https://github.com/Catalex-app/Catalex/releases), open the DMG, and drag **Catalex.app** into **Applications**.
 
-```sh
-xattr -dr com.apple.quarantine /Applications/Catalex.app
-```
-
-This applies only to Catalex and does not disable Gatekeeper system-wide.
-
-You can also [build Catalex from source](docs/development/setup.md). 
+Version 0.1.0 is signed with Developer ID and notarized by Apple. No Gatekeeper bypass is required. You can also [build Catalex from source](docs/development/setup.md).
 
 ## Why Catalex?
 

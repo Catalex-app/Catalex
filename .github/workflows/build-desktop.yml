@@ -3,7 +3,8 @@ name: Build and Prepare Electron Release
 on:
   workflow_dispatch:
   push:
-    tags: ["v*"]
+    # Stable installers are signed/notarized locally until CI signing is configured.
+    tags: ["v*-*"]
   pull_request:
     branches: [main]
 
@@ -98,7 +99,7 @@ jobs:
 
       - name: Upload installers
         # Only release runs need to transfer an installer to another job.
-        if: github.ref_type == 'tag' && github.event_name != 'pull_request'
+        if: github.ref_type == 'tag' && github.event_name != 'pull_request' && contains(github.ref_name, '-')
         uses: actions/upload-artifact@v4
         with:
           name: catalex-electron-${{ matrix.platform }}-${{ matrix.arch }}
@@ -113,7 +114,7 @@ jobs:
       group: electron-release-prepare
       queue: max
       cancel-in-progress: false
-    if: github.ref_type == 'tag' && github.event_name != 'pull_request'
+    if: github.ref_type == 'tag' && github.event_name != 'pull_request' && contains(github.ref_name, '-')
     needs: [validate, build]
     runs-on: ubuntu-24.04
     permissions:

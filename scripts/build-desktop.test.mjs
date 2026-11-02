@@ -16,7 +16,7 @@ function runBuild(t, mode, fail = "", discovery = undefined) {
     pnpm,
     `import { appendFileSync } from "node:fs";
 const args = process.argv.slice(2);
-appendFileSync(process.env.TEST_BUILD_LOG, JSON.stringify({ args, discovery: process.env.CSC_IDENTITY_AUTO_DISCOVERY }) + "\\n");
+appendFileSync(process.env.TEST_BUILD_LOG, JSON.stringify({ args, discovery: process.env.CSC_IDENTITY_AUTO_DISCOVERY, profile: process.env.APPLE_KEYCHAIN_PROFILE }) + "\\n");
 if (args[0] === process.env.TEST_FAIL_COMMAND) process.exit(7);
 `,
   );
@@ -25,6 +25,7 @@ if (args[0] === process.env.TEST_FAIL_COMMAND) process.exit(7);
     env: {
       ...process.env,
       CSC_IDENTITY_AUTO_DISCOVERY: discovery,
+      APPLE_KEYCHAIN_PROFILE: "",
       npm_execpath: pnpm,
       TEST_BUILD_LOG: log,
       TEST_FAIL_COMMAND: fail,
@@ -35,6 +36,7 @@ if (args[0] === process.env.TEST_FAIL_COMMAND) process.exit(7);
     result,
     commands: entries.map((entry) => entry.args),
     discoveries: entries.map((entry) => entry.discovery),
+    profiles: entries.map((entry) => entry.profile),
   };
 }
 
@@ -71,4 +73,55 @@ test("development prepares the helpers but does not package the app", (t) => {
   assert.equal(result.status, 0, result.stderr);
   assert.equal(commands.at(-1).at(-1), "electron:dev");
   assert.ok(!commands.flat().includes("electron-builder"));
+});
+
+test(
+  "signed packaging uses the local notarization profile and never publishes",
+  {
+    skip: process.platform !== "darwin",
+  },
+  (t) => {
+    const { result, commands, discoveries, profiles } = runBuild(t, "signed");
+    assert.equal(result.status, 0, result.stderr);
+    assert.ok(discoveries.every((value) => value === "true"));
+    assert.ok(profiles.every((value) => value === "catalex-notary"));
+    const packaging = commands.at(-1);
+    assert.equal(
+      packaging[packaging.indexOf("--config") + 1],
+      "electron-builder.signed.cjs",
+    );
+    assert.equal(packaging[packaging.indexOf("--publish") + 1], "never");
+    assert.equal(packaging[packaging.indexOf("--mac") + 1], "dmg");
+    assert.equal(packaging.includes("--dir"), false);
+  },
+);
+
+test("signed configuration requires notarization credentials and rejects ad-hoc signing", () => {
+  const config = fileURLToPath(
+    new URL("../apps/desktop/electron-builder.signed.cjs", import.meta.url),
+  );
+  const load = (profile, identity = "") =>
+    spawnSync(
+      process.execPath,
+      [
+        "-e",
+        `
+    const config = require(process.argv[1]);
+    if (!config.forceCodeSigning || !config.mac.notarize || config.mac.type !== "distribution" || config.mac.identity === "-") process.exit(2);
+  `,
+        config,
+      ],
+      {
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          APPLE_KEYCHAIN_PROFILE: profile,
+          CSC_NAME: identity,
+        },
+      },
+    );
+  assert.notEqual(load("").status, 0);
+  assert.notEqual(load(" ").status, 0);
+  assert.notEqual(load("test-profile", "-").status, 0);
+  assert.equal(load("test-profile").status, 0);
 });

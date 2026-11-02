@@ -27,7 +27,12 @@
 Use annotated release tags, not lightweight tags. Never recreate a tag that has
 already reached GitHub just to change its type.
 
-The current GitHub workflow builds a macOS ARM64 DMG. Windows and Linux
+The current GitHub workflow builds preview macOS ARM64 DMGs for prerelease tags.
+Stable tags do not trigger this unsigned workflow. For a stable release, run
+`pnpm package:mac:signed`, verify and test the signed installer, push the annotated
+tag, then create a draft with that exact DMG and the matching changelog entry.
+GitHub Actions signing credentials must be configured before automating stable
+release packaging. Windows and Linux
 are not included in its build matrix.
 It copies only that version's `CHANGELOG.md` entry into the release notes.
 A mismatched tag/version, missing notes, or failing build prevents draft preparation.
@@ -57,8 +62,8 @@ Never move an existing release tag.
 
 GitHub supplies the release token automatically; no personal token is required.
 Repository Actions policies must allow the release job's `contents: write`
-permission. Installers currently lack publisher signing/notarization, so operating
-systems may show security prompts or block opening them. In-app automatic updates
+permission. Preview workflow installers lack publisher signing/notarization. Stable releases
+use the signed local build described below. In-app automatic updates
 remain disabled. Publishing downloads does not enable automatic updates.
 
 The app checks the public GitHub Releases API without authentication. It selects the highest newer semantic version with a matching uploaded macOS ARM64 installer, ignoring drafts and unsupported prerelease channels. Stable builds only offer stable releases; beta builds can offer newer beta or stable releases. One Electron main-process service checks once on app launch, every 24 hours while running, and after wake only when a check is due. Failed checks retry quietly after one hour. Manual refresh checks immediately and resets the daily deadline; simultaneous requests join a single in-flight check. Windows subscribe to revisioned snapshots and read the latest state on startup. Opening About and navigating between Welcome and projects never initiate a check. Known notices remain visible during checks and temporary failures. Install update opens the corresponding GitHub release page for manual installation. Skip this version saves each skipped version in shared application settings and keeps it skipped across windows, restarts, and explicit refreshes. Other versions remain eligible. View release opens a skipped release’s page while preserving its skip. This does not use an updater feed, download installers, or restart the app.
@@ -66,4 +71,29 @@ The app checks the public GitHub Releases API without authentication. It selects
 Preview builds use ad-hoc macOS signatures for bundle integrity, with notarization
 explicitly disabled. They do not identify a publisher. The workflow verifies the
 packaged bundle with `codesign --verify --deep --strict` before preparing a draft.
-See the root README for the per-app quarantine command used to test these builds.
+Preview installers may require a manual security override; distribute the signed
+installer for stable releases.
+
+## Local signed macOS build
+
+Install a Developer ID Application certificate with its private key in the login
+keychain, then save notarization credentials interactively:
+
+```sh
+xcrun notarytool store-credentials "catalex-notary"
+```
+
+Build on a Mac with `pnpm package:mac:signed`. This command enables certificate
+discovery, requires Developer ID signing, and notarizes and staples the app before
+creating the DMG in `apps/desktop/release/signed/`. It never publishes a release.
+Set `CSC_NAME` to choose an identity if multiple certificates are installed, or
+`APPLE_KEYCHAIN_PROFILE` to use a different saved notarization profile. Passwords
+and private keys must stay outside the repository.
+
+Verify the resulting app with `codesign --verify --deep --strict`,
+`xcrun stapler validate`, and `spctl --assess --type execute --verbose`.
+Gatekeeper should report `Notarized Developer ID`. Also mount the final DMG and
+test the app it contains before distributing it.
+
+Regular build commands and the GitHub workflow still use preview signing; this
+local setup does not configure GitHub Actions credentials or automatic updates.
