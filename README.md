@@ -12,7 +12,7 @@
 
 ## “Catalex is damaged and can’t be opened”?
 
-The current beta is not yet signed with an Apple Developer ID or notarized, so macOS may block it on first launch. If you encounterd "“Catalex is damaged and can’t be opened”, run this command in Terminal (only need to do it once):
+The current beta is not yet signed with an Apple Developer ID or notarized, so macOS may block it on first launch. If you encounterd "Catalex is damaged and can’t be opened", run this command in Terminal (only need to do it once):
 
 ```sh
 xattr -dr com.apple.quarantine /Applications/Catalex.app
