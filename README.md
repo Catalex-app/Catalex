@@ -58,9 +58,11 @@ Catalex is licensed under the [GNU AGPLv3 or later](LICENSE). See [NOTICE](NOTIC
 
 Catalex started from [ClaudePrism](https://github.com/delibae/claude-prism), which builds on [Open Prism](https://github.com/assistant-ui/open-prism). Its writing workflow takes inspiration from [OpenAI Prism](https://openai.com/index/introducing-prism/), [Overleaf](https://www.overleaf.com/), and [LaTeX Workshop](https://github.com/James-Yu/LaTeX-Workshop).
 
-Special thanks to [OpenAI Codex](https://openai.com/codex/) for helping bring Catalex to life.
+Catalex is created and directed by [@RicercarG](https://github.com/RicercarG), with [@openai](https://github.com/openai)'s [Codex](https://github.com/openai/codex) assisting in implementation, and debugging. Special thanks to Codex for helping bring these ideas to life.
 
-The icon was drawn in Figma by [RicercarG](https://github.com/RicercarG), inspired by the [reference illustration](assets/icon-source/assets/cat-reference.png) below.
+Thanks to [@JunhaoZhu0220](https://github.com/JunhaoZhu0220) and [@Akutagawa1998](https://github.com/Akutagawa1998) for testing Catalex before its public release, sharing thoughtful feedback, and helping track down bugs.
+
+The icon was drawn in Figma by [@RicercarG](https://github.com/RicercarG), inspired by the [reference illustration](assets/icon-source/assets/cat-reference.png) below.
 
 <img src="assets/icon-source/assets/cat-reference.png" width="111" height="62" alt="Online cat illustration used as a reference for the Catalex icon" />
 
