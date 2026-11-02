@@ -14,7 +14,7 @@
 
 Download Catalex for Apple Silicon Macs from [GitHub Releases](https://github.com/Catalex-app/Catalex/releases), open the DMG, and drag **Catalex.app** into **Applications**.
 
-Version 0.1.0 is signed with Developer ID and notarized by Apple. No Gatekeeper bypass is required. You can also [build Catalex from source](docs/development/setup.md).
+You can also [build Catalex from source](docs/development/setup.md).
 
 ## Why Catalex?
 

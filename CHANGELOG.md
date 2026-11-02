@@ -8,8 +8,7 @@ The first stable release of Catalex, a free, local-first LaTeX writing workspace
 
 ### Changes
 
-- Developer ID signing and Apple notarization for the macOS app.
-- Standard drag-to-Applications installation without removing quarantine flags.
+- Developer ID signed for the macOS app. No quarantine flags anymore.
 - Includes the writing workspace, Claude Code, Codex and Pi integrations, isolated agent drafts, PDF preview, local compilation, Git sync, and edit recovery introduced in the public beta.
 
 ### Install
@@ -17,8 +16,6 @@ The first stable release of Catalex, a free, local-first LaTeX writing workspace
 Requires macOS 13 or later on Apple Silicon. Download `Catalex-0.1.0-arm64.dmg`, open it, and drag **Catalex.app** into **Applications**.
 
 Install LaTeXmk through [MacTeX](https://tug.org/mactex/mactex-download.html) or another TeX distribution for local compilation. The onboarding wizard checks compiler and agent availability.
-
-Updates still require a manual download and installation. Live multi-user collaboration and comment sync are not supported.
 
 ## [0.1.0-beta]
 
