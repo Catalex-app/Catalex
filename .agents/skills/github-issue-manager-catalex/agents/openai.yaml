@@ -1,0 +1,3 @@
+interface:
+  display_name: "GitHub Issue Manager for Catalex"
+  short_description: "Select and complete GitHub Issues with labels and sub-issues"
