@@ -441,22 +441,83 @@ function normalizeCcfddlPickerText(value: string): string {
     .trim();
 }
 
+export function isExactCcfddlConferenceMatch(
+  entry: CCFDDLDeadlineEntry,
+  query: string,
+): boolean {
+  const normalizedQuery = normalizeCcfddlPickerText(query);
+  const name = getCcfddlConferenceName(entry);
+  return (
+    Boolean(normalizedQuery) &&
+    (normalizedQuery === normalizeCcfddlPickerText(name) ||
+      normalizedQuery === normalizeCcfddlPickerText(`${name} ${entry.year}`))
+  );
+}
+
 export function filterCcfddlEntriesByConferenceName(
   entries: CCFDDLDeadlineEntry[],
   query: string,
 ): CCFDDLDeadlineEntry[] {
-  const terms = normalizeCcfddlPickerText(query)
+  const normalizedQuery = normalizeCcfddlPickerText(query);
+  const terms = normalizedQuery
     .split(/\s+/)
     .map((term) => term.trim())
     .filter(Boolean);
   if (terms.length === 0) return entries;
 
-  return entries.filter((entry) => {
+  const exactMatches: CCFDDLDeadlineEntry[] = [];
+  const fuzzyMatches: CCFDDLDeadlineEntry[] = [];
+  for (const entry of entries) {
+    const conferenceName = getCcfddlConferenceName(entry);
+    if (isExactCcfddlConferenceMatch(entry, query)) {
+      exactMatches.push(entry);
+      continue;
+    }
     const haystack = normalizeCcfddlPickerText(
-      `${entry.displayTitle} ${getCcfddlConferenceName(entry)} ${entry.year}`,
+      `${entry.displayTitle} ${conferenceName} ${entry.year}`,
     );
-    return terms.every((term) => fuzzyIncludes(haystack, term));
-  });
+    if (terms.every((term) => fuzzyIncludes(haystack, term))) {
+      fuzzyMatches.push(entry);
+    }
+  }
+  // The feed is already chronological; retain that order within each group.
+  return [...exactMatches, ...fuzzyMatches];
+}
+
+export function highlightCcfddlMatch(text: string, query: string) {
+  const characters = Array.from(text);
+  const normalized = characters.map((char) => normalizeCcfddlPickerText(char));
+  const matched = new Set<number>();
+  const terms = normalizeCcfddlPickerText(query).split(/\s+/).filter(Boolean);
+  for (const term of terms) {
+    const indices: number[] = [];
+    let remaining = term;
+    // Prefer contiguous matches before falling back to subsequence matches.
+    const start = text.toLowerCase().indexOf(term);
+    if (start >= 0) {
+      const first = Array.from(text.slice(0, start)).length;
+      for (let i = first; i < first + Array.from(term).length; i++) {
+        indices.push(i);
+      }
+      remaining = "";
+    } else {
+      for (let i = 0; i < normalized.length && remaining; i++) {
+        if (normalized[i] && remaining.startsWith(normalized[i])) {
+          indices.push(i);
+          remaining = remaining.slice(normalized[i].length);
+        }
+      }
+    }
+    if (!remaining) for (const index of indices) matched.add(index);
+  }
+  const parts: { text: string; matched: boolean }[] = [];
+  for (const [index, char] of characters.entries()) {
+    const isMatch = matched.has(index);
+    const last = parts[parts.length - 1];
+    if (last && last.matched === isMatch) last.text += char;
+    else parts.push({ text: char, matched: isMatch });
+  }
+  return parts;
 }
 
 export async function fetchCcfddlDeadlines(

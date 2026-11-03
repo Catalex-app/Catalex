@@ -171,6 +171,52 @@ describe("ccfddl helpers", () => {
     ).toHaveLength(0);
   });
 
+  it("ranks exact conference names first while preserving deadline order", () => {
+    const base = parseCcfddlYaml(SAMPLE_YAML)[0];
+    const entries = [
+      ["rtas", "RTAS 2027", "RTAS 2027 (first round)", "2026-11-01"],
+      ["refsq", "REFSQ 2027", "REFSQ 2027 (second round)", "2026-11-02"],
+      ["rss-abstract", "RSS 2027", "RSS 2027 (abstract)", "2026-12-01"],
+      ["rss-paper", "RSS 2027", "RSS 2027 (paper)", "2026-12-08"],
+      ["rss-next", "RSS 2028", "RSS 2028", "2027-12-01"],
+    ].map(([id, title, displayTitle, date]) => ({
+      ...base,
+      id,
+      title,
+      displayTitle,
+      year: title.slice(-4),
+      deadlineIso: `${date}T00:00:00.000Z`,
+    }));
+    const ids = (query: string) =>
+      filterCcfddlEntriesByConferenceName(entries, query).map(({ id }) => id);
+
+    expect(ids("RSS")).toEqual([
+      "rss-abstract",
+      "rss-paper",
+      "rss-next",
+      "rtas",
+      "refsq",
+    ]);
+    for (const query of ["RSS 2027", "  rss   2027  ", "RSS-2027"]) {
+      expect(ids(query)).toEqual([
+        "rss-abstract",
+        "rss-paper",
+        "rtas",
+        "refsq",
+      ]);
+    }
+    expect(ids("rs 2027")).toEqual([
+      "rtas",
+      "refsq",
+      "rss-abstract",
+      "rss-paper",
+    ]);
+    expect(ids("rss paper")).toEqual(["rss-paper"]);
+    expect(ids("  ")).toEqual(entries.map(({ id }) => id));
+    expect(ids("unmatched")).toEqual([]);
+    expect(entries[0].id).toBe("rtas");
+  });
+
   it("computes days left and resolves cat labels", () => {
     const entry = parseCcfddlYaml(SAMPLE_YAML)[0];
 

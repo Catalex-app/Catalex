@@ -1,13 +1,16 @@
-import { useId, useState, type ReactNode } from "react";
+import { Fragment, useId, useState, type ReactNode } from "react";
 import { Popover as PopoverPrimitive } from "radix-ui";
 import { ChevronDownIcon } from "lucide-react";
 import { Input } from "./input";
 import { Popover, PopoverContent } from "./popover";
+import { popupSeparatorClassName } from "./popup-surface";
 import { cn } from "@/lib/utils";
 
 export type PickerOption = {
   value: string;
   label: string;
+  labelContent?: ReactNode;
+  group?: string;
   description?: string;
 };
 
@@ -150,31 +153,53 @@ export function SearchablePicker({
           <div role="listbox" id={id} aria-label={label}>
             {options.length ? (
               options.map((option, index) => (
-                <button
-                  key={option.value}
-                  id={`${id}-${index}`}
-                  type="button"
-                  role="option"
-                  aria-selected={value === option.value}
-                  className={cn(
-                    "flex w-full min-w-0 flex-col gap-0.5 px-3 py-2 transition-colors hover:bg-muted/70",
-                    align === "right"
-                      ? "items-end text-right"
-                      : "items-start text-left",
-                    (active === index || value === option.value) && "bg-muted",
-                  )}
-                  onMouseDown={(event) => event.preventDefault()}
-                  onClick={() => select(option.value)}
-                >
-                  <span className="w-full truncate font-medium text-popover-foreground text-sm">
-                    {option.label}
-                  </span>
-                  {option.description && (
-                    <span className="w-full truncate text-muted-foreground text-xs">
-                      {option.description}
+                <Fragment key={option.value}>
+                  {option.group &&
+                    option.group !== options[index - 1]?.group && (
+                      <>
+                        {index > 0 && (
+                          <div
+                            role="presentation"
+                            className={popupSeparatorClassName}
+                          />
+                        )}
+                        <div
+                          role="presentation"
+                          className={cn(
+                            "px-3 py-1.5 font-medium text-muted-foreground text-xs",
+                            align === "right" && "text-right",
+                          )}
+                        >
+                          {option.group}
+                        </div>
+                      </>
+                    )}
+                  <button
+                    id={`${id}-${index}`}
+                    type="button"
+                    role="option"
+                    aria-selected={value === option.value}
+                    className={cn(
+                      "flex w-full min-w-0 flex-col gap-0.5 px-3 py-2 transition-colors hover:bg-muted/70",
+                      align === "right"
+                        ? "items-end text-right"
+                        : "items-start text-left",
+                      (active === index || value === option.value) &&
+                        "bg-muted",
+                    )}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => select(option.value)}
+                  >
+                    <span className="w-full truncate font-medium text-popover-foreground text-sm">
+                      {option.labelContent ?? option.label}
                     </span>
-                  )}
-                </button>
+                    {option.description && (
+                      <span className="w-full truncate text-muted-foreground text-xs">
+                        {option.description}
+                      </span>
+                    )}
+                  </button>
+                </Fragment>
               ))
             ) : (
               <p className="px-3 py-2 text-muted-foreground text-xs">
