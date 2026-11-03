@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Stop a running compilation from the compile button by hovering or focusing it, or from the compilation menu. Pending recompiles are cleared while the last published PDF and its source mapping remain available.
+
 ## [0.1.0-beta]
 
 The first public beta of Catalex, a free, local-first LaTeX writing workspace for Apple Silicon Macs.

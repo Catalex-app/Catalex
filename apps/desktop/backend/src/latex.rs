@@ -1,8 +1,10 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::{Mutex, Semaphore};
+use tokio_util::sync::CancellationToken;
+use crate::compile_process::{self, Operation, Registry};
 
 use crate::project_storage::resolve_project_storage;
 
@@ -16,7 +18,9 @@ const CREATE_NO_WINDOW: u32 = 0x08000000;
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
 
+#[derive(Clone)]
 struct BuildInfo {
+    output: Arc<tempfile::TempDir>,
     work_dir: PathBuf,
     main_file_name: String,
 }
@@ -24,17 +28,24 @@ struct BuildInfo {
 #[derive(Clone)]
 pub struct LatexCompilerState {
     last_builds: Arc<Mutex<HashMap<String, BuildInfo>>>,
+    /// Bounded request-bound maps for PDFs still displayed after newer results.
+    published_builds: Arc<Mutex<VecDeque<(compile_process::Key, BuildInfo)>>>,
     /// Per-project locks to prevent concurrent compilations on the same build directory.
     project_locks: Arc<Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>>,
     semaphore: Arc<Semaphore>,
+    pub(crate) operations: Arc<Registry>,
+    blocked_projects: Arc<Mutex<HashMap<String, String>>>,
 }
 
 impl Default for LatexCompilerState {
     fn default() -> Self {
         Self {
             last_builds: Arc::new(Mutex::new(HashMap::new())),
+            published_builds: Arc::new(Mutex::new(VecDeque::new())),
             project_locks: Arc::new(Mutex::new(HashMap::new())),
             semaphore: Arc::new(Semaphore::new(MAX_CONCURRENT_COMPILATIONS)),
+            operations: Arc::new(Registry::default()),
+            blocked_projects: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 }
@@ -64,6 +75,7 @@ pub struct CompiledLatex {
 
 #[derive(Debug, serde::Serialize)]
 pub struct CompileFailure {
+    pub code: &'static str,
     pub actual_engine: Option<&'static str>,
     pub message: String,
     pub diagnostics: Vec<CompileDiagnostic>,
@@ -72,6 +84,7 @@ pub struct CompileFailure {
 impl From<String> for CompileFailure {
     fn from(message: String) -> Self {
         Self {
+            code: if message == compile_process::CANCELLED { "cancelled" } else { "compile_failed" },
             message,
             diagnostics: Vec::new(),
             actual_engine: None,
@@ -277,15 +290,17 @@ fn find_texlive_binary(name: &str) -> Result<PathBuf, String> {
     ))
 }
 
+#[cfg(test)]
 fn copy_dir_recursive(src: &Path, dst: &Path) -> std::io::Result<()> {
-    copy_dir_recursive_inner(src, dst, true)
+    copy_dir_recursive_inner(src, dst, true, &CancellationToken::new())
 }
 
-fn copy_dir_recursive_inner(src: &Path, dst: &Path, is_project_root: bool) -> std::io::Result<()> {
+fn copy_dir_recursive_inner(src: &Path, dst: &Path, is_project_root: bool, cancelled: &CancellationToken) -> std::io::Result<()> {
     if !dst.exists() {
         std::fs::create_dir_all(dst)?;
     }
     for entry in std::fs::read_dir(src)? {
+        if cancelled.is_cancelled() { return Err(std::io::Error::new(std::io::ErrorKind::Interrupted, compile_process::CANCELLED)); }
         let entry = entry?;
         let src_path = entry.path();
         let dst_path = dst.join(entry.file_name());
@@ -295,7 +310,7 @@ fn copy_dir_recursive_inner(src: &Path, dst: &Path, is_project_root: bool) -> st
             if name.to_string_lossy().starts_with('.') {
                 continue;
             }
-            copy_dir_recursive_inner(&src_path, &dst_path, false)?;
+            copy_dir_recursive_inner(&src_path, &dst_path, false, cancelled)?;
         } else {
             if is_project_root && crate::comments::is_sidecar(&entry.file_name().to_string_lossy())
             {
@@ -310,15 +325,17 @@ fn copy_dir_recursive_inner(src: &Path, dst: &Path, is_project_root: bool) -> st
 /// Sync only source files (.tex, .bib, .sty, .cls, .bst, images, .pdf figures) from project to build dir.
 /// Skips build artifacts (.aux, .log, .toc, .synctex.gz, etc.) to preserve them.
 /// Note: .pdf is NOT skipped — figure PDFs must be synced. The output PDF is managed by compile_latex.
+#[cfg(test)]
 fn sync_source_files(src: &Path, dst: &Path) -> std::io::Result<()> {
-    sync_source_files_inner(src, dst, true)
+    sync_source_files_inner(src, dst, true, &CancellationToken::new())
 }
 
-fn sync_source_files_inner(src: &Path, dst: &Path, is_project_root: bool) -> std::io::Result<()> {
+fn sync_source_files_inner(src: &Path, dst: &Path, is_project_root: bool, cancelled: &CancellationToken) -> std::io::Result<()> {
     if !dst.exists() {
         std::fs::create_dir_all(dst)?;
     }
     for entry in std::fs::read_dir(src)? {
+        if cancelled.is_cancelled() { return Err(std::io::Error::new(std::io::ErrorKind::Interrupted, compile_process::CANCELLED)); }
         let entry = entry?;
         let src_path = entry.path();
         let file_name = entry.file_name();
@@ -329,7 +346,7 @@ fn sync_source_files_inner(src: &Path, dst: &Path, is_project_root: bool) -> std
             {
                 continue;
             }
-            sync_source_files_inner(&src_path, &dst_path, false)?;
+            sync_source_files_inner(&src_path, &dst_path, false, cancelled)?;
         } else {
             if is_project_root && crate::comments::is_sidecar(&file_name.to_string_lossy()) {
                 continue;
@@ -480,7 +497,7 @@ pub(crate) fn compile_with_tectonic(work_dir: &Path, main_file: &str) -> Result<
 ///
 /// By spawning a subprocess, each compilation gets a fresh process with
 /// clean global state, and cleanup happens automatically on process exit.
-fn compile_with_tectonic_subprocess(work_dir: &Path, main_file: &str, actual_engine: &mut Option<&'static str>) -> Result<(), String> {
+fn compile_with_tectonic_subprocess(work_dir: &Path, main_file: &str, actual_engine: &mut Option<&'static str>, cancelled: &CancellationToken) -> Result<(), String> {
     let exe = std::env::current_exe()
         .map_err(|e| format!("Failed to get current executable path: {}", e))?;
 
@@ -490,9 +507,7 @@ fn compile_with_tectonic_subprocess(work_dir: &Path, main_file: &str, actual_eng
         .stderr(std::process::Stdio::piped());
     #[cfg(target_os = "windows")]
     cmd.creation_flags(CREATE_NO_WINDOW);
-    let output = cmd
-        .output()
-        .map_err(|e| format!("Failed to spawn tectonic subprocess: {}", e))?;
+    let output = compile_process::output(&mut cmd, cancelled)?;
 
     *actual_engine = Some("xetex");
     if output.status.success() {
@@ -533,6 +548,7 @@ fn compile_with_latexmk(
     engine: TexEngine,
     installation: Option<String>,
     actual_engine: &mut Option<&'static str>,
+    cancelled: &CancellationToken,
 ) -> Result<(), String> {
     let latexmk = if let Some(dir) = installation {
         let engine_name = match engine {
@@ -575,9 +591,7 @@ fn compile_with_latexmk(
     .stderr(std::process::Stdio::piped());
     #[cfg(target_os = "windows")]
     cmd.creation_flags(CREATE_NO_WINDOW);
-    let output = cmd
-        .output()
-        .map_err(|e| format!("Failed to launch latexmk: {}", e))?;
+    let output = compile_process::output(&mut cmd, cancelled)?;
 
     *actual_engine = Some(match engine {
         TexEngine::Latex => "pdflatex",
@@ -625,10 +639,11 @@ fn compile_latexmk_auto(
     preferred: Option<TexEngine>,
     installation: Option<String>,
     actual_engine: &mut Option<&'static str>,
+    cancelled: &CancellationToken,
 ) -> (Result<(), String>, TexEngine) {
     let engine = resolve_latexmk_engine(detected, preferred);
-    let result = compile_with_latexmk(work_dir, main_file, engine, installation.clone(), actual_engine);
-    if detected.is_some() || preferred.is_some() || result.is_ok() {
+    let result = compile_with_latexmk(work_dir, main_file, engine, installation.clone(), actual_engine, cancelled);
+    if cancelled.is_cancelled() || result.as_ref().err().is_some_and(|error| error.starts_with(compile_process::CLEANUP_FAILED)) || detected.is_some() || preferred.is_some() || result.is_ok() {
         return (result, engine);
     }
     let stem = Path::new(main_file).file_stem().unwrap_or_default().to_string_lossy();
@@ -639,11 +654,13 @@ fn compile_latexmk_auto(
         return (result, engine);
     }
     // Do not expose a partial pdfTeX PDF or stale diagnostics if the retry fails.
-    let _ = std::fs::remove_file(work_dir.join(format!("{stem}.pdf")));
+    for extension in ["pdf", "synctex", "synctex.gz"] {
+        let _ = std::fs::remove_file(work_dir.join(format!("{stem}.{extension}")));
+    }
     let _ = std::fs::remove_file(log_path);
     eprintln!("[latex] Auto: pdfLaTeX requires Unicode support; retrying with XeLaTeX");
     (
-        compile_with_latexmk(work_dir, main_file, TexEngine::XeLaTeX, installation, actual_engine),
+        compile_with_latexmk(work_dir, main_file, TexEngine::XeLaTeX, installation, actual_engine, cancelled),
         TexEngine::XeLaTeX,
     )
 }
@@ -1005,26 +1022,36 @@ pub async fn compile_latex(
     diagnostics: u64,
     installation: Option<String>,
     snapshot_path: Option<String>,
+    compilation_id: Option<String>,
 ) -> Result<Vec<u8>, CompileFailure> {
     // The RPC can be cancelled when its window closes, but spawn_blocking
     // compiler work cannot. Keep the backend future (and its project lock)
     // alive until the process finishes, as the workspace MCP already does.
     let app = window.service.clone();
     let state = state.clone();
-    let operation = tokio::spawn(async move {
-        compile_latex_selected(
+    let id = compilation_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+    let owner = window.id.clone();
+    let operation = state.operations.register(&owner, &project_dir, &id, CancellationToken::new())?;
+    let task = tokio::spawn(async move {
+        let result = compile_latex_selected(
             &app,
             &state,
-            project_dir,
+            project_dir.clone(),
             main_file,
             backend,
             engine,
             installation,
             snapshot_path,
-        )
-        .await
+            operation.clone(),
+        ).await;
+        let cancelled = state.operations.finish(&owner, &project_dir, &id, &operation, result.as_ref().err().map(|e| e.message.as_str()));
+        if cancelled && !result.as_ref().err().is_some_and(|error| error.message.starts_with(compile_process::CLEANUP_FAILED)) {
+            Err(compile_process::CANCELLED.to_string().into())
+        } else {
+            result
+        }
     });
-    let result = operation
+    let result = task
         .await
         .map_err(|error| format!("Compilation task failed: {error}"))??;
     window
@@ -1040,8 +1067,9 @@ pub async fn compile_latex_bytes(
     main_file: String,
     backend: Option<CompilerBackend>,
     engine: Option<TexEngine>,
+    operation: Arc<Operation>,
 ) -> Result<CompiledLatex, CompileFailure> {
-    compile_latex_selected(app, state, project_dir, main_file, backend, engine, None, None).await
+    compile_latex_selected(app, state, project_dir, main_file, backend, engine, None, None, operation).await
 }
 
 async fn compile_latex_selected(
@@ -1053,7 +1081,9 @@ async fn compile_latex_selected(
     engine: Option<TexEngine>,
     installation: Option<String>,
     snapshot_path: Option<String>,
+    operation: Arc<Operation>,
 ) -> Result<CompiledLatex, CompileFailure> {
+    operation.check()?;
     // Acquire semaphore permit (non-blocking)
     let _permit = state
         .semaphore
@@ -1061,7 +1091,10 @@ async fn compile_latex_selected(
         .try_acquire_owned()
         .map_err(|_| "Server busy, too many concurrent compilations".to_string())?;
 
-    let _storage_guard = crate::project_storage::COMPILATION_STORAGE_GATE.read().await;
+    let _storage_guard = tokio::select! {
+        _ = operation.token.cancelled() => return Err(compile_process::CANCELLED.to_string().into()),
+        guard = crate::project_storage::COMPILATION_STORAGE_GATE.read() => guard,
+    };
     let storage = resolve_project_storage(&app, &project_dir)?;
 
     // Acquire per-project lock to prevent concurrent compilations on the same build dir.
@@ -1072,7 +1105,14 @@ async fn compile_latex_selected(
             .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
             .clone()
     };
-    let _project_guard = project_lock.lock().await;
+    let _project_guard = tokio::select! {
+        _ = operation.token.cancelled() => return Err(compile_process::CANCELLED.to_string().into()),
+        guard = project_lock.lock() => guard,
+    };
+    operation.check()?;
+    if let Some(error) = state.blocked_projects.lock().await.get(&storage.project_id) {
+        return Err(error.clone().into());
+    }
 
     let t0 = std::time::Instant::now();
     let backend = backend.unwrap_or(CompilerBackend::Latexmk);
@@ -1090,19 +1130,22 @@ async fn compile_latex_selected(
     {
         let work_dir = work_dir.clone();
         let project_dir = project_dir.clone();
-        tokio::task::spawn_blocking(move || {
+        let cancelled = operation.token.clone();
+        let sync_result = tokio::task::spawn_blocking(move || {
             if is_reuse {
-                sync_source_files(Path::new(&project_dir), &work_dir)
+                sync_source_files_inner(Path::new(&project_dir), &work_dir, true, &cancelled)
                     .map_err(|e| format!("Failed to sync project: {}", e))
             } else {
                 std::fs::create_dir_all(&work_dir)
                     .map_err(|e| format!("Failed to create build dir: {}", e))?;
-                copy_dir_recursive(Path::new(&project_dir), &work_dir)
+                copy_dir_recursive_inner(Path::new(&project_dir), &work_dir, true, &cancelled)
                     .map_err(|e| format!("Failed to copy project: {}", e))
             }
         })
         .await
-        .map_err(|e| format!("File sync task panicked: {}", e))??;
+        .map_err(|e| format!("File sync task panicked: {}", e))?;
+        operation.check()?;
+        sync_result?;
     }
 
     eprintln!(
@@ -1123,6 +1166,11 @@ async fn compile_latex_selected(
     // Remove stale PDF so a failed compile doesn't return the previous result.
     let pdf_path = work_dir.join(format!("{}.pdf", main_file_name));
     let _ = std::fs::remove_file(&pdf_path);
+    // Published maps live in immutable snapshots. A new PDF must never be
+    // paired with a map left by an earlier or cancelled engine run.
+    for extension in ["synctex", "synctex.gz"] {
+        let _ = std::fs::remove_file(work_dir.join(format!("{main_file_name}.{extension}")));
+    }
     // Clear the previous root log so diagnostics cannot come from an older run.
     let log_path = work_dir.join(format!("{}.log", main_file_name));
     let _ = std::fs::remove_file(&log_path);
@@ -1156,6 +1204,7 @@ async fn compile_latex_selected(
     let compile_result = if matches!(backend, CompilerBackend::Latexmk) {
         let work_dir_clone = work_dir.clone();
         let main_file_clone = main_file.clone();
+        let cancelled = operation.token.clone();
         let (result, used_engine, ran_engine) = tokio::task::spawn_blocking(move || {
             lower_thread_priority();
             let mut actual_engine = None;
@@ -1166,6 +1215,7 @@ async fn compile_latex_selected(
                 engine,
                 installation,
                 &mut actual_engine,
+                &cancelled,
             );
             (result, used, actual_engine)
         })
@@ -1183,10 +1233,11 @@ async fn compile_latex_selected(
         // Run Tectonic in a subprocess to isolate C-level global state (font cache, etc.).
         let work_dir_clone = work_dir.clone();
         let main_file_clone = main_file.clone();
+        let cancelled = operation.token.clone();
         let (result, ran_engine) = tokio::task::spawn_blocking(move || {
             lower_thread_priority();
             let mut actual_engine = None;
-            let result = compile_with_tectonic_subprocess(&work_dir_clone, &main_file_clone, &mut actual_engine);
+            let result = compile_with_tectonic_subprocess(&work_dir_clone, &main_file_clone, &mut actual_engine, &cancelled);
             (result, actual_engine)
         })
         .await
@@ -1200,7 +1251,16 @@ async fn compile_latex_selected(
         result
     };
 
-    let failure = |message| CompileFailure { message, diagnostics: Vec::new(), actual_engine };
+    if let Err(error) = &compile_result {
+        if error.starts_with(compile_process::CLEANUP_FAILED) {
+            // A failed tree shutdown must never allow reuse of its mutable build
+            // directory. Keep this project blocked for the service lifetime.
+            state.blocked_projects.lock().await.insert(storage.project_id.clone(), error.clone());
+            return Err(error.clone().into());
+        }
+    }
+    operation.check()?;
+    let failure = |message| CompileFailure { code: "compile_failed", message, diagnostics: Vec::new(), actual_engine };
     let backend_label = match backend {
         CompilerBackend::Latexmk => format!("Latexmk/{}", match latexmk_engine {
             TexEngine::Latex => "pdflatex",
@@ -1243,12 +1303,20 @@ async fn compile_latex_selected(
         .map_err(|e| failure(format!("Retry prep panicked: {}", e)))?
         .map_err(failure)?;
 
+        operation.check()?;
         if needs_retry {
+            let cancelled = operation.token.clone();
             let retry_result = tokio::task::spawn_blocking(move || {
-                compile_with_tectonic_subprocess(&work_dir_clone, &main_file_clone, &mut None)
+                compile_with_tectonic_subprocess(&work_dir_clone, &main_file_clone, &mut None, &cancelled)
             })
             .await
             .map_err(|e| failure(format!("Retry task panicked: {}", e)))?;
+            if let Err(error) = &retry_result {
+                if error.starts_with(compile_process::CLEANUP_FAILED) {
+                    state.blocked_projects.lock().await.insert(storage.project_id.clone(), error.clone());
+                    return Err(error.clone().into());
+                }
+            }
             eprintln!(
                 "[latex] empty-body retry: ok={} pdf_exists={}",
                 retry_result.is_ok(),
@@ -1257,28 +1325,27 @@ async fn compile_latex_selected(
         }
     }
 
-    // Store build info
-    {
-        let mut builds = state.last_builds.lock().await;
-        builds.insert(
-            project_dir.clone(),
-            BuildInfo {
-                work_dir: work_dir.clone(),
-                main_file_name: main_file_name.clone(),
-            },
-        );
-    }
+    operation.check()?;
 
     if pdf_path.exists() {
         let pdf_path_clone = pdf_path.clone();
-        let (pdf_bytes, pdf_size) = tokio::task::spawn_blocking(move || {
+        let snapshot_work_dir = work_dir.clone();
+        let snapshot_name = main_file_name.clone();
+        let snapshot_cache = storage.cache_dir.clone();
+        let (pdf_bytes, pdf_size, output) = tokio::task::spawn_blocking(move || {
+            let output = tempfile::Builder::new().prefix("latex-published-").tempdir_in(snapshot_cache)?;
+            for extension in ["pdf", "synctex", "synctex.gz"] {
+                let name = format!("{snapshot_name}.{extension}");
+                let source = snapshot_work_dir.join(&name);
+                if source.exists() { std::fs::copy(source, output.path().join(name))?; }
+            }
             if let Some(destination) = snapshot_path {
                 let size = std::fs::copy(&pdf_path_clone, destination)?;
-                Ok((Vec::new(), size))
+                Ok((Vec::new(), size, output))
             } else {
                 let bytes = std::fs::read(&pdf_path_clone)?;
                 let size = bytes.len() as u64;
-                Ok::<_, std::io::Error>((bytes, size))
+                Ok::<_, std::io::Error>((bytes, size, output))
             }
         })
             .await
@@ -1294,6 +1361,14 @@ async fn compile_latex_selected(
         let log_content = std::fs::read_to_string(&log_path).unwrap_or_default();
         let mut diagnostics = extract_compile_diagnostics(&log_content);
         project_locations(&mut diagnostics, &work_dir);
+        let mut builds = state.last_builds.lock().await;
+        let mut published = state.published_builds.lock().await;
+        operation.publish(|| {
+            let build = BuildInfo { work_dir, main_file_name, output: Arc::new(output) };
+            builds.insert(project_dir.clone(), build.clone());
+            published.push_back((operation.identity.clone(), build));
+            while published.len() > 128 { published.pop_front(); }
+        })?;
         Ok(CompiledLatex {
             actual_engine,
             pdf_bytes,
@@ -1312,7 +1387,9 @@ async fn compile_latex_selected(
         };
         let mut diagnostics = extract_compile_diagnostics(&log_content);
         project_locations(&mut diagnostics, &work_dir);
+        operation.check()?;
         Err(CompileFailure {
+            code: "compile_failed",
             actual_engine,
             message: format!("Compilation failed ({})\n\n{}", backend_label, msg),
             diagnostics,
@@ -1324,15 +1401,15 @@ pub async fn get_compiled_pdf(
     state: &LatexCompilerState,
     project_dir: String,
 ) -> Result<Vec<u8>, String> {
-    let pdf_path = {
+    let build = {
         let builds = state.last_builds.lock().await;
         let build = builds
             .get(&project_dir)
             .ok_or("No compiled PDF is available for this project")?;
-        build.work_dir.join(format!("{}.pdf", build.main_file_name))
+        build.clone()
     };
 
-    let pdf_bytes = tokio::task::spawn_blocking(move || std::fs::read(&pdf_path))
+    let pdf_bytes = tokio::task::spawn_blocking(move || std::fs::read(build.output.path().join(format!("{}.pdf", build.main_file_name))))
         .await
         .map_err(|error| format!("PDF read task panicked: {error}"))?
         .map_err(|error| format!("Failed to read compiled PDF: {error}"))?;
@@ -1395,19 +1472,36 @@ fn relative_synctex_path(work_dir: &Path, file: &str) -> String {
         .replace('\\', "/")
 }
 
+async fn find_build(
+    state: &LatexCompilerState,
+    project_dir: &str,
+    window_id: &str,
+    compilation_id: Option<&str>,
+) -> Result<BuildInfo, String> {
+    if let Some(id) = compilation_id {
+        let published = state.published_builds.lock().await;
+        return published.iter().rev()
+            .find(|((owner, project, request), _)| owner == window_id && project == project_dir && request == id)
+            .map(|(_, build)| build.clone())
+            .ok_or_else(|| "The source map for this PDF is no longer available. Recompile to refresh it.".into());
+    }
+    state.last_builds.lock().await.get(project_dir).cloned()
+        .ok_or_else(|| "No build found for this project".into())
+}
+
 pub async fn get_synctex_source_map(
     state: &LatexCompilerState,
     project_dir: String,
+    window_id: &str,
+    compilation_id: Option<String>,
 ) -> Result<crate::synctex_boxes::SourceMap, String> {
-    let builds = state.last_builds.lock().await;
-    let build = builds
-        .get(&project_dir)
-        .ok_or("No build found for this project")?;
+    let build = find_build(state, &project_dir, window_id, compilation_id.as_deref()).await?;
     let work_dir = build.work_dir.clone();
-    let synctex_gz = work_dir.join(format!("{}.synctex.gz", build.main_file_name));
-    let synctex_plain = work_dir.join(format!("{}.synctex", build.main_file_name));
-    drop(builds);
+    let output = build.output.clone();
+    let synctex_gz = output.path().join(format!("{}.synctex.gz", build.main_file_name));
+    let synctex_plain = output.path().join(format!("{}.synctex", build.main_file_name));
     tokio::task::spawn_blocking(move || {
+        let _output = output;
         let data = read_synctex_data(&synctex_gz, &synctex_plain)?;
         let mut map = crate::synctex_boxes::parse_source_map(&data);
         for file in map.inputs.values_mut() {
@@ -1425,24 +1519,24 @@ pub async fn synctex_edit(
     page: u32,
     x: f64,
     y: f64,
+    window_id: &str,
+    compilation_id: Option<String>,
 ) -> Result<SynctexResult, String> {
-    let builds = state.last_builds.lock().await;
-    let build = builds
-        .get(&project_dir)
-        .ok_or("No build found for this project")?;
+    let build = find_build(state, &project_dir, window_id, compilation_id.as_deref()).await?;
 
-    let synctex_gz = build
-        .work_dir
+    let output = build.output.clone();
+    let synctex_gz = output
+        .path()
         .join(format!("{}.synctex.gz", build.main_file_name));
-    let synctex_plain = build
-        .work_dir
+    let synctex_plain = output
+        .path()
         .join(format!("{}.synctex", build.main_file_name));
 
     let work_dir = build.work_dir.clone();
-    drop(builds); // Release lock before I/O
 
     // Read, decompress, and parse synctex data (blocking I/O + CPU work → offload)
     let (file, line, column) = tokio::task::spawn_blocking(move || {
+        let _output = output;
         read_synctex_location(&synctex_gz, &synctex_plain, page, x, y)?
             .ok_or_else(|| "Could not resolve source location".to_string())
     })
@@ -1486,15 +1580,14 @@ pub async fn synctex_view(
     file: String,
     line: u32,
     column: u32,
+    window_id: &str,
+    compilation_id: Option<String>,
 ) -> Result<SynctexViewResult, String> {
-    let builds = state.last_builds.lock().await;
-    let build = builds
-        .get(&project_dir)
-        .ok_or("No build found for this project")?;
+    let build = find_build(state, &project_dir, window_id, compilation_id.as_deref()).await?;
 
     let work_dir = build.work_dir.clone();
-    let output_pdf = build.work_dir.join(format!("{}.pdf", build.main_file_name));
-    drop(builds);
+    let published_output = build.output.clone();
+    let output_pdf = published_output.path().join(format!("{}.pdf", build.main_file_name));
 
     let synctex = find_texlive_binary("synctex")?;
     let mut cmd = std::process::Command::new(&synctex);
@@ -1510,7 +1603,7 @@ pub async fn synctex_view(
     #[cfg(target_os = "windows")]
     cmd.creation_flags(CREATE_NO_WINDOW);
 
-    let output = tokio::task::spawn_blocking(move || cmd.output())
+    let output = tokio::task::spawn_blocking(move || { let _published_output = published_output; cmd.output() })
         .await
         .map_err(|e| format!("Synctex view task panicked: {}", e))?
         .map_err(|e| format!("Failed to launch synctex: {}", e))?;
@@ -1537,11 +1630,36 @@ pub async fn synctex_view(
 pub async fn cleanup_all_builds(state: &LatexCompilerState) {
     let mut builds = state.last_builds.lock().await;
     builds.clear();
+    state.published_builds.lock().await.clear();
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn displayed_pdf_uses_its_own_map_after_a_newer_native_build() {
+        let state = LatexCompilerState::default();
+        let work = tempfile::tempdir().unwrap();
+        let old_output = Arc::new(tempfile::tempdir().unwrap());
+        let new_output = Arc::new(tempfile::tempdir().unwrap());
+        for (output, file) in [(&old_output, "old.tex"), (&new_output, "new.tex")] {
+            std::fs::write(work.path().join(file), "source").unwrap();
+            std::fs::write(output.path().join("main.synctex"), format!("SyncTeX Version:1\nInput:1:{file}\nMagnification:1000\nUnit:1\nX Offset:0\nY Offset:0\nContent:\n")).unwrap();
+        }
+        let old = BuildInfo { output: old_output, work_dir: work.path().to_owned(), main_file_name: "main".into() };
+        let new = BuildInfo { output: new_output, work_dir: work.path().to_owned(), main_file_name: "main".into() };
+        state.published_builds.lock().await.push_back((("owner".into(), "/project".into(), "old-request".into()), old));
+        state.last_builds.lock().await.insert("/project".into(), new);
+        let map = get_synctex_source_map(&state, "/project".into(), "owner", Some("old-request".into())).await.unwrap();
+        assert_eq!(map.inputs.get(&1).map(String::as_str), Some("old.tex"));
+        let latest = get_synctex_source_map(&state, "/project".into(), "owner", None).await.unwrap();
+        assert_eq!(latest.inputs.get(&1).map(String::as_str), Some("new.tex"));
+        assert!(get_synctex_source_map(&state, "/project".into(), "other-window", Some("old-request".into())).await.is_err());
+        assert!(get_synctex_source_map(&state, "/other-project".into(), "owner", Some("old-request".into())).await.is_err());
+        assert!(get_synctex_source_map(&state, "/project".into(), "owner", Some("expired-request".into())).await.is_err());
+    }
+
 
     // --- detect_bib_tool ---
 
@@ -2134,7 +2252,7 @@ Postamble:
         let mut actual_engine = None;
         let (result, _) = compile_latexmk_auto(
             dir.path(), "main.tex", None, None,
-            Some(dir.path().to_string_lossy().into_owned()), &mut actual_engine,
+            Some(dir.path().to_string_lossy().into_owned()), &mut actual_engine, &CancellationToken::new(),
         );
         assert!(result.is_err());
         assert_eq!(actual_engine, None);
@@ -2149,29 +2267,29 @@ Postamble:
         let mut actual_engine = None;
         let write = |content: &str| std::fs::write(root.join("main.tex"), content).unwrap();
         write(r"\documentclass{article}\begin{document}Hello café\end{document}");
-        let (result, used) = compile_latexmk_auto(root, "main.tex", None, None, None, &mut actual_engine);
+        let (result, used) = compile_latexmk_auto(root, "main.tex", None, None, None, &mut actual_engine, &CancellationToken::new());
         assert!(result.is_ok(), "{result:?}");
         assert_eq!(used, TexEngine::Latex);
         assert_eq!(actual_engine, Some("pdflatex"));
         std::fs::write(root.join("preamble.tex"), r"\usepackage{fontspec}").unwrap();
         write(r"\documentclass{article}\input{preamble}\begin{document}Hello\end{document}");
-        let (result, used) = compile_latexmk_auto(root, "main.tex", None, None, None, &mut actual_engine);
+        let (result, used) = compile_latexmk_auto(root, "main.tex", None, None, None, &mut actual_engine, &CancellationToken::new());
         assert!(result.is_ok(), "{result:?}");
         assert_eq!(used, TexEngine::XeLaTeX);
         assert_eq!(actual_engine, Some("xelatex"));
         for (detected, preferred) in [(Some(TexEngine::Latex), None), (None, Some(TexEngine::Latex))] {
-            let (result, used) = compile_latexmk_auto(root, "main.tex", detected, preferred, None, &mut actual_engine);
+            let (result, used) = compile_latexmk_auto(root, "main.tex", detected, preferred, None, &mut actual_engine, &CancellationToken::new());
             assert!(result.is_err());
             assert_eq!(used, TexEngine::Latex);
             assert_eq!(actual_engine, Some("pdflatex"));
         }
         write(r"\documentclass[fontset=fandol]{ctexart}\begin{document}中文测试\end{document}");
-        let (result, used) = compile_latexmk_auto(root, "main.tex", None, None, None, &mut actual_engine);
+        let (result, used) = compile_latexmk_auto(root, "main.tex", None, None, None, &mut actual_engine, &CancellationToken::new());
         assert!(result.is_ok(), "{result:?}");
         assert_eq!(used, TexEngine::XeLaTeX);
         assert_eq!(actual_engine, Some("xelatex"));
         write(r"\documentclass{article}\begin{document}\input{missing}\end{document}");
-        let (result, used) = compile_latexmk_auto(root, "main.tex", None, None, None, &mut actual_engine);
+        let (result, used) = compile_latexmk_auto(root, "main.tex", None, None, None, &mut actual_engine, &CancellationToken::new());
         assert!(result.is_err());
         assert_eq!(used, TexEngine::Latex);
         assert_eq!(actual_engine, Some("pdflatex"));
@@ -2184,7 +2302,7 @@ Postamble:
         std::fs::write(dir.path().join("main.tex"), r"% !TEX program = xelatex
 \documentclass{article}\begin{document}Explicit engine\end{document}").unwrap();
         let mut actual_engine = None;
-        let (result, used) = compile_latexmk_auto(dir.path(), "main.tex", Some(TexEngine::XeLaTeX), Some(TexEngine::Latex), None, &mut actual_engine);
+        let (result, used) = compile_latexmk_auto(dir.path(), "main.tex", Some(TexEngine::XeLaTeX), Some(TexEngine::Latex), None, &mut actual_engine, &CancellationToken::new());
         assert!(result.is_ok(), "{result:?}");
         assert_eq!(used, TexEngine::Latex);
         assert_eq!(actual_engine, Some("pdflatex"));

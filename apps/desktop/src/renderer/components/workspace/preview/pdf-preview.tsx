@@ -5,6 +5,9 @@ import { createCompiledPdfMap } from "./pdf-source-map";
 import { clampPdfScale } from "./pdf-zoom";
 import {
   captureCompileContext,
+  captureAutomaticCompileContext,
+  COMPILATION_STOP_EVENT,
+  stopCompilation,
   compileWorkspace,
 } from "@/lib/workspace-compile";
 import { isComposingKey } from "@/lib/keyboard-events";
@@ -27,6 +30,8 @@ import {
   useCallback,
   useMemo,
   type ReactNode,
+  type PointerEvent,
+  type MouseEvent,
 } from "react";
 import {
   FileTextIcon,
@@ -36,6 +41,7 @@ import {
   AlertCircleIcon,
   LoaderIcon,
   RefreshCwIcon,
+  SquareIcon,
   MoveHorizontalIcon,
   MoveVerticalIcon,
   DownloadIcon,
@@ -63,6 +69,7 @@ import {
   DropdownMenuTrigger,
   DropdownMenuContent,
   DropdownMenuLabel,
+  DropdownMenuItem,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
   DropdownMenuCheckboxItem,
@@ -71,6 +78,7 @@ import {
 
 import {
   detectTexEngineFromContent,
+  getPublishedCompilation,
   synctexEdit,
   synctexView,
   type SynctexResult,
@@ -186,6 +194,9 @@ export function PdfPreview({
   const pdfRevision = useDocumentStore((s) => s.pdfRevision);
   const compileError = useDocumentStore((s) => s.compileError);
   const isCompiling = useDocumentStore((s) => s.isCompiling);
+  const isStoppingCompilation = useDocumentStore(
+    (s) => s.isStoppingCompilation,
+  );
   const isSaving = useDocumentStore((s) => s.isSaving);
   const content = useDocumentStore((s) => s.content);
   const projectRoot = useDocumentStore((s) => s.projectRoot);
@@ -515,7 +526,13 @@ export function PdfPreview({
     [files, projectComments],
   );
   const compiledMap = useMemo(
-    () => (projectRoot ? createCompiledPdfMap(projectRoot) : null),
+    () =>
+      projectRoot
+        ? createCompiledPdfMap(
+            projectRoot,
+            getPublishedCompilation(projectRoot),
+          )
+        : null,
     [projectRoot, pdfRevision, currentRootFileId],
   );
   const sourceLines = useMemo(
@@ -1869,6 +1886,101 @@ export function PdfPreview({
     [isStandalonePdf],
   );
 
+  const handleStopCompilation = useCallback(() => {
+    void stopCompilation().catch((error) => {
+      toast.error("Could not stop compilation", {
+        description: error instanceof Error ? error.message : String(error),
+      });
+    });
+  }, []);
+
+  const [stopHovered, setStopHovered] = useState(false);
+  const [stopFocused, setStopFocused] = useState(false);
+  const stopHoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const suppressStopHover = useRef(false);
+  const compilePointerType = useRef("mouse");
+  const clearStopHoverTimer = useCallback(() => {
+    if (stopHoverTimer.current !== null) {
+      clearTimeout(stopHoverTimer.current);
+      stopHoverTimer.current = null;
+    }
+  }, []);
+  const enterCompileButton = useCallback(
+    (event: PointerEvent<HTMLButtonElement>) => {
+      if (event.pointerType === "touch") return;
+      clearStopHoverTimer();
+      if (!isCompiling || isStoppingCompilation || suppressStopHover.current)
+        return;
+      // Match the chat drawer's brief reveal delay.
+      stopHoverTimer.current = setTimeout(() => {
+        stopHoverTimer.current = null;
+        setStopHovered(true);
+      }, 50);
+    },
+    [clearStopHoverTimer, isCompiling, isStoppingCompilation],
+  );
+  const leaveCompileButton = useCallback(
+    (event: PointerEvent<HTMLButtonElement>) => {
+      if (event.pointerType === "touch") return;
+      suppressStopHover.current = false;
+      clearStopHoverTimer();
+      setStopHovered(false);
+    },
+    [clearStopHoverTimer],
+  );
+  useEffect(() => {
+    clearStopHoverTimer();
+    setStopHovered(false);
+    setStopFocused(
+      recompileButtonRef.current?.matches(":focus-visible") ?? false,
+    );
+    if (
+      isCompiling &&
+      !isStoppingCompilation &&
+      !suppressStopHover.current &&
+      recompileButtonRef.current?.matches(":hover")
+    ) {
+      stopHoverTimer.current = setTimeout(() => {
+        stopHoverTimer.current = null;
+        setStopHovered(true);
+      }, 50);
+    }
+    return clearStopHoverTimer;
+  }, [
+    clearStopHoverTimer,
+    isCompiling,
+    isStoppingCompilation,
+    projectRoot,
+    currentRootFileId,
+  ]);
+  const showCompileStop =
+    isCompiling && !isStoppingCompilation && (stopHovered || stopFocused);
+  const activateCompileButton = useCallback(
+    (event: MouseEvent<HTMLButtonElement>) => {
+      if (isCompiling) {
+        // A double click on Recompile must not cancel the build it just started.
+        if (
+          showCompileStop ||
+          !suppressStopHover.current ||
+          event.detail === 0 ||
+          compilePointerType.current === "touch"
+        )
+          handleStopCompilation();
+        return;
+      }
+      clearStopHoverTimer();
+      setStopHovered(false);
+      // Like the diagnostic controls, require leaving before hover can reveal
+      // the changed action under a pointer that stayed here after activation.
+      suppressStopHover.current =
+        event.detail > 0 &&
+        compilePointerType.current !== "touch" &&
+        event.currentTarget.matches(":hover");
+      void handleCompile(true);
+    },
+    [isCompiling, handleStopCompilation, clearStopHoverTimer, handleCompile],
+  );
+
   const cancelScheduledAutoCompile = useCallback(() => {
     if (autoCompileTimerRef.current !== null) {
       clearTimeout(autoCompileTimerRef.current);
@@ -1889,7 +2001,7 @@ export function PdfPreview({
       if (autoCompileTimerRef.current !== null) {
         clearTimeout(autoCompileTimerRef.current);
       }
-      const isCurrentContext = captureCompileContext();
+      const isCurrentContext = captureAutomaticCompileContext();
       autoCompileTimerRef.current = setTimeout(() => {
         autoCompileTimerRef.current = null;
         const shouldForce = forceNextAutoCompileRef.current;
@@ -1901,6 +2013,15 @@ export function PdfPreview({
   );
 
   useEffect(() => cancelScheduledAutoCompile, [cancelScheduledAutoCompile]);
+  useEffect(() => {
+    const stopped = () => {
+      cancelScheduledAutoCompile();
+      // Stopping the first build must not trigger another initial build.
+      hasInitialCompile.current = true;
+    };
+    window.addEventListener(COMPILATION_STOP_EVENT, stopped);
+    return () => window.removeEventListener(COMPILATION_STOP_EVENT, stopped);
+  }, [cancelScheduledAutoCompile]);
 
   useEffect(() => {
     cancelScheduledAutoCompile();
@@ -2249,13 +2370,23 @@ export function PdfPreview({
           aria-label="Compilation"
           className="flex h-7 shrink-0 items-center rounded-md border border-border/70 bg-muted/50 transition-opacity"
         >
-          <Hint content="Recompile">
+          <Hint
+            content={
+              hideRecompileLabel && !isStoppingCompilation
+                ? isCompiling
+                  ? "Stop compilation"
+                  : "Recompile"
+                : null
+            }
+          >
             <Button
               ref={recompileButtonRef}
               variant="ghost"
               size="sm"
               className={cn(
-                "h-7 shrink-0 gap-1 rounded-md text-xs",
+                "group/compile h-7 shrink-0 gap-1 rounded-md text-xs transition-colors duration-150 ease-out motion-reduce:transition-none",
+                showCompileStop &&
+                  "text-red-600 hover:text-red-600 dark:text-red-400 dark:hover:text-red-400",
                 hideRecompileLabel
                   ? "justify-center px-0"
                   : "justify-start px-2",
@@ -2265,24 +2396,65 @@ export function PdfPreview({
                   ? RECOMPILE_ICON_BUTTON_WIDTH
                   : RECOMPILE_BUTTON_WIDTH,
               }}
-              onClick={() => handleCompile(true)}
-              disabled={!hasTexProject || isSaving || isCompiling}
-              aria-label="Recompile"
+              data-stop-visible={showCompileStop}
+              onPointerEnter={enterCompileButton}
+              onPointerLeave={leaveCompileButton}
+              onPointerDown={(event) => {
+                compilePointerType.current = event.pointerType;
+                if (!isCompiling) setStopFocused(false);
+              }}
+              onFocus={(event) =>
+                setStopFocused(event.currentTarget.matches(":focus-visible"))
+              }
+              onBlur={() => setStopFocused(false)}
+              onClick={activateCompileButton}
+              disabled={
+                isStoppingCompilation ||
+                (!isCompiling && (!hasTexProject || isSaving))
+              }
+              aria-label={
+                isStoppingCompilation
+                  ? "Stopping compilation"
+                  : isCompiling
+                    ? "Stop compilation"
+                    : "Recompile"
+              }
             >
-              <span className="inline-flex size-3.5 shrink-0 items-center justify-center">
+              <span className="inline-grid size-3.5 shrink-0 place-items-center">
                 <RefreshCwIcon
                   className={cn(
-                    "size-3.5",
+                    "col-start-1 row-start-1 size-3.5 transition-opacity duration-150 ease-out motion-reduce:transition-none",
                     (isSaving || isCompiling) && "animate-spin",
+                    isCompiling &&
+                      !isStoppingCompilation &&
+                      "group-data-[stop-visible=true]/compile:opacity-0",
                   )}
                 />
+                {isCompiling && !isStoppingCompilation && (
+                  <SquareIcon className="col-start-1 row-start-1 size-3.5 opacity-0 transition-opacity duration-150 ease-out group-data-[stop-visible=true]/compile:opacity-100 motion-reduce:transition-none" />
+                )}
               </span>
-              <span className={hideRecompileLabel ? "hidden" : undefined}>
-                {isSaving
-                  ? "Saving..."
-                  : isCompiling
-                    ? "Compiling..."
-                    : "Recompile"}
+              <span
+                className={
+                  hideRecompileLabel ? "hidden" : "inline-grid text-left"
+                }
+              >
+                {isStoppingCompilation ? (
+                  "Stopping..."
+                ) : isCompiling ? (
+                  <>
+                    <span className="col-start-1 row-start-1 transition-opacity duration-150 ease-out group-data-[stop-visible=true]/compile:opacity-0 motion-reduce:transition-none">
+                      Compiling...
+                    </span>
+                    <span className="col-start-1 row-start-1 opacity-0 transition-opacity duration-150 ease-out group-data-[stop-visible=true]/compile:opacity-100 motion-reduce:transition-none">
+                      Stop
+                    </span>
+                  </>
+                ) : isSaving ? (
+                  "Saving..."
+                ) : (
+                  "Recompile"
+                )}
               </span>
             </Button>
           </Hint>
@@ -2298,6 +2470,18 @@ export function PdfPreview({
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
+              {isCompiling && (
+                <>
+                  <DropdownMenuItem
+                    onSelect={handleStopCompilation}
+                    disabled={isStoppingCompilation}
+                  >
+                    <SquareIcon className="size-3.5" />
+                    {isStoppingCompilation ? "Stopping..." : "Stop compilation"}
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                </>
+              )}
               <DropdownMenuLabel>
                 <span className="inline-flex items-center gap-1.5">
                   {/* Material Design Icons engine-outline; see public/licenses/material-design-icons.txt. */}
@@ -2380,6 +2564,12 @@ export function PdfPreview({
       projectRoot,
       isSaving,
       isCompiling,
+      isStoppingCompilation,
+      handleStopCompilation,
+      showCompileStop,
+      enterCompileButton,
+      leaveCompileButton,
+      activateCompileButton,
       effectiveCompileError,
       hasTexProject,
       hasCurrentPdfData,

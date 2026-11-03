@@ -62,7 +62,15 @@ pnpm -C apps/desktop test:electron-persistence
 pnpm -C apps/desktop test:electron-profile
 pnpm -C apps/desktop test:electron-windows
 node apps/desktop/e2e/electron/updater-smoke.mjs
+node apps/desktop/e2e/electron/compile-cancellation-smoke.mjs
 ```
+
+The compilation cancellation smoke uses an isolated profile, a controlled latexmk
+process tree, and the actual Tectonic subprocess. It checks scoped cancellation,
+lock reuse, and preservation of published PDF/SyncTeX output. It currently targets
+macOS/Linux process groups; Windows cleanup requires separate runtime verification.
+The compilation-controls browser suite covers the hover/focus Stop action,
+Stopping state, pending recompiles, and resuming after a fresh edit.
 
 Additional `e2e/electron/*-smoke.mjs` scripts exercise specific features, including comments, Git, agent drafts, native compilation, and restart recovery. Review each script's prerequisites before running it. Agent protocol fixtures use local scripted providers; real installed-agent tests must be explicitly selected and may depend on local credentials.
 

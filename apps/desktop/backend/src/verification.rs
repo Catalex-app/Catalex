@@ -436,6 +436,12 @@ async fn compile(
         "verification-compile-{}",
         window.service.verification.next_request_id.fetch_add(1, Ordering::Relaxed)
     );
+    let operation = match window.service.latex.operations.register_verification(
+        &window.id, project_path, &request_id, cancelled.child_token(),
+    ) {
+        Ok(operation) => operation,
+        Err(error) => return failure("compile_failed", &error),
+    };
     let backend = compiler_backend_name(context.backend);
     let engine = if context.auto_engine { "auto" } else { tex_engine_name(context.engine) };
     let _ = window.emit(
@@ -466,8 +472,12 @@ async fn compile(
         context.target_path.clone(),
         Some(context.backend),
         if context.auto_engine { None } else { Some(context.engine) },
-    )
-    .await;
+        operation.clone(),
+    ).await;
+    let stopped = compiler_state.operations.finish(&window.id, project_path, &request_id, &operation,
+        compile_result.as_ref().err().map(|e| e.message.as_str()));
+    let cleanup_failed = compile_result.as_ref().err().is_some_and(|error| error.message.starts_with(crate::compile_process::CLEANUP_FAILED));
+    let compilation_cancelled = !cleanup_failed && (stopped || compile_result.as_ref().err().is_some_and(|error| error.code == "cancelled"));
     // Always send a terminal event after the compiler releases its lock. A
     // cancelled turn releases the renderer queue without publishing its result.
     let duration_ms = started_at.elapsed().as_millis() as u64;
@@ -516,12 +526,12 @@ async fn compile(
         .clone();
     {
         let mut results = state.last_compile_results.lock().await;
-        if !cancelled.is_cancelled() {
+        if !cancelled.is_cancelled() && !compilation_cancelled {
             results.insert(canonical_project.to_string(), payload.clone());
         }
     }
 
-    if !cancelled.is_cancelled() {
+    if !cancelled.is_cancelled() && !compilation_cancelled {
         if let Some(bytes) = pdf_bytes {
             state.save_pdf(VerificationPdf {
                 window_id: window.id.clone(),
@@ -531,7 +541,7 @@ async fn compile(
             }).await;
         }
     }
-    let was_cancelled = cancelled.is_cancelled();
+    let was_cancelled = cancelled.is_cancelled() || compilation_cancelled;
     let _ = window.emit(
         "catalex-verification-compile",
         VerificationCompileEvent {
@@ -549,6 +559,9 @@ async fn compile(
         },
     );
 
+    if compilation_cancelled && !cancelled.is_cancelled() {
+        return failure("compile_cancelled", "Compilation cancelled by user");
+    }
     if was_cancelled {
         return failure("turn_cancelled", concat!(env!("APP_BRAND_NAME"), " agent turn cancelled"));
     }

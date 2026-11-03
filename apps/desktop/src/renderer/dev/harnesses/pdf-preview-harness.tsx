@@ -34,6 +34,12 @@ declare global {
       isCompiling: () => boolean;
       requestMergePreviewRefresh: () => void;
       setCompileDelay: (delayMs: number) => void;
+      setCancellationDelay: (delayMs: number) => void;
+      getCancellationCount: () => number;
+      getPreviewState: () => {
+        pdfRevision: number;
+        compileError: string | null;
+      };
       setSourceContent: (content: string) => void;
     };
   }
@@ -53,6 +59,9 @@ export function PdfPreviewHarness() {
   const compileRequestCountRef = useRef(0);
   const compileRequestContentsRef = useRef<string[]>([]);
   const compileDelayRef = useRef(0);
+  const cancellationDelayRef = useRef(0);
+  const cancellationCountRef = useRef(0);
+  const pendingCompilationsRef = useRef(new Map<string, () => Promise<void>>());
   const failNextCompileRef = useRef(false);
   const compileChoicesRef = useRef<
     Array<{ backend: unknown; engine: unknown }>
@@ -81,9 +90,32 @@ export function PdfPreviewHarness() {
             useDocumentStore.getState().files[0]?.content ?? "",
           );
           if (compileDelayRef.current > 0) {
-            await new Promise((resolve) =>
-              setTimeout(resolve, compileDelayRef.current),
-            );
+            const id = String(args?.compilationId);
+            const cancelled = await new Promise<boolean>((resolve) => {
+              const timer = setTimeout(
+                () => resolve(false),
+                compileDelayRef.current,
+              );
+              let cleanup: Promise<void> | undefined;
+              pendingCompilationsRef.current.set(id, () => {
+                cleanup ??= new Promise<void>((finished) => {
+                  clearTimeout(timer);
+                  setTimeout(() => {
+                    resolve(true);
+                    finished();
+                  }, cancellationDelayRef.current);
+                });
+                return cleanup;
+              });
+            });
+            pendingCompilationsRef.current.delete(id);
+            if (cancelled) {
+              throw {
+                code: "cancelled",
+                message: "Compilation cancelled",
+                diagnostics: [],
+              };
+            }
           }
           if (failNextCompileRef.current) {
             failNextCompileRef.current = false;
@@ -95,6 +127,17 @@ export function PdfPreviewHarness() {
               | undefined
           )?.onmessage([]);
           return compiledPdfBuffer ?? new ArrayBuffer(0);
+        }
+        if (cmd === "cancel_compilation") {
+          cancellationCountRef.current += 1;
+          if (args?.projectDir === PROJECT_ROOT) {
+            await Promise.all(
+              ((args?.compilationIds as string[]) ?? []).map((id) =>
+                pendingCompilationsRef.current.get(id)?.(),
+              ),
+            );
+          }
+          return null;
         }
         if (cmd === "get_compiled_pdf") {
           return compiledPdfBuffer ?? new ArrayBuffer(0);
@@ -161,6 +204,14 @@ export function PdfPreviewHarness() {
       setCompileDelay: (delayMs) => {
         compileDelayRef.current = delayMs;
       },
+      setCancellationDelay: (delayMs) => {
+        cancellationDelayRef.current = delayMs;
+      },
+      getCancellationCount: () => cancellationCountRef.current,
+      getPreviewState: () => {
+        const { pdfRevision, compileError } = useDocumentStore.getState();
+        return { pdfRevision, compileError };
+      },
       setSourceContent: (content) => {
         useDocumentStore.getState().updateFileContent("main.tex", content);
       },
@@ -184,6 +235,7 @@ export function PdfPreviewHarness() {
           return;
         }
         await emit("catalex-verification-compile", {
+          request_id: "pdf-preview-harness-initial",
           tab_id: "pdf-preview-harness",
           project_path: PROJECT_ROOT,
           root_id: "main.tex",
@@ -193,6 +245,7 @@ export function PdfPreviewHarness() {
           status: "started",
         });
         await emit("catalex-verification-compile", {
+          request_id: "pdf-preview-harness-initial",
           tab_id: "pdf-preview-harness",
           project_path: PROJECT_ROOT,
           root_id: "main.tex",
