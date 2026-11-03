@@ -11,6 +11,7 @@ mod git_credentials;
 mod history;
 mod host;
 mod latex;
+mod compile_process;
 mod model_verification;
 mod pi;
 mod private_files;

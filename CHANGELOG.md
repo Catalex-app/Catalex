@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+## [0.1.1]
+
+- Prioritize exact conference matches in the deadline picker, with highlighted search text and separate exact and fuzzy result sections.
+- Stop a running compilation from the compile button or compilation menu while preserving the last published PDF and source mapping.
 - Automatically update the Homebrew tap after publishing a stable macOS release.
 
 ## [0.1.0]

@@ -1,3 +1,4 @@
+import { invoke } from "./desktop/core";
 import type { PdfSource } from "./mupdf/pdf-source";
 import { isMarkdownFile } from "./markdown";
 import { useDocumentStore, hasPdfData } from "@/stores/document-store";
@@ -5,6 +6,7 @@ import { useHistoryStore } from "@/stores/history-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import {
   compileLatex,
+  recordPdfCompilation,
   compileErrorDiagnostics,
   detectTexEngineFromContent,
   formatCompileError,
@@ -15,7 +17,12 @@ import {
 type State = ReturnType<typeof useDocumentStore.getState>;
 type Options = { force?: boolean; snapshot?: boolean; automatic?: boolean };
 export type Compilation = {
+  readonly id: string;
+  readonly projectDir: string;
+  readonly projectRoot: string;
   readonly rootId: string;
+  cancelled: boolean;
+  nativeStarted: boolean;
   readonly generation: number;
   readonly revision: number;
 };
@@ -36,6 +43,86 @@ let running: Compilation | null = null;
 let queued: Options | null = null;
 let revision = 0;
 let workspaceRevision = 0;
+let stopRevision = 0;
+let stoppedAutomaticInputs: string | null = null;
+
+function automaticInputs(state: State) {
+  const settings = useSettingsStore.getState();
+  const root = resolveCompileTarget(state.activeFileId, state.files)?.rootId;
+  return JSON.stringify([
+    context(state),
+    state.contentGeneration,
+    state.files.map((file) => file.relativePath),
+    state.projectRoot && root
+      ? settings.getCompilerChoiceForRoot(state.projectRoot, root)
+      : null,
+    settings.compilerBackend,
+    settings.compilerEngine,
+    settings.latexInstallation,
+  ]);
+}
+const operations = new Map<
+  Compilation,
+  { done: Promise<void>; finish: () => void }
+>();
+const stopping = new Set<{ workspace: number }>();
+export const COMPILATION_STOP_EVENT = "catalex-compilation-stop";
+
+/** Scheduled work from before Stop must not restart the compiler. */
+export function captureAutomaticCompileContext() {
+  const current = captureCompileContext();
+  const captured = stopRevision;
+  return () => current() && captured === stopRevision;
+}
+
+function drainCompilationQueue() {
+  if (running || active || stopping.size > 0) return;
+  const next = queued;
+  queued = null;
+  useDocumentStore.setState({ isCompiling: false, pendingRecompile: false });
+  if (next) void compileWorkspace(next);
+}
+
+/** Cancel only this window's current workspace; keep ownership until cleanup. */
+export async function stopCompilation() {
+  observeWorkspace();
+  const state = useDocumentStore.getState();
+  const projectDir = state.agentWorkspaceRoot ?? state.projectRoot;
+  if (!projectDir) return;
+  stoppedAutomaticInputs = automaticInputs(state);
+  stopRevision += 1;
+  revision += 1;
+  queued = null;
+  window.dispatchEvent(new Event(COMPILATION_STOP_EVENT));
+  const selected = [...operations.keys()].filter(
+    (request) => request.projectDir === projectDir,
+  );
+  for (const request of selected) request.cancelled = true;
+  const barrier = { workspace: workspaceRevision };
+  stopping.add(barrier);
+  useDocumentStore.setState({
+    isStoppingCompilation: true,
+    pendingRecompile: false,
+  });
+  try {
+    const compilationIds = selected
+      .filter((request) => request.nativeStarted)
+      .map((request) => request.id);
+    await Promise.all([
+      // A verification-start event can still be in transit to this renderer.
+      invoke("cancel_compilation", { projectDir, compilationIds }),
+      ...selected.map((request) => operations.get(request)?.done),
+    ]);
+  } finally {
+    stopping.delete(barrier);
+    useDocumentStore.setState({
+      isStoppingCompilation: [...stopping].some(
+        (entry) => entry.workspace === workspaceRevision,
+      ),
+    });
+    drainCompilationQueue();
+  }
+}
 
 export function captureCompileContext() {
   observeWorkspace();
@@ -90,17 +177,22 @@ function observeWorkspace() {
     revision += 1;
     if (!switched) return;
     workspaceRevision += 1;
+    stoppedAutomaticInputs = null;
     active = null;
     queued = null;
     if (state.isCompiling || state.pendingRecompile)
       useDocumentStore.setState({
         isCompiling: false,
+        isStoppingCompilation: false,
         pendingRecompile: false,
       });
   });
 }
 
-export function beginCompilation(rootId: string): Compilation | null {
+export function beginCompilation(
+  rootId: string,
+  id: string = crypto.randomUUID(),
+): Compilation | null {
   observeWorkspace();
   const state = useDocumentStore.getState();
   if (
@@ -112,7 +204,21 @@ export function beginCompilation(rootId: string): Compilation | null {
   if (resolveCompileTarget(state.activeFileId, state.files)?.rootId !== rootId)
     return null;
   revision += 1;
-  const request = { rootId, generation: state.contentGeneration, revision };
+  const request: Compilation = {
+    id,
+    rootId,
+    generation: state.contentGeneration,
+    revision,
+    projectDir: state.agentWorkspaceRoot ?? state.projectRoot,
+    projectRoot: state.projectRoot,
+    cancelled: false,
+    nativeStarted: true,
+  };
+  let finish!: () => void;
+  const done = new Promise<void>((resolve) => {
+    finish = resolve;
+  });
+  operations.set(request, { done, finish });
   active = request;
   // An externally started verification must not erase a pending user request.
   if (queued) revision += 1;
@@ -124,7 +230,9 @@ export function beginCompilation(rootId: string): Compilation | null {
 }
 
 export function isCurrentCompilation(request: Compilation) {
-  return active === request && request.revision === revision;
+  return (
+    !request.cancelled && active === request && request.revision === revision
+  );
 }
 
 export function publishCompilation(
@@ -133,6 +241,12 @@ export function publishCompilation(
   diagnostics: CompileDiagnostic[] = [],
 ) {
   if (!isCurrentCompilation(request)) return;
+  recordPdfCompilation(
+    bytes,
+    request.projectRoot,
+    request.projectDir,
+    request.id,
+  );
   useDocumentStore
     .getState()
     .setPdfData(bytes, request.rootId, request.generation, diagnostics);
@@ -150,15 +264,13 @@ export function failCompilation(request: Compilation, error: unknown) {
 }
 
 export function finishCompilation(request: Compilation) {
+  operations.get(request)?.finish();
+  operations.delete(request);
   const ownedExecution = running === request;
   if (ownedExecution) running = null;
   if (active === request) active = null;
   else if (!ownedExecution) return;
-  if (running || active) return;
-  const next = queued;
-  queued = null;
-  useDocumentStore.setState({ isCompiling: false, pendingRecompile: false });
-  if (next) void compileWorkspace(next);
+  drainCompilationQueue();
 }
 
 /** Shared entry point for editor shortcuts, preview buttons and auto-compilation. */
@@ -177,6 +289,9 @@ export async function compileWorkspace(options: Options = {}) {
     state.isApplyingAgentDraft
   )
     return;
+  if (options.automatic && stoppedAutomaticInputs === automaticInputs(state))
+    return;
+  stoppedAutomaticInputs = null;
   const file = state.files.find((entry) => entry.id === state.activeFileId);
   if (
     file?.type === "pdf" ||
@@ -184,7 +299,7 @@ export async function compileWorkspace(options: Options = {}) {
     (file && isMarkdownFile(file))
   )
     return;
-  if (running || active) {
+  if (running || active || stopping.size > 0) {
     revision += 1;
     queued = mergeRequests(queued, options);
     useDocumentStore.setState({ isCompiling: true, pendingRecompile: true });
@@ -207,6 +322,7 @@ export async function compileWorkspace(options: Options = {}) {
   const request = beginCompilation(target.rootId);
   if (!request) return;
   running = request;
+  request.nativeStarted = false;
   const started = Date.now();
   const workspace = workspaceRevision;
   let compilerStarted = false;
@@ -239,12 +355,14 @@ export async function compileWorkspace(options: Options = {}) {
         detected,
       );
     compilerStarted = true;
+    request.nativeStarted = true;
     const result = await compileLatex(
       state.agentWorkspaceRoot ?? state.projectRoot,
       target.targetPath,
       backend,
       engine,
       autoEngine,
+      request.id,
     );
     publishCompilation(request, result.pdfData, result.diagnostics);
   } catch (error) {
@@ -254,6 +372,7 @@ export async function compileWorkspace(options: Options = {}) {
     // before it ever reaches the compiler, even with automatic compilation off.
     if (
       !compilerStarted &&
+      !request.cancelled &&
       (!options.automatic ||
         useSettingsStore
           .getState()

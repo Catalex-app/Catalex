@@ -54,6 +54,7 @@ async fn compile_pdf(window: WindowContext, args: &Value, snapshot: bool) -> Res
         argument::<ChannelId>(args, "diagnostics")?.__channel,
         argument(args, "installation")?,
         if snapshot { Some(argument(args, "snapshotPath")?) } else { None },
+        argument(args, "compilationId")?,
     )
     .await
     .map_err(|error| serde_json::to_value(error).unwrap_or_else(|error| json!(error.to_string())))
@@ -865,6 +866,10 @@ async fn dispatch(
             ))
         }),
         "detect_texlive" => tokio::task::block_in_place(|| value(latex::detect_texlive())),
+        "cancel_compilation" => result(window.service.latex.operations.cancel(
+            window.label(), &argument::<String>(&args, "projectDir")?,
+            &argument::<Vec<String>>(&args, "compilationIds")?,
+        ).await),
         "compile_latex" => result(compile_pdf(window, &args, false).await),
         "compile_latex_snapshot" => result(compile_pdf(window, &args, true).await),
         "get_compiled_pdf" => {
@@ -876,7 +881,7 @@ async fn dispatch(
             }
         }
         "get_synctex_source_map" => result(
-            latex::get_synctex_source_map(&service.latex, argument(&args, "projectDir")?).await,
+            latex::get_synctex_source_map(&service.latex, argument(&args, "projectDir")?, window.label(), argument(&args, "compilationId")?).await,
         ),
         "synctex_edit" => result(
             latex::synctex_edit(
@@ -885,6 +890,8 @@ async fn dispatch(
                 argument(&args, "page")?,
                 argument(&args, "x")?,
                 argument(&args, "y")?,
+                window.label(),
+                argument(&args, "compilationId")?,
             )
             .await,
         ),
@@ -895,6 +902,8 @@ async fn dispatch(
                 argument(&args, "file")?,
                 argument(&args, "line")?,
                 argument(&args, "column")?,
+                window.label(),
+                argument(&args, "compilationId")?,
             )
             .await,
         ),
@@ -1076,6 +1085,7 @@ mod tests {
     #[test]
     fn compile_failure_keeps_structured_diagnostics() {
         let failure = crate::latex::CompileFailure {
+            code: "compile_failed",
             actual_engine: None,
             message: "Compilation failed".into(),
             diagnostics: vec![crate::latex::CompileDiagnostic {

@@ -1,3 +1,4 @@
+import { recordPdfCompilation } from "@/lib/latex-compiler";
 import { useDocumentStore } from "@/stores/document-store";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -112,6 +113,7 @@ vi.mock("@/stores/history-store", () => ({
 
 vi.mock("@/lib/latex-compiler", () => ({
   compileLatex: mocks.compileLatex,
+  recordPdfCompilation: vi.fn(),
   detectTexEngineFromContent: vi.fn(() => null),
   resolveCompileTarget: mocks.resolveCompileTarget,
   formatCompileError: vi.fn((error) => error?.message ?? String(error)),
@@ -1624,6 +1626,12 @@ describe("useAgentEvents provider updates", () => {
       requestId: "compile-1",
       projectDir: "/project",
     });
+    expect(recordPdfCompilation).toHaveBeenCalledWith(
+      new Uint8Array(pdfBuffer),
+      "/project",
+      "/project",
+      "compile-1",
+    );
     expect(mocks.documentState.setPdfData).toHaveBeenCalledWith(
       new Uint8Array(pdfBuffer),
       "main",

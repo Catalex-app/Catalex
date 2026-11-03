@@ -160,6 +160,7 @@ interface DocumentState {
   pdfRevision: number;
   compileError: string | null;
   isCompiling: boolean;
+  isStoppingCompilation: boolean;
   /** When true, a recompile will be triggered after the current compile finishes. */
   pendingRecompile: boolean;
   isSaving: boolean;
@@ -922,6 +923,7 @@ export const useDocumentStore = create<DocumentState>()((set, get) => ({
   pdfRevision: 0,
   compileError: null,
   isCompiling: false,
+  isStoppingCompilation: false,
   pendingRecompile: false,
   isSaving: false,
   isGitOperationRunning: false,

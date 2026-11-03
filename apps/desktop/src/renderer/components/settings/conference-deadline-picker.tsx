@@ -4,6 +4,8 @@ import { SearchablePicker } from "@/components/ui/searchable-picker";
 import {
   fetchCcfddlDeadlines,
   filterCcfddlEntriesByConferenceName,
+  highlightCcfddlMatch,
+  isExactCcfddlConferenceMatch,
   type CCFDDLDeadlineEntry,
 } from "@/lib/ccfddl";
 import { useSettingsStore } from "@/stores/settings-store";
@@ -87,6 +89,26 @@ export function ConferenceDeadlinePicker({
         options={filteredCcfddlEntries.map((entry) => ({
           value: entry.id,
           label: entry.displayTitle,
+          group: /[\p{L}\p{N}]/u.test(ccfddlQuery)
+            ? isExactCcfddlConferenceMatch(entry, ccfddlQuery)
+              ? "Exact matches"
+              : "Fuzzy matches"
+            : undefined,
+          labelContent: highlightCcfddlMatch(
+            entry.displayTitle,
+            ccfddlQuery,
+          ).map((part, index) =>
+            part.matched ? (
+              <mark
+                key={index}
+                className="rounded-sm bg-primary/15 text-inherit"
+              >
+                {part.text}
+              </mark>
+            ) : (
+              part.text
+            ),
+          ),
           description: `${entry.deadline} ${entry.sourceTimezone}`,
         }))}
         onSelect={(id) => {

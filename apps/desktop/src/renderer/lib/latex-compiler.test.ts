@@ -2,12 +2,20 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { invoke } from "@/lib/desktop/core";
 import {
   compileLatex,
+  recordPdfCompilation,
+  getSynctexSourceMap,
+  synctexEdit,
+  synctexView,
   compileErrorDiagnostics,
   formatCompileError,
   type CompileDiagnostic,
 } from "./latex-compiler";
 
-vi.mock("@/stores/document-store", () => ({ resolveTexRoot: vi.fn() }));
+import { getCurrentPdfBytes } from "@/stores/document-store";
+vi.mock("@/stores/document-store", () => ({
+  resolveTexRoot: vi.fn(),
+  getCurrentPdfBytes: vi.fn(),
+}));
 vi.mock("@/lib/desktop/core", () => ({
   invoke: vi.fn(),
   Channel: class {
@@ -121,5 +129,38 @@ describe("compileLatex diagnostic transport", () => {
   it("rejects a failed compile without waiting for a diagnostic channel message", async () => {
     vi.mocked(invoke).mockRejectedValue("Compilation failed");
     await expect(compileLatex("/project")).rejects.toBe("Compilation failed");
+  });
+});
+
+it("uses the displayed PDF's exact compilation for every source lookup after a later build", async () => {
+  const displayed = new Uint8Array([1]);
+  recordPdfCompilation(displayed, "/project", "/draft", "published-old");
+  recordPdfCompilation(
+    new Uint8Array([2]),
+    "/project",
+    "/draft",
+    "completed-new",
+  );
+  vi.mocked(getCurrentPdfBytes).mockReturnValue(displayed);
+  vi.mocked(invoke).mockResolvedValue(null);
+  await getSynctexSourceMap("/project");
+  await synctexEdit("/project", 1, 2, 3);
+  await synctexView("/project", "main.tex", 2, 0);
+  for (const command of [
+    "get_synctex_source_map",
+    "synctex_edit",
+    "synctex_view",
+  ]) {
+    expect(invoke).toHaveBeenCalledWith(
+      command,
+      expect.objectContaining({
+        projectDir: "/draft",
+        compilationId: "published-old",
+      }),
+    );
+  }
+  await getSynctexSourceMap("/other");
+  expect(invoke).toHaveBeenLastCalledWith("get_synctex_source_map", {
+    projectDir: "/other",
   });
 });

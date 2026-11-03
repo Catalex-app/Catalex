@@ -200,10 +200,10 @@ test("automatic compilation handles edits for both backends and can be disabled 
   });
   await expect.poll(() => count(page)).toBe(before + 3);
   await expect(
-    page.getByRole("button", { name: "Recompile", exact: true }),
-  ).toBeDisabled();
+    page.getByRole("button", { name: "Stop compilation", exact: true }),
+  ).toBeEnabled();
   await expect(
-    page.getByRole("button", { name: "Recompile", exact: true }),
+    page.getByRole("button", { name: "Stop compilation", exact: true }),
   ).toContainText("Compiling...");
   await page.evaluate(() =>
     window.__pdfPreviewHarness?.setSourceContent("Queued edit"),
@@ -293,7 +293,10 @@ test("Recompile becomes icon-only only when the preview pane runs out of room", 
   await openPreview(page);
   await page.locator("aside").evaluate((element) => element.remove());
   const pane = page.getByTestId("pdf-preview-harness-shell");
-  const button = page.getByRole("button", { name: "Recompile", exact: true });
+  const button = page
+    .getByRole("group", { name: "Compilation", exact: true })
+    .getByRole("button")
+    .first();
   const label = button.getByText("Recompile", { exact: true });
   const toolbar = page.locator("[data-pdf-toolbar]");
   const buttonWidth = () => button.evaluate((element) => element.clientWidth);
@@ -313,6 +316,12 @@ test("Recompile becomes icon-only only when the preview pane runs out of room", 
   await expect(label).toBeVisible();
   await expect.poll(buttonWidth).toBe(100);
   await expectFits();
+  await button.hover();
+  await page.waitForTimeout(500);
+  await expect(
+    page.getByRole("tooltip", { name: "Recompile", exact: true }),
+  ).toHaveCount(0);
+  await page.mouse.move(500, 500);
 
   // Resize only the pane: the browser viewport remains wide.
   await pane.evaluate((element) => {
@@ -333,7 +342,8 @@ test("Recompile becomes icon-only only when the preview pane runs out of room", 
   await page.keyboard.press("Escape");
   await page.evaluate(() => window.__pdfPreviewHarness?.setCompileDelay(2000));
   await button.click();
-  await expect(button.locator("svg")).toHaveClass(/animate-spin/);
+  await page.mouse.move(300, 400);
+  await expect(button.locator("svg.animate-spin")).toBeVisible();
   await expect.poll(buttonWidth).toBe(28);
   await expectFits();
   await page.screenshot({
@@ -469,4 +479,288 @@ test("other action menus still close after selecting an item", async ({
   await page.getByRole("menuitem", { name: "Reset", exact: true }).click();
   await expect(page.getByRole("menu")).toHaveCount(0);
   await expect(page.getByRole("dialog")).toBeVisible();
+});
+
+test("Stop clears queued and scheduled recompiles, preserves the PDF, and resumes on a fresh edit", async ({
+  page,
+}) => {
+  await openPreview(page);
+  await page.locator("aside").evaluate((element) => element.remove());
+  const group = page.getByRole("group", { name: "Compilation", exact: true });
+  const width = await group.boundingBox();
+  const preview = await page.evaluate(() =>
+    window.__pdfPreviewHarness?.getPreviewState(),
+  );
+  const before = (await count(page))!;
+  await page.evaluate(() => {
+    window.__pdfPreviewHarness?.setCompileDelay(10000);
+    window.__pdfPreviewHarness?.setCancellationDelay(600);
+    window.__pdfPreviewHarness?.setSourceContent("Running compilation");
+  });
+  await expect.poll(() => count(page)).toBe(before + 1);
+  const stop = page.getByRole("button", {
+    name: "Stop compilation",
+    exact: true,
+  });
+  await expect(stop).toBeEnabled();
+  await expect(stop.getByText("Compiling...", { exact: true })).toHaveCSS(
+    "opacity",
+    "1",
+  );
+  await page.screenshot({
+    path: test.info().outputPath("compiling-normal.png"),
+    animations: "disabled",
+  });
+  await stop.hover();
+  await expect(stop.getByText("Stop", { exact: true })).toHaveCSS(
+    "opacity",
+    "1",
+  );
+  await expect(stop.getByText("Compiling...", { exact: true })).toHaveCSS(
+    "opacity",
+    "0",
+  );
+  expect((await group.boundingBox())!.width).toBe(width!.width);
+  await page.screenshot({
+    path: test.info().outputPath("compiling-hover-stop.png"),
+    animations: "disabled",
+  });
+  await page.mouse.move(500, 500);
+  await expect(stop.getByText("Compiling...", { exact: true })).toHaveCSS(
+    "opacity",
+    "1",
+  );
+  await page.evaluate(() =>
+    window.__pdfPreviewHarness?.setSourceContent("Already queued edit"),
+  );
+  await page.waitForTimeout(900);
+  await page.evaluate(() =>
+    window.__pdfPreviewHarness?.setSourceContent("Debounced edit before Stop"),
+  );
+  await stop.click();
+  const stopping = group.getByRole("button").first();
+  await expect(stopping).toBeDisabled();
+  await expect(stopping).toContainText(/Stopping/);
+  expect((await group.boundingBox())!.width).toBe(width!.width);
+  await page.screenshot({
+    path: test.info().outputPath("compilation-stopping.png"),
+    animations: "disabled",
+  });
+  await idle(page);
+  expect(
+    await page.evaluate(() => window.__pdfPreviewHarness?.getPreviewState()),
+  ).toEqual(preview);
+  await expectNoCompile(page, before + 1);
+  await expect(await openOptions(page)).toHaveAttribute("aria-checked", "true");
+  await page.keyboard.press("Escape");
+  await page.evaluate(() => {
+    window.__pdfPreviewHarness?.setCompileDelay(0);
+    window.__pdfPreviewHarness?.setSourceContent("Fresh edit after Stop");
+  });
+  await expect.poll(() => count(page)).toBe(before + 2);
+  await idle(page);
+  expect(
+    await page.evaluate(() =>
+      window.__pdfPreviewHarness?.getCancellationCount(),
+    ),
+  ).toBe(1);
+  await expect(page.locator(".mupdf-page canvas").first()).toBeVisible();
+});
+
+test("Stop supports keyboard activation and the compilation menu", async ({
+  page,
+}) => {
+  await openPreview(page);
+  await page.evaluate(() => window.__pdfPreviewHarness?.setCompileDelay(10000));
+  await page.getByRole("button", { name: "Recompile", exact: true }).click();
+  await page.mouse.move(500, 500);
+  const stop = page.getByRole("button", {
+    name: "Stop compilation",
+    exact: true,
+  });
+  await page.getByRole("button", { name: "Compilation options" }).focus();
+  await page.keyboard.press("Shift+Tab");
+  await expect(stop).toBeFocused();
+  await expect(stop.getByText("Stop", { exact: true })).toHaveCSS(
+    "opacity",
+    "1",
+  );
+  await page.screenshot({
+    path: test.info().outputPath("compilation-keyboard-stop.png"),
+    animations: "disabled",
+  });
+  await page.keyboard.press("Enter");
+  await idle(page);
+  await page.getByRole("button", { name: "Recompile", exact: true }).click();
+  await expect(stop).toBeEnabled();
+  await openOptions(page);
+  await page
+    .getByRole("menuitem", { name: "Stop compilation", exact: true })
+    .click();
+  await idle(page);
+  expect(
+    await page.evaluate(() =>
+      window.__pdfPreviewHarness?.getCancellationCount(),
+    ),
+  ).toBe(2);
+  await page.evaluate(() => window.__pdfPreviewHarness?.setCompileDelay(0));
+  await page.getByRole("button", { name: "Recompile", exact: true }).click();
+  await idle(page);
+  expect(await count(page)).toBe(3);
+});
+
+test("touch can stop compilation without hover", async ({ browser }) => {
+  const context = await browser.newContext({
+    hasTouch: true,
+    baseURL: "http://127.0.0.1:4173",
+  });
+  try {
+    const page = await context.newPage();
+    await openPreview(page);
+    await page.evaluate(() => {
+      window.__pdfPreviewHarness?.setCompileDelay(10000);
+      window.__pdfPreviewHarness?.setSourceContent("Touch compile");
+    });
+    const stop = page.getByRole("button", {
+      name: "Stop compilation",
+      exact: true,
+    });
+    await expect(stop.getByText("Compiling...", { exact: true })).toHaveCSS(
+      "opacity",
+      "1",
+    );
+    await stop.tap();
+    await idle(page);
+    expect(
+      await page.evaluate(() =>
+        window.__pdfPreviewHarness?.getCancellationCount(),
+      ),
+    ).toBe(1);
+  } finally {
+    await context.close();
+  }
+});
+
+for (const theme of ["modern", "classic"]) {
+  for (const dark of [false, true]) {
+    test(`compact Stop control fits ${theme} ${dark ? "dark" : "light"}`, async ({
+      page,
+    }) => {
+      await openPreview(page);
+      await page.locator("aside").evaluate((element) => element.remove());
+      await page.evaluate(
+        ({ theme, dark }) => {
+          document.documentElement.dataset.uiTheme = theme;
+          document.documentElement.classList.toggle("dark", dark);
+          window.__pdfPreviewHarness?.setCompileDelay(10000);
+          window.__pdfPreviewHarness?.setSourceContent("Compact compile");
+        },
+        { theme, dark },
+      );
+      await page
+        .getByTestId("pdf-preview-harness-shell")
+        .evaluate((element) => {
+          element.style.width = "320px";
+        });
+      const stop = page.getByRole("button", {
+        name: "Stop compilation",
+        exact: true,
+      });
+      await expect(stop).toBeEnabled();
+      await expect
+        .poll(() => stop.evaluate((element) => element.clientWidth))
+        .toBe(28);
+      await stop.hover();
+      await expect(stop).toHaveAttribute("data-stop-visible", "true");
+      await expect(
+        page.getByRole("tooltip", { name: "Stop compilation", exact: true }),
+      ).toBeVisible();
+      const toolbar = page.locator("[data-pdf-toolbar]");
+      await expect
+        .poll(() =>
+          toolbar.evaluate(
+            (element) => element.scrollWidth <= element.clientWidth,
+          ),
+        )
+        .toBe(true);
+      await page.screenshot({
+        path: test
+          .info()
+          .outputPath(`compact-stop-${theme}-${dark ? "dark" : "light"}.png`),
+        animations: "disabled",
+      });
+      await stop.click();
+      await idle(page);
+    });
+  }
+}
+
+test("Recompile waits for pointer re-entry to reveal Stop and starts fading back immediately on exit", async ({
+  page,
+}) => {
+  await openPreview(page);
+  await page.locator("aside").evaluate((element) => element.remove());
+  await page.evaluate(() => window.__pdfPreviewHarness?.setCompileDelay(60000));
+  await page.getByRole("button", { name: "Recompile", exact: true }).click();
+  const stop = page.getByRole("button", {
+    name: "Stop compilation",
+    exact: true,
+  });
+  await expect(stop).toHaveAttribute("data-stop-visible", "false");
+  // A second click at the same position cannot cancel the build just started.
+  await stop.click();
+  expect(
+    await page.evaluate(() =>
+      window.__pdfPreviewHarness?.getCancellationCount(),
+    ),
+  ).toBe(0);
+  await page.clock.install();
+  await page.clock.pauseAt(new Date());
+  await page.clock.runFor(500);
+  await expect(stop).toHaveAttribute("data-stop-visible", "false");
+  await expect(stop.getByText("Compiling...", { exact: true })).toHaveCSS(
+    "opacity",
+    "1",
+  );
+  await page.screenshot({
+    path: test.info().outputPath("compiling-after-click.png"),
+    animations: "disabled",
+  });
+  const bounds = (await stop.boundingBox())!;
+  const enter = () =>
+    page.mouse.move(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
+  await page.mouse.move(500, 500);
+  await page.clock.runFor(200);
+  await enter();
+  await page.clock.runFor(25);
+  await expect(stop).toHaveAttribute("data-stop-visible", "false");
+  await page.clock.runFor(50);
+  await expect(stop).toHaveAttribute("data-stop-visible", "true");
+  await page.screenshot({
+    path: test.info().outputPath("stop-after-reenter.png"),
+    animations: "disabled",
+  });
+  await page.mouse.move(500, 500);
+  // No timer advancement: leaving starts the existing crossfade immediately.
+  await expect(stop).toHaveAttribute("data-stop-visible", "false");
+  await page.screenshot({
+    path: test.info().outputPath("compiling-immediate-exit.png"),
+    animations: "disabled",
+  });
+  await enter();
+  await page.clock.runFor(200);
+  await expect(stop).toHaveAttribute("data-stop-visible", "true");
+  await page.mouse.move(500, 500);
+  await page.clock.runFor(200);
+  await expect(stop).toHaveAttribute("data-stop-visible", "false");
+  await page.clock.resume();
+  await stop.hover();
+  await expect(stop).toHaveAttribute("data-stop-visible", "true");
+  await stop.click();
+  await idle(page);
+  expect(
+    await page.evaluate(() =>
+      window.__pdfPreviewHarness?.getCancellationCount(),
+    ),
+  ).toBe(1);
 });

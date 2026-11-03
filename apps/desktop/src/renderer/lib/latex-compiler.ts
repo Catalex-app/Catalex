@@ -5,7 +5,11 @@ import {
 } from "./mupdf/pdf-source";
 import { useSettingsStore } from "@/stores/settings-store";
 import { Channel, invoke } from "@/lib/desktop/core";
-import { resolveTexRoot, type ProjectFile } from "@/stores/document-store";
+import {
+  resolveTexRoot,
+  getCurrentPdfBytes,
+  type ProjectFile,
+} from "@/stores/document-store";
 import type {
   CompilerBackend,
   ConcreteCompilerEngine,
@@ -13,6 +17,41 @@ import type {
 import { createLogger } from "@/lib/debug/logger";
 
 const log = createLogger("latex");
+
+export type PublishedCompilation = {
+  projectDir: string;
+  compilationId: string;
+};
+const pdfCompilations = new WeakMap<
+  PdfSource,
+  PublishedCompilation & { projectRoot: string }
+>();
+
+/** Keep source mapping tied to the PDF object through caching and draft restores. */
+export function recordPdfCompilation(
+  source: PdfSource,
+  projectRoot: string,
+  projectDir: string,
+  compilationId: string,
+) {
+  pdfCompilations.set(source, { projectRoot, projectDir, compilationId });
+}
+
+export function getPublishedCompilation(
+  projectDir: string,
+): PublishedCompilation | undefined {
+  const source = getCurrentPdfBytes();
+  const compiled = source ? pdfCompilations.get(source) : undefined;
+  if (
+    !compiled ||
+    (compiled.projectRoot !== projectDir && compiled.projectDir !== projectDir)
+  )
+    return undefined;
+  return {
+    projectDir: compiled.projectDir,
+    compilationId: compiled.compilationId,
+  };
+}
 
 function hasHiddenDirectory(relativePath: string): boolean {
   const normalized = relativePath.replace(/\\/g, "/");
@@ -106,6 +145,7 @@ export async function compileLatex(
   backend: CompilerBackend = "latexmk",
   engine: ConcreteCompilerEngine = "pdflatex",
   autoEngine = false,
+  compilationId?: string,
 ): Promise<CompileResult> {
   log.info(`Compiling ${mainFile} (backend: ${backend}, engine: ${engine})`);
   const start = performance.now();
@@ -121,6 +161,7 @@ export async function compileLatex(
     >(window.catalex ? "compile_latex_snapshot" : "compile_latex", {
       projectDir,
       mainFile,
+      compilationId,
       backend,
       engine: autoEngine ? null : engine,
       diagnostics,
@@ -178,10 +219,12 @@ export interface SynctexSourceMap {
 
 export async function getSynctexSourceMap(
   projectDir: string,
+  compilation = getPublishedCompilation(projectDir),
 ): Promise<SynctexSourceMap | null> {
   try {
     return await invoke<SynctexSourceMap>("get_synctex_source_map", {
       projectDir,
+      ...compilation,
     });
   } catch (err) {
     log.debug("SyncTeX source map unavailable", { error: String(err) });
@@ -210,6 +253,7 @@ export async function synctexEdit(
   try {
     const result = await invoke<SynctexResult>("synctex_edit", {
       projectDir,
+      ...getPublishedCompilation(projectDir),
       page,
       x,
       y,
@@ -232,6 +276,7 @@ export async function synctexView(
   try {
     const result = await invoke<SynctexViewResult>("synctex_view", {
       projectDir,
+      ...getPublishedCompilation(projectDir),
       file,
       line,
       column,

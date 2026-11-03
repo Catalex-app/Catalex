@@ -363,7 +363,7 @@ export function useAgentEvents() {
         )
           return;
         // Keep the token until its terminal event, even if publication becomes stale.
-        const request = beginCompilation(payload.root_id);
+        const request = beginCompilation(payload.root_id, payload.request_id);
         if (request) verificationCompiles.set(payload.request_id, request);
         return;
       }

@@ -5,10 +5,13 @@ import {
   useDocumentStore,
 } from "@/stores/document-store";
 import { useSettingsStore } from "@/stores/settings-store";
+import { invoke } from "@/lib/desktop/core";
 import { compileLatex } from "@/lib/latex-compiler";
 import {
   beginCompilation,
   captureCompileContext,
+  captureAutomaticCompileContext,
+  stopCompilation,
   compileWorkspace,
   failCompilation,
   finishCompilation,
@@ -418,4 +421,150 @@ it("does not cancel the current project's retry when defaults or another project
   await run;
   await vi.advanceTimersByTimeAsync(1000);
   expect(compileLatex).toHaveBeenCalledTimes(2);
+});
+
+describe("manual compilation cancellation", () => {
+  it("clears queued work, ignores cancelled output, and waits for native cleanup", async () => {
+    useDocumentStore
+      .getState()
+      .setPdfData(bytes, "main.tex", 0, result.diagnostics);
+    const compile = deferred<typeof result>();
+    const cleanup = deferred<void>();
+    vi.mocked(compileLatex).mockReturnValueOnce(compile.promise);
+    vi.mocked(invoke).mockReturnValueOnce(cleanup.promise);
+    const run = compileWorkspace({ force: true });
+    await vi.advanceTimersByTimeAsync(0);
+    await compileWorkspace({ force: true });
+    const beforeStop = captureAutomaticCompileContext();
+    const stop = stopCompilation();
+    expect(beforeStop()).toBe(false);
+    expect(captureAutomaticCompileContext()()).toBe(true);
+    expect(useDocumentStore.getState().pendingRecompile).toBe(false);
+    expect(useDocumentStore.getState().isStoppingCompilation).toBe(true);
+    expect(invoke).toHaveBeenCalledWith("cancel_compilation", {
+      projectDir: "/one",
+      compilationIds: [vi.mocked(compileLatex).mock.calls[0][5]],
+    });
+    compile.resolve({ pdfData: new Uint8Array([9]), diagnostics: [] });
+    await run;
+    expect(useDocumentStore.getState().isStoppingCompilation).toBe(true);
+    expect(getCurrentPdfBytes()).toEqual(bytes);
+    expect(
+      useDocumentStore.getState().compileDiagnosticsCache.get("main.tex"),
+    ).toEqual(result.diagnostics);
+    cleanup.resolve();
+    await stop;
+    expect(useDocumentStore.getState().isCompiling).toBe(false);
+    expect(useDocumentStore.getState().isStoppingCompilation).toBe(false);
+    expect(compileLatex).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not revive a cancelled request after a save-time edit", async () => {
+    const save = deferred<void>();
+    useDocumentStore.setState({ saveAllFiles: () => save.promise });
+    const run = compileWorkspace({ force: true });
+    useDocumentStore
+      .getState()
+      .updateFileContent("main.tex", "edited during save");
+    const stop = stopCompilation();
+    save.resolve();
+    await Promise.all([run, stop]);
+    expect(compileLatex).not.toHaveBeenCalled();
+    expect(invoke).toHaveBeenCalledWith("cancel_compilation", {
+      projectDir: "/one",
+      compilationIds: [],
+    });
+    expect(useDocumentStore.getState().isCompiling).toBe(false);
+  });
+
+  it("coalesces new requests after Stop and runs them only after cleanup", async () => {
+    const compile = deferred<typeof result>();
+    const cleanup = deferred<void>();
+    vi.mocked(compileLatex)
+      .mockReturnValueOnce(compile.promise)
+      .mockResolvedValue(result);
+    vi.mocked(invoke).mockReturnValueOnce(cleanup.promise);
+    const run = compileWorkspace({ force: true });
+    await vi.advanceTimersByTimeAsync(0);
+    const stop = stopCompilation();
+    await compileWorkspace({ force: true });
+    await compileWorkspace({ force: true });
+    compile.reject({ code: "cancelled", message: "Compilation cancelled" });
+    await run;
+    expect(compileLatex).toHaveBeenCalledTimes(1);
+    cleanup.resolve();
+    await stop;
+    await vi.advanceTimersByTimeAsync(500);
+    expect(compileLatex).toHaveBeenCalledTimes(2);
+    expect(useDocumentStore.getState().compileError).toBeNull();
+    expect(useDocumentStore.getState().isCompiling).toBe(false);
+  });
+
+  it("cancels overlapping verification requests by ID without publishing their results", async () => {
+    const first = beginCompilation("main.tex", "verification-one")!;
+    const second = beginCompilation("main.tex", "verification-two")!;
+    vi.mocked(invoke).mockResolvedValueOnce(null);
+    const stop = stopCompilation();
+    expect(invoke).toHaveBeenCalledWith("cancel_compilation", {
+      projectDir: "/one",
+      compilationIds: ["verification-one", "verification-two"],
+    });
+    publishCompilation(first, bytes);
+    publishCompilation(second, bytes);
+    finishCompilation(second);
+    expect(useDocumentStore.getState().isStoppingCompilation).toBe(true);
+    finishCompilation(first);
+    await stop;
+    expect(getCurrentPdfBytes()).toBeNull();
+    expect(useDocumentStore.getState().isCompiling).toBe(false);
+  });
+
+  it("keeps new workspace state when stopped work finishes late", async () => {
+    const old = beginCompilation("main.tex", "old-verification")!;
+    const cleanup = deferred<void>();
+    vi.mocked(invoke).mockReturnValueOnce(cleanup.promise);
+    const stop = stopCompilation();
+    useDocumentStore.setState({ projectRoot: "/two" });
+    const current = beginCompilation("main.tex", "new-verification")!;
+    finishCompilation(old);
+    cleanup.resolve();
+    await stop;
+    expect(useDocumentStore.getState().isCompiling).toBe(true);
+    expect(useDocumentStore.getState().isStoppingCompilation).toBe(false);
+    publishCompilation(current, bytes);
+    finishCompilation(current);
+    expect(getCurrentPdfBytes()).toEqual(bytes);
+  });
+});
+
+it("keeps automatic requests paused for unchanged source after preview remount", async () => {
+  vi.mocked(invoke).mockResolvedValue(null);
+  await stopCompilation();
+  await compileWorkspace({ force: true, automatic: true });
+  expect(compileLatex).not.toHaveBeenCalled();
+  useDocumentStore
+    .getState()
+    .updateFileContent("main.tex", "fresh edit after Stop");
+  vi.mocked(compileLatex).mockResolvedValueOnce(result);
+  const run = compileWorkspace({ automatic: true });
+  await vi.advanceTimersByTimeAsync(500);
+  await run;
+  expect(compileLatex).toHaveBeenCalledTimes(1);
+});
+
+it("resumes automatic compilation after an explicit compiler setting change", async () => {
+  vi.mocked(invoke).mockResolvedValue(null);
+  await stopCompilation();
+  await compileWorkspace({ force: true, automatic: true });
+  expect(compileLatex).not.toHaveBeenCalled();
+  useSettingsStore.getState().setCompilerChoiceForRoot("/one", "main.tex", {
+    backend: "tectonic",
+    engine: "pdflatex",
+    autoEngine: false,
+  });
+  vi.mocked(compileLatex).mockResolvedValueOnce(result);
+  const run = compileWorkspace({ force: true, automatic: true });
+  await vi.advanceTimersByTimeAsync(500);
+  await run;
+  expect(compileLatex).toHaveBeenCalledTimes(1);
 });

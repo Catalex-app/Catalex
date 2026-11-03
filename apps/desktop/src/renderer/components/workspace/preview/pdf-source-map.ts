@@ -1,5 +1,6 @@
 import {
   getSynctexSourceMap,
+  type PublishedCompilation,
   type SynctexSourceMap,
 } from "@/lib/latex-compiler";
 import type { PdfReadingAnchor } from "./pdf-reading-anchor";
@@ -127,13 +128,16 @@ export async function indexPdfSourceMap(map: SynctexSourceMap) {
 }
 
 /** Shared lazy load for comments and scrolling, owned by one compiled revision. */
-export function createCompiledPdfMap(projectRoot: string) {
+export function createCompiledPdfMap(
+  projectRoot: string,
+  compilation?: PublishedCompilation,
+) {
   let raw: ReturnType<typeof getSynctexSourceMap> | null = null;
   let pending: Promise<Awaited<
     ReturnType<typeof indexPdfSourceMap>
   > | null> | null = null;
   let ready: Awaited<ReturnType<typeof indexPdfSourceMap>> | null = null;
-  const load = () => (raw ??= getSynctexSourceMap(projectRoot));
+  const load = () => (raw ??= getSynctexSourceMap(projectRoot, compilation));
   return {
     load,
     get index() {
