@@ -12,7 +12,15 @@
 
 ## Install
 
-Download Catalex for Apple Silicon Macs from [GitHub Releases](https://github.com/Catalex-app/Catalex/releases), open the DMG, and drag **Catalex.app** into **Applications**.
+Requires macOS 13 or later on an Apple Silicon Mac.
+
+Download the DMG from [GitHub Releases](https://github.com/Catalex-app/Catalex/releases), open it, and drag **Catalex.app** into **Applications**.
+
+Or install with [Homebrew](https://brew.sh/) using the [Catalex tap](https://github.com/Catalex-app/homebrew-tap):
+
+```sh
+brew install --cask catalex-app/tap/catalex
+```
 
 You can also [build Catalex from source](docs/development/setup.md).
 

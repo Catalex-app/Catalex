@@ -1,0 +1,45 @@
+name: Update Homebrew Tap
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Published stable release tag (for example, v0.1.0)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: homebrew-tap-update
+  queue: max
+  cancel-in-progress: false
+
+jobs:
+  update:
+    if: >-
+      github.repository == 'Catalex-app/Catalex' &&
+      ((github.event_name == 'release' && !github.event.release.draft && !github.event.release.prerelease) ||
+       (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      # Use maintained automation even when retrying a release from an older tag.
+      - uses: actions/checkout@v6
+        with:
+          ref: main
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+      - name: Test tap updater
+        run: node --test scripts/latest-release.test.mjs scripts/update-homebrew.test.mjs
+      - name: Update cask from published installer
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
+        run: node scripts/update-homebrew.mjs

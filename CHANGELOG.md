@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Automatically update the Homebrew tap after publishing a stable macOS release.
+
 ## [0.1.0]
 
 The first stable release of Catalex, a free, local-first LaTeX writing workspace for Apple Silicon Macs.
