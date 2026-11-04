@@ -796,6 +796,9 @@ export const ChatComposer: FC<{
   // Restore each tab’s persisted draft when switching chats.
   const prevTabIdRef = useRef(activeTabId);
   const restoringDraftRef = useRef(false);
+  const savingDraftRef = useRef(false);
+  const localDraftRef = useRef({ input, pinnedContexts });
+  localDraftRef.current = { input, pinnedContexts };
   useEffect(() => {
     if (
       pi.modelsStatus !== "ready" ||
@@ -841,6 +844,33 @@ export const ChatComposer: FC<{
     }
   }, [activeTabId, acceptPendingAttachments]);
 
+  // Another workspace view can edit the same draft without switching chats.
+  useEffect(() => {
+    if (!acceptPendingAttachments) return;
+    return useAgentChatStore.subscribe((state, previous) => {
+      if (
+        savingDraftRef.current ||
+        state.activeTabId !== activeTabId ||
+        previous.activeTabId !== activeTabId
+      )
+        return;
+      const draft = state.tabs.find((tab) => tab.id === activeTabId)?.draft;
+      const before = previous.tabs.find((tab) => tab.id === activeTabId)?.draft;
+      if (!draft || draft === before) return;
+      const local = localDraftRef.current;
+      if (
+        local.input === draft.input &&
+        pinnedContextsEqual(local.pinnedContexts, draft.pinnedContexts)
+      )
+        return;
+      restoringDraftRef.current = true;
+      setInput(draft.input);
+      setPinnedContexts(draft.pinnedContexts);
+      setMentionQuery(null);
+      setSlashQuery(null);
+    });
+  }, [activeTabId, acceptPendingAttachments]);
+
   useEffect(() => {
     if (!acceptPendingAttachments) return;
     if (restoringDraftRef.current) {
@@ -856,10 +886,12 @@ export const ChatComposer: FC<{
       pinnedContextsEqual(tab.draft.pinnedContexts, pinnedContexts)
     )
       return;
-    store.saveDraft(activeTabId, {
-      input,
-      pinnedContexts,
-    });
+    savingDraftRef.current = true;
+    try {
+      store.saveDraft(activeTabId, { input, pinnedContexts });
+    } finally {
+      savingDraftRef.current = false;
+    }
   }, [activeTabId, input, pinnedContexts, acceptPendingAttachments]);
 
   const [slashCommands, setSlashCommands] = useState<SlashCommand[]>([]);

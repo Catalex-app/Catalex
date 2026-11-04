@@ -24,6 +24,16 @@ import { setCommentDraft } from "@/components/workspace/editor/comment-draft-his
 import { resetCommentPosition } from "@/components/workspace/editor/comment-document-model";
 import { browserHarness } from "@/lib/desktop/bridge";
 import { SolarModeEffect } from "@/components/settings/solar-mode-effect";
+import { useCodexSetupStore } from "@/stores/codex-setup-store";
+
+const chatStatusOptions = {
+  ready: "Ready",
+  checking: "Checking agent…",
+  "not-installed": "Setup required",
+  "not-authenticated": "Sign-in required",
+  error: "Agent unavailable",
+} as const;
+type DemoChatStatus = keyof typeof chatStatusOptions;
 
 const projectRoot = "/browser-demo/Comment Review";
 const documents = {
@@ -447,6 +457,8 @@ function initializeDemo() {
     {
       type: "user",
       provider: "codex",
+      model: "gpt-6.1-sol",
+      reasoningEffort: "high",
       message: {
         content: [
           {
@@ -496,6 +508,40 @@ function initializeDemo() {
 
 function DemoWorkspace() {
   const [ready, setReady] = useState(false);
+  const [chatStatus, setChatStatus] = useState<DemoChatStatus | "">(() => {
+    const value = new URLSearchParams(window.location.search).get(
+      "chat-status",
+    );
+    return value && Object.keys(chatStatusOptions).includes(value)
+      ? (value as DemoChatStatus)
+      : "";
+  });
+  useEffect(() => {
+    if (!ready || !chatStatus) return;
+    // Hold a simulated status in this browser-only demo, without probing an agent.
+    const checkStatus = useCodexSetupStore.getState().checkStatus;
+    useCodexSetupStore.setState({
+      status: chatStatus,
+      checkStatus: async () => {},
+    });
+    useAgentChatStore.setState((state) => ({
+      selectedProvider: "codex",
+      messages: [],
+      tabs: state.tabs.map((tab) =>
+        tab.id === state.activeTabId
+          ? {
+              ...tab,
+              title: "New Chat",
+              messages: [],
+              history: undefined,
+              lastCommunication: undefined,
+              lastCommunicationProvider: undefined,
+            }
+          : tab,
+      ),
+    }));
+    return () => useCodexSetupStore.setState({ checkStatus });
+  }, [ready, chatStatus]);
   const editSaveDemo =
     new URLSearchParams(window.location.search).get("saving") === "edit";
   const releaseCommentSave = useRef<(() => void) | null>(null);
@@ -559,6 +605,11 @@ function DemoWorkspace() {
   useEffect(() => {
     ensureDesktopBrowserMocks();
     initializeDemo();
+    if (new URLSearchParams(window.location.search).has("chat-status"))
+      useSettingsStore.getState().setWorkspacePreferences(projectRoot, {
+        mode: "duet",
+        chatLayout: "workspace",
+      });
     if (new URLSearchParams(window.location.search).has("markers")) {
       setReady(true);
       return;
@@ -580,12 +631,33 @@ function DemoWorkspace() {
   }, []);
   return (
     <div className="flex h-screen flex-col bg-background text-foreground">
-      <div className="flex shrink-0 items-center gap-3 border-border border-b bg-muted/40 px-3 py-1 text-xs">
+      <div className="flex shrink-0 flex-wrap items-center gap-3 border-border border-b bg-muted/40 px-3 py-1 text-xs">
         <span className="font-medium">Browser demo · Comment Review</span>
         <span className="flex-1 text-muted-foreground">
           Dummy project · Temporary local LaTeX compilation · No live agent ·
           Reload to reset
         </span>
+        <select
+          aria-label="Preview chat status"
+          className="rounded border border-border bg-background px-2 py-1"
+          value={chatStatus}
+          onChange={(event) => {
+            useSettingsStore.getState().setWorkspacePreferences(projectRoot, {
+              mode: "duet",
+              chatLayout: "workspace",
+            });
+            setChatStatus(event.target.value as DemoChatStatus);
+          }}
+        >
+          <option value="" disabled>
+            Preview chat status
+          </option>
+          {Object.entries(chatStatusOptions).map(([value, label]) => (
+            <option key={value} value={value}>
+              {label}
+            </option>
+          ))}
+        </select>
         <button
           type="button"
           className="rounded border border-border px-2 py-1 hover:bg-muted"
@@ -628,7 +700,11 @@ function DemoWorkspace() {
           Reset demo
         </button>
       </div>
-      <div className="min-h-0 flex-1">{ready && <WorkspaceLayout />}</div>
+      <div className="min-h-0 flex-1">
+        {ready && (
+          <WorkspaceLayout key={chatStatus ? "chat-status" : "default"} />
+        )}
+      </div>
       <CommentCloseDialog
         files={["manuscript.md", "review-notes.md"]}
         open={savePreview !== null}

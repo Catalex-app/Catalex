@@ -212,7 +212,7 @@ export function PdfViewer({
     pageSizes,
     dataSource.kind === "compiled"
       ? `${dataSource.rootFileId}:${dataSource.revision}`
-      : dataSource.data instanceof Uint8Array
+      : ArrayBuffer.isView(dataSource.data)
         ? dataSource.data
         : dataSource.data.id,
   );
@@ -341,7 +341,7 @@ export function PdfViewer({
 
     // Validate PDF header — must start with %PDF-
     if (
-      pdfData instanceof Uint8Array &&
+      ArrayBuffer.isView(pdfData) &&
       (pdfData.length < 5 ||
         pdfData[0] !== 0x25 ||
         pdfData[1] !== 0x50 ||
@@ -1065,6 +1065,7 @@ export function PdfViewer({
       <div
         ref={containerRef}
         data-testid="pdf-scroll-container"
+        data-panel-content-focus=""
         style={{ overflowAnchor: "none" }}
         tabIndex={-1}
         {...{ [LOCAL_ZOOM_SHORTCUTS_ATTR]: "true" }}

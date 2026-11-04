@@ -568,3 +568,49 @@ it("resumes automatic compilation after an explicit compiler setting change", as
   await run;
   expect(compileLatex).toHaveBeenCalledTimes(1);
 });
+
+it("publishes a pinned panel's root without changing the main window's selected file", async () => {
+  const primary = useDocumentStore.getState().files[0];
+  useDocumentStore.setState({
+    files: [
+      primary,
+      {
+        ...primary,
+        id: "other.tex",
+        name: "other.tex",
+        relativePath: "other.tex",
+      },
+    ],
+    activeFileId: "other.tex",
+  });
+  const pending = deferred<typeof result>();
+  vi.mocked(compileLatex).mockReturnValueOnce(pending.promise);
+  const run = compileWorkspace({ force: true, fileId: "main.tex" });
+  await vi.advanceTimersByTimeAsync(0);
+  expect(compileLatex).toHaveBeenCalledTimes(1);
+  useDocumentStore.setState({ activeFileId: "main.tex" });
+  useDocumentStore.setState({ activeFileId: "other.tex" });
+  pending.resolve(result);
+  await vi.runAllTimersAsync();
+  await run;
+  expect(useDocumentStore.getState().activeFileId).toBe("other.tex");
+  expect(
+    useDocumentStore.getState().lastCompiledGenerations.get("main.tex"),
+  ).toBe(0);
+  expect(getCurrentPdfBytes()).toBeNull();
+  useDocumentStore.getState().setActiveFile("main.tex");
+  expect(getCurrentPdfBytes()).toBe(bytes);
+});
+
+it("coalesces automatic requests for the same root from two views", async () => {
+  const pending = deferred<typeof result>();
+  vi.mocked(compileLatex).mockReturnValueOnce(pending.promise);
+  const first = compileWorkspace({ force: true, automatic: true });
+  await vi.advanceTimersByTimeAsync(0);
+  await compileWorkspace({ force: true, automatic: true, fileId: "main.tex" });
+  pending.resolve(result);
+  await vi.runAllTimersAsync();
+  await first;
+  expect(compileLatex).toHaveBeenCalledTimes(1);
+  expect(getCurrentPdfBytes()).toBe(bytes);
+});

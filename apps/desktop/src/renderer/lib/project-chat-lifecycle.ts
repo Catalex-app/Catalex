@@ -1,4 +1,5 @@
 import { freezeRound } from "@/lib/agent-round-timing";
+import { flushPanelWindows, isChatPanelOpen } from "./panel-window-runtime";
 import {
   flushWorkspaceState,
   readLegacyProjectChats,
@@ -7,6 +8,8 @@ import {
 import { invoke } from "@/lib/desktop/core";
 import {
   tabFromSharedSession,
+  lastCommunicationProvider,
+  lastCommunicationDetails,
   type SharedSessionPayload,
   useAgentChatStore,
   type TabState,
@@ -82,6 +85,8 @@ async function writeProjectChats(chat: ChatState) {
       tabs: snapshot.tabs.map((savedTab) => {
         const tab = {
           ...savedTab,
+          lastCommunicationProvider: lastCommunicationProvider(savedTab),
+          lastCommunication: lastCommunicationDetails(savedTab),
           providerStatus: undefined,
           roundTiming: savedTab.roundTiming
             ? freezeRound(savedTab.roundTiming)
@@ -168,6 +173,7 @@ async function writeProjectChats(chat: ChatState) {
     const tabs = current.tabs.map((tab) => {
       if (
         tab.id === current.activeTabId ||
+        isChatPanelOpen(tab.id) ||
         tab.isStreaming ||
         tab.isSettling ||
         tab.turnPhase ||
@@ -183,6 +189,8 @@ async function writeProjectChats(chat: ChatState) {
         : (tab.history?.total ?? tab.messages.length);
       return {
         ...tab,
+        lastCommunicationProvider: lastCommunicationProvider(tab),
+        lastCommunication: lastCommunicationDetails(tab),
         messages: [],
         history: { total, start: total },
       };
@@ -404,6 +412,7 @@ async function pauseAndSave(options: {
       try {
         const root = doc.projectRoot;
         const saving = (async () => {
+          await flushPanelWindows();
           await flushProjectCommentWrites(root);
           if (!doc.agentWorkspaceRoot)
             await synchronizeProjectCommentAnchors(root);

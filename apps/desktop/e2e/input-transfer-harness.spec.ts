@@ -320,7 +320,10 @@ test("one header retains independent Git and rewind controls across all modes", 
     .poll(async () => (await headerContent.boundingBox())!.x)
     .toBeLessThan(beforeResize!.x - 30);
   await page.getByRole("button", { name: "Hide sidebar", exact: true }).click();
-  await page.getByRole("button", { name: "Expand PDF", exact: true }).click();
+  await page
+    .getByRole("button", { name: "More PDF view actions", exact: true })
+    .click();
+  await page.getByRole("menuitem", { name: "Expand PDF", exact: true }).click();
   await expect(
     page.getByRole("dialog", { name: "PDF expanded", exact: true }),
   ).toBeVisible();

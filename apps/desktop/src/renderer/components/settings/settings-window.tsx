@@ -1,3 +1,4 @@
+import { Kbd } from "@/components/ui/kbd";
 import { useUpdater } from "@/hooks/use-updater";
 import { usePiSetupStore } from "@/stores/pi-setup-store";
 import { usePiPathSettings } from "@/hooks/use-pi-path-settings";
@@ -460,12 +461,7 @@ function ShortcutRecorder({
           </span>
         ) : shortcutParts.length > 0 ? (
           shortcutParts.map((part, index) => (
-            <kbd
-              className="min-w-5 rounded border border-border bg-muted/60 px-1 py-0.5 text-center font-mono text-[11px] leading-4 shadow-xs"
-              key={`${part}-${index}`}
-            >
-              {part}
-            </kbd>
+            <Kbd key={`${part}-${index}`}>{part}</Kbd>
           ))
         ) : (
           <span className="font-sans text-muted-foreground text-xs">

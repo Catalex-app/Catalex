@@ -300,7 +300,7 @@ html.solar-mode body::after {
 }
 
 :root:not([data-ui-theme="classic"]) .button-group-separator::before {
-  inset-block: 8px;
+  inset-block: var(--button-group-separator-inset, 8px);
 }
 
 @layer components {

@@ -1,3 +1,6 @@
+import { rebaseDocumentEdit } from "@/lib/rebase-document-edit";
+import { connectPanelDocumentView } from "@/lib/panel-document-view";
+import { getPanelWindowSession } from "@/lib/panel-window-runtime";
 import type { PdfSource } from "@/lib/mupdf/pdf-source";
 import { normalizeDocumentText, encodeDocumentText } from "@/lib/document-text";
 import type { ChatContextBadge } from "@/lib/chat-context";
@@ -98,11 +101,23 @@ let _currentPdfRootId: string | null = null;
 
 /** Get the PDF source for a specific root file id. */
 export function getPdfBytes(rootFileId: string): PdfSource | undefined {
-  return _pdfBytesCache.get(rootFileId);
+  return (
+    getPanelWindowSession()?.pdf(rootFileId) ?? _pdfBytesCache.get(rootFileId)
+  );
 }
 
 /** Get the current PDF source without needing its root ID. */
 export function getCurrentPdfBytes(): PdfSource | null {
+  const session = getPanelWindowSession();
+  if (session) {
+    const state = useDocumentStore.getState();
+    const root = resolveTexRoot(state.activeFileId, state.files);
+    return root ? (session.pdf(root) ?? null) : null;
+  }
+  const state = useDocumentStore.getState();
+  const root = resolveTexRoot(state.activeFileId, state.files);
+  if (root && _currentPdfRootId !== "__default__")
+    return _pdfBytesCache.get(root) ?? null;
   return _currentPdfRootId
     ? (_pdfBytesCache.get(_currentPdfRootId) ?? null)
     : null;
@@ -110,7 +125,7 @@ export function getCurrentPdfBytes(): PdfSource | null {
 
 /** Check if any PDF data exists for the current root. */
 export function hasPdfData(): boolean {
-  return _currentPdfRootId != null && _pdfBytesCache.has(_currentPdfRootId);
+  return getCurrentPdfBytes() !== null;
 }
 
 export function clearPdfBytesCache() {
@@ -118,7 +133,7 @@ export function clearPdfBytesCache() {
   _currentPdfRootId = null;
 }
 
-interface DocumentState {
+export interface DocumentState {
   openProjectInstructionFile: (
     fileName: "AGENTS.md" | "CLAUDE.md",
   ) => Promise<void>;
@@ -184,7 +199,7 @@ interface DocumentState {
   deleteFolder: (folderPath: string) => Promise<void>;
   renameFile: (id: string, name: string) => Promise<void>;
   renameFolder: (folderPath: string, name: string) => Promise<string | null>;
-  updateFileContent: (id: string, content: string) => void;
+  updateFileContent: (id: string, content: string, base?: string) => void;
   updateImageDataUrl: (id: string, dataUrl: string) => void;
   setCursorPosition: (position: number) => void;
   setSelectionRange: (range: { start: number; end: number } | null) => void;
@@ -288,7 +303,7 @@ interface DocumentState {
   get fileName(): string;
   get content(): string;
   setFileName: (name: string) => void;
-  setContent: (content: string) => void;
+  setContent: (content: string, base?: string) => void;
 }
 
 function getActiveFile(state: { files: ProjectFile[]; activeFileId: string }) {
@@ -1428,8 +1443,13 @@ export const useDocumentStore = create<DocumentState>()((set, get) => ({
     }
   },
 
-  updateFileContent: (id, content) => {
+  updateFileContent: (id, content, base) => {
     content = normalizeDocumentText(content);
+    const current = get().files.find((file) => file.id === id)?.content;
+    if (current === undefined) return;
+    if (base !== undefined)
+      content = rebaseDocumentEdit(base, content, current);
+    if (current === content) return;
     if (get().isAgentWorkspaceReadOnly || get().isGitOperationRunning) return;
     set((state) => ({
       files: state.files.map((f) =>
@@ -1486,7 +1506,10 @@ export const useDocumentStore = create<DocumentState>()((set, get) => ({
         );
         set((prev) => ({
           pdfRevision: prev.pdfRevision + 1,
-          compileError: null,
+          compileError:
+            resolveTexRoot(prev.activeFileId, prev.files) === rootFileId
+              ? null
+              : prev.compileError,
           compileErrorCache,
           compileDiagnosticsCache,
           lastCompiledGenerations,
@@ -1519,7 +1542,14 @@ export const useDocumentStore = create<DocumentState>()((set, get) => ({
       } else {
         compileErrorCache.delete(rootFileId);
       }
-      set({ compileError: error, compileErrorCache, compileDiagnosticsCache });
+      set({
+        compileError:
+          resolveTexRoot(get().activeFileId, get().files) === rootFileId
+            ? error
+            : get().compileError,
+        compileErrorCache,
+        compileDiagnosticsCache,
+      });
     } else {
       set({ compileError: error });
     }
@@ -2702,8 +2732,12 @@ export const useDocumentStore = create<DocumentState>()((set, get) => ({
     });
   },
 
-  setContent: (content) => {
+  setContent: (content, base) => {
     content = normalizeDocumentText(content);
+    const current = getActiveFile(get())?.content ?? "";
+    if (base !== undefined)
+      content = rebaseDocumentEdit(base, content, current);
+    if (current === content) return;
     const state = get();
     if (
       state.isApplyingAgentDraft ||
@@ -2728,6 +2762,7 @@ export const useDocumentStore = create<DocumentState>()((set, get) => ({
   },
 }));
 
+connectPanelDocumentView(useDocumentStore);
 storeRef = useDocumentStore;
 
 // Observe transitions rather than comparing root strings: A → B → A is a new

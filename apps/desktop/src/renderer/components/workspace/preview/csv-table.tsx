@@ -115,6 +115,35 @@ export function CsvTable() {
       data-testid="csv-table"
     >
       <WorkspacePanelHeader
+        hasTrailingContent
+        trailingContent={
+          <div className="flex items-center gap-1">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 gap-1.5 px-2 text-xs"
+              onClick={addRow}
+              disabled={isReadOnly}
+              aria-label="Add CSV row"
+            >
+              <Rows3Icon className="size-3.5" />
+              <PlusIcon className="-ml-1 size-3" />
+              Row
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 gap-1.5 px-2 text-xs"
+              onClick={addColumn}
+              disabled={isReadOnly}
+              aria-label="Add CSV column"
+            >
+              <Columns3Icon className="size-3.5" />
+              <PlusIcon className="-ml-1 size-3" />
+              Column
+            </Button>
+          </div>
+        }
         as="header"
         className="flex h-10 shrink-0 items-center gap-2 border-border/70 border-b px-3"
       >
@@ -125,30 +154,6 @@ export function CsvTable() {
           <span className="mx-2 text-border">|</span>
           <span>{delimiterLabel(csv.delimiter)}</span>
         </div>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-7 gap-1.5 px-2 text-xs"
-          onClick={addRow}
-          disabled={isReadOnly}
-          aria-label="Add CSV row"
-        >
-          <Rows3Icon className="size-3.5" />
-          <PlusIcon className="-ml-1 size-3" />
-          Row
-        </Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-7 gap-1.5 px-2 text-xs"
-          onClick={addColumn}
-          disabled={isReadOnly}
-          aria-label="Add CSV column"
-        >
-          <Columns3Icon className="size-3.5" />
-          <PlusIcon className="-ml-1 size-3" />
-          Column
-        </Button>
       </WorkspacePanelHeader>
 
       <div className="min-h-0 flex-1 overflow-auto" data-testid="csv-grid">

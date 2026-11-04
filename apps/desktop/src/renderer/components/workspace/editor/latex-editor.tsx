@@ -1,3 +1,4 @@
+import { FilePanelHeader } from "./file-panel-header";
 import { spellCheckExtension } from "@/lib/spelling/extension";
 import {
   normalizeDocumentText,
@@ -55,7 +56,6 @@ import {
 } from "./comment-history";
 import {
   WorkspacePanel,
-  WorkspacePanelHeader,
   type WorkspacePanelExpansion,
 } from "../workspace-panel";
 import { SELECTION_OWNER_EVENT } from "@/lib/workspace-events";
@@ -2824,7 +2824,7 @@ export function LatexEditor({
       if (update.docChanged && savedSelection?.view === update.view) {
         savedSelection.selection = savedSelection.selection.map(update.changes);
       }
-      if (update.selectionSet && (isMarkdownDocument || isLatexDocument)) {
+      if (update.selectionSet || update.docChanged) {
         const { from, to } = update.state.selection.main;
         setEditorSelectedText(update.state.sliceDoc(from, to));
       }
@@ -3049,7 +3049,8 @@ export function LatexEditor({
         );
         // Persist the text before optional comment bookkeeping. A broken
         // anchor must never prevent autosave or automatic compilation.
-        if (!fromStore) setContent(nextContent);
+        if (!fromStore)
+          setContent(nextContent, update.startState.doc.toString());
         const filePath = activeFileRelativePathRef.current;
         // Clean file refreshes have already reached disk. Let native recovery
         // decide continuity; persisting this display diff would race it and
@@ -5566,7 +5567,7 @@ export function LatexEditor({
     !isReviewDisplay &&
     allActiveFileInlineComments.length > 0;
   const problemsSummary = (
-    <div className="flex shrink-0 items-center gap-1">
+    <div className="flex shrink-0 items-center">
       <ProblemsMotion
         kind="button"
         open={canShowProblems && !problemsPanelOpen}
@@ -5574,7 +5575,7 @@ export function LatexEditor({
         <div className="flex items-center">
           <div
             aria-hidden="true"
-            className="mx-1 h-4 w-px shrink-0 bg-border"
+            className="mx-2 h-4 w-px shrink-0 bg-border"
           />
           <ProblemsSummaryButton
             diagnostics={problemDiagnostics}
@@ -5592,7 +5593,7 @@ export function LatexEditor({
         <div className="flex items-center">
           <div
             aria-hidden="true"
-            className="mx-1 h-4 w-px shrink-0 bg-border"
+            className="mx-2 h-4 w-px shrink-0 bg-border"
           />
           <CommentsSummaryButton
             comments={allActiveFileInlineComments}
@@ -5733,9 +5734,17 @@ export function LatexEditor({
           !isFilePreview &&
           !isWholeFileReview &&
           (!(isMarkdownDocument || isLatexDocument) || reviewingSnapshot) && (
-            <WorkspacePanelHeader className="justify-end">
+            <FilePanelHeader
+              textEditor
+              fileName={activeFile?.name}
+              textStatistics={
+                isTextFile && !isLargeFileNotLoaded
+                  ? editorTextStatistics
+                  : undefined
+              }
+            >
               {problemsSummary}
-            </WorkspacePanelHeader>
+            </FilePanelHeader>
           )}
 
         {/* Text-editor-only panels */}

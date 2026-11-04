@@ -1,4 +1,6 @@
 import { RoundElapsedTime } from "./round-elapsed-time";
+import { Separator } from "@/components/ui/separator";
+import { chatModelSectionLabels } from "@/lib/chat-model-sections";
 import { providerStatusLabel } from "@/lib/agent-provider-status";
 import { useSettingsStore } from "@/stores/settings-store";
 import { formatRoundDuration } from "@/lib/agent-round-timing";
@@ -240,6 +242,7 @@ const ChatMessagesForTab: FC<{ revealHistory?: boolean }> = ({
 
   // Filter displayable messages
   const displayMessages = useMemo(() => {
+    const sectionLabels = chatModelSectionLabels(messages, history?.start ?? 0);
     // Collect all assistant text for dedup against result
     const assistantTexts = new Set<string>();
     for (const msg of messages) {
@@ -256,6 +259,7 @@ const ChatMessagesForTab: FC<{ revealHistory?: boolean }> = ({
       .map((message, messageIndex) => ({
         message,
         messageIndex: messageIndex + (history?.start ?? 0),
+        sectionLabel: sectionLabels[messageIndex],
       }))
       .filter(({ message: msg }) => {
         if (msg.type === "system" && msg.subtype === "init") return false;
@@ -470,7 +474,7 @@ const ChatMessagesForTab: FC<{ revealHistory?: boolean }> = ({
             </div>
           ) : null,
       }}
-      itemContent={(logicalIndex, { message, messageIndex }) => {
+      itemContent={(logicalIndex, { message, messageIndex, sectionLabel }) => {
         const index = logicalIndex;
         const nextMessage = displayMessages[index + 1]?.message;
         const hasAnswerContent =
@@ -494,6 +498,20 @@ const ChatMessagesForTab: FC<{ revealHistory?: boolean }> = ({
 
         return (
           <div className="px-4" data-message-index={messageIndex}>
+            {sectionLabel && (
+              <div
+                data-chat-model-divider=""
+                role="separator"
+                aria-label={sectionLabel}
+                className="mt-2 mb-4 flex items-center gap-3 text-muted-foreground text-xs"
+              >
+                <Separator className="min-w-4 flex-1 data-[orientation=horizontal]:w-auto" />
+                <span className="min-w-0 truncate" title={sectionLabel}>
+                  {sectionLabel}
+                </span>
+                <Separator className="min-w-4 flex-1 data-[orientation=horizontal]:w-auto" />
+              </div>
+            )}
             <MessageBubble
               key={message.uuid ?? `${message.type}-${messageIndex}`}
               message={message}

@@ -1,9 +1,9 @@
+import { createPanelStore } from "@/lib/panel-window-runtime";
 import {
   flushProjectCommentWrites,
   notifyProjectCommentsRestored,
   restoreWithProjectComments,
 } from "@/components/workspace/editor/inline-comment-storage";
-import { create } from "zustand";
 import { useDocumentStore } from "./document-store";
 import { invoke } from "@/lib/desktop/core";
 import { createLogger } from "@/lib/debug/logger";
@@ -120,6 +120,7 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+const create = createPanelStore("history");
 export const useHistoryStore = create<HistoryState>()((set, get) => ({
   snapshots: [],
   labelCounts: {},

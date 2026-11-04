@@ -38,7 +38,7 @@ function clearStaleCache(): void {
 
 /** Create a fast fingerprint from PDF bytes (length + sampled bytes). */
 function computeFingerprint(data: PdfSource): string {
-  if (!(data instanceof Uint8Array)) return `file:${data.id}`;
+  if (!ArrayBuffer.isView(data)) return `file:${data.id}`;
   const len = data.length;
   if (len < 16) return `${len}:${Array.from(data).join(",")}`;
   // Sample: length + first 8 bytes + middle 8 bytes + last 8 bytes

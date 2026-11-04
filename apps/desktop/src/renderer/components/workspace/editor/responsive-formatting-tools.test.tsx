@@ -11,16 +11,22 @@ import { MarkdownEditorHeader } from "./markdown-editor-header";
 for (const Header of [LatexEditorHeader, MarkdownEditorHeader]) {
   it(`${Header.name} collapses based on remaining space and restores inline tools`, () => {
     let available = 500;
-    let resize = () => {};
+    const observers = new Set<() => void>();
+    const resize = () => {
+      for (const callback of observers) callback();
+    };
     const disconnect = vi.fn();
     vi.stubGlobal(
       "ResizeObserver",
       class {
-        constructor(callback: () => void) {
-          resize = callback;
+        constructor(private callback: () => void) {
+          observers.add(callback);
         }
         observe() {}
-        disconnect = disconnect;
+        disconnect() {
+          observers.delete(this.callback);
+          disconnect();
+        }
       },
     );
     const measure = vi
@@ -65,11 +71,18 @@ for (const Header of [LatexEditorHeader, MarkdownEditorHeader]) {
       available = 351;
       act(resize);
       expect(
+        container.querySelector('[data-formatting-collapsed="true"]'),
+      ).not.toBeNull();
+      available = 370;
+      act(resize);
+      expect(
         container.querySelector('[data-formatting-collapsed="false"]'),
       ).not.toBeNull();
       expect(
-        container.querySelector('button[aria-label="Formatting options"]'),
-      ).toBeNull();
+        container
+          .querySelector('button[aria-label="Formatting options"]')
+          ?.closest('[aria-hidden="true"][inert]'),
+      ).not.toBeNull();
       expect(
         container.querySelector('button[aria-label="Bold"]'),
       ).not.toBeNull();

@@ -120,13 +120,16 @@ export function ImagePanelHeader({
   );
   return toolbarContent ? (
     <WorkspacePanelHeader
+      hasTrailingContent
+      trailingContent={
+        <div className="flex items-center gap-1">{controls}</div>
+      }
       as="header"
       role="toolbar"
       aria-label="Image controls"
       className="h-auto min-h-12 flex-wrap gap-x-2 gap-y-1 py-1.5"
     >
       <div className="min-w-[180px] flex-1">{toolbarContent}</div>
-      <div className="ml-auto flex shrink-0 items-center gap-1">{controls}</div>
     </WorkspacePanelHeader>
   ) : (
     <FilePanelHeader label="Image controls" fileSize={fileSize}>

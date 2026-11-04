@@ -1,3 +1,4 @@
+import { createPanelStore } from "@/lib/panel-window-runtime";
 import {
   normalizeSpellingLanguage,
   normalizeSpellingWords,
@@ -16,7 +17,6 @@ import {
   type MinimapLayers,
 } from "@/components/workspace/editor/editor-minimap-model";
 import { type CustomModel, normalizeCustomModels } from "@/lib/custom-models";
-import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { DEFAULT_AGENT_MD } from "@/lib/default-agent-md";
 import {
@@ -674,6 +674,7 @@ export function migrateSettingsState(persistedState: unknown) {
   };
 }
 
+const create = createPanelStore("settings");
 export const useSettingsStore = create<SettingsState>()(
   persist(
     (set, get) => ({

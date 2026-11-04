@@ -1,3 +1,4 @@
+import { browserHarness } from "@/lib/desktop/bridge";
 import { ARTISAN_MODE_REQUEST_EVENT } from "@/lib/workspace-events";
 import { AgentFileReview } from "./editor/agent-file-review";
 import {
@@ -52,7 +53,6 @@ import {
   type ImperativePanelGroupHandle,
 } from "react-resizable-panels";
 import {
-  BotIcon,
   CodeXmlIcon,
   FileCodeIcon,
   FileIcon,
@@ -84,9 +84,13 @@ import {
 } from "@/components/ui/select";
 import { APP_VISIBILITY_RESTORED } from "@/lib/debug/log-store";
 import { isMarkdownFile, isMarkdownPath } from "@/lib/markdown";
+import { openPanelWindow } from "@/lib/panel-windows";
 import { shouldMuteLatexScrollSync } from "@/lib/latex-project";
 import { cn } from "@/lib/utils";
-import { useAgentChatStore } from "@/stores/agent-chat-store";
+import {
+  useAgentChatStore,
+  lastCommunicationProvider,
+} from "@/stores/agent-chat-store";
 import { useDocumentStore } from "@/stores/document-store";
 import { useProposedChangesStore } from "@/stores/proposed-changes-store";
 import type {
@@ -423,10 +427,9 @@ function ProjectWorkspaceLayout() {
     const activeTab = s.tabs.find((tab) => tab.id === s.activeTabId);
     return activeTab?.title ?? "New Chat";
   });
-  const activeChatProvider = useAgentChatStore((s) => {
-    const activeTab = s.tabs.find((tab) => tab.id === s.activeTabId);
-    return activeTab?.provider ?? "claude";
-  });
+  const lastChatProvider = useAgentChatStore((s) =>
+    lastCommunicationProvider(s.tabs.find((tab) => tab.id === s.activeTabId)),
+  );
   const [viewMode, setViewMode] = useState<WorkspaceViewMode>("split");
   // Preserve drawer size while its workspace presentation is active.
   const [chatDrawerOpen, setChatDrawerOpen] = useState(false);
@@ -748,6 +751,22 @@ function ProjectWorkspaceLayout() {
     onExpandedChange: (expanded: boolean) =>
       setExpandedPanel(expanded ? column : null),
     disabled: modeTransitionPhase !== "idle" || isColumnLayoutAnimating,
+    onPopOut:
+      (window.catalex || (import.meta.env.DEV && browserHarness())) &&
+      column !== "incoming" &&
+      !hasWholeFileComparison
+        ? () => {
+            openPanelWindow(
+              column === "pdf"
+                ? "preview"
+                : column === "chat"
+                  ? "chat"
+                  : "editor",
+              workspaceMode,
+            );
+            setExpandedPanel(null);
+          }
+        : undefined,
   });
   const effectiveViewMode: WorkspaceViewMode = isWorkspaceChat
     ? isPreviewableFile
@@ -2536,6 +2555,10 @@ function ProjectWorkspaceLayout() {
           <div className="flex h-full min-h-0 flex-col">
             <div
               ref={headerRowRef}
+              data-workspace-titlebar=""
+              // Chat workspace hides the file-tab toolbar that normally supplies
+              // the drag region. Its replacement row needs the same native behavior.
+              data-window-drag-region={isWorkspaceChat ? "" : undefined}
               className={cn(
                 "relative flex h-10 shrink-0 items-center gap-2 overflow-hidden",
                 isSidebarCollapsed && !isWorkspaceChat && "pl-2",
@@ -2604,7 +2627,32 @@ function ProjectWorkspaceLayout() {
                         ? Math.round(collapsedHeaderControlsWidth + 8)
                         : 0,
                   }}
-                ></div>
+                >
+                  {isWorkspaceChat && (
+                    <span
+                      data-workspace-chat-title=""
+                      className="flex min-w-0 items-center gap-2 px-2 font-medium text-sm"
+                      title={activeChatTitle}
+                    >
+                      <MessagesSquareIcon
+                        aria-hidden="true"
+                        className={cn(
+                          "size-3.5 shrink-0",
+                          lastChatProvider === "codex"
+                            ? "text-blue-500"
+                            : lastChatProvider === "claude"
+                              ? "text-amber-500"
+                              : lastChatProvider === "pi"
+                                ? "text-emerald-500"
+                                : "text-muted-foreground",
+                        )}
+                      />
+                      <span className="truncate">
+                        {formatWorkspaceChatTitle(activeChatTitle)}
+                      </span>
+                    </span>
+                  )}
+                </div>
                 <div
                   data-git-actions-compact-root
                   data-git-actions-compact-threshold={
@@ -2880,30 +2928,11 @@ function ProjectWorkspaceLayout() {
                               >
                                 <ChatWorkspacePane
                                   expansion={panelExpansion("chat", "Chat")}
-                                  title={
-                                    <>
-                                      <MessagesSquareIcon
-                                        className={cn(
-                                          "mr-2 size-3.5 shrink-0",
-                                          activeChatProvider === "codex"
-                                            ? "text-blue-500"
-                                            : "text-amber-500",
-                                        )}
-                                        aria-hidden="true"
-                                      />
-                                      <span className="truncate">
-                                        {formatWorkspaceChatTitle(
-                                          activeChatTitle,
-                                        )}
-                                      </span>
-                                    </>
-                                  }
                                   displayControl={
                                     isWorkspaceChat
                                       ? chatDisplayControl
                                       : undefined
                                   }
-                                  showTabBar={false}
                                   composerTransferPhase={
                                     panelComposerTransferPhase
                                   }

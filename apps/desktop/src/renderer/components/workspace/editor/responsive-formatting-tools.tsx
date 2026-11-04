@@ -2,6 +2,7 @@ import { Hint } from "@/components/ui/tooltip";
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { ChevronDownIcon, TypeIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useWorkspacePanelMotion } from "../workspace-panel";
 import {
   Popover,
   PopoverContent,
@@ -11,51 +12,70 @@ import {
 /** Measure the actual remaining header space, including changing status counts. */
 export function ResponsiveFormattingTools({
   children,
+  forceCollapsed = false,
 }: {
   children: ReactNode;
+  forceCollapsed?: boolean;
 }) {
   const availableRef = useRef<HTMLDivElement>(null);
   const toolsRef = useRef<HTMLDivElement>(null);
   const [collapsed, setCollapsed] = useState(false);
   const [open, setOpen] = useState(false);
+  const animating = useWorkspacePanelMotion()?.animating ?? false;
 
   useLayoutEffect(() => {
     const available = availableRef.current;
     const tools = toolsRef.current;
     if (!available || !tools) return;
     const measure = () => {
-      const needsMenu =
-        tools.getBoundingClientRect().width >
-        available.getBoundingClientRect().width;
-      setCollapsed(needsMenu);
-      if (!needsMenu) setOpen(false);
+      const toolsWidth = tools.getBoundingClientRect().width;
+      const availableWidth = available.getBoundingClientRect().width;
+      setCollapsed((wasCollapsed) => {
+        if (forceCollapsed || toolsWidth > availableWidth) return true;
+        // Reveal once the panel settles, with breathing room at the cutoff.
+        // An open formatting menu stays usable while its pane is resized.
+        if (
+          wasCollapsed &&
+          (animating || open || availableWidth < toolsWidth + 16)
+        )
+          return true;
+        return false;
+      });
     };
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(available);
     observer.observe(tools);
     return () => observer.disconnect();
-  }, []);
+  }, [animating, open, forceCollapsed]);
 
   return (
     <div
       ref={availableRef}
       data-formatting-collapsed={collapsed}
-      className="relative min-w-11 flex-1"
+      className="relative h-7 min-w-11 flex-1 overflow-hidden"
     >
       <div
         ref={toolsRef}
         aria-hidden={collapsed || undefined}
         inert={collapsed}
-        className={
-          collapsed
-            ? "pointer-events-none invisible absolute top-0 left-0 w-max"
-            : "w-max"
-        }
+        className="absolute top-0 left-0 w-max transition-opacity duration-150 ease-out motion-reduce:transition-none"
+        style={{
+          opacity: collapsed ? 0 : 1,
+          pointerEvents: collapsed ? "none" : undefined,
+        }}
       >
         {children}
       </div>
-      {collapsed && (
+      <div
+        aria-hidden={!collapsed || undefined}
+        inert={!collapsed}
+        className="absolute top-0 left-0 transition-opacity duration-150 ease-out motion-reduce:transition-none"
+        style={{
+          opacity: collapsed ? 1 : 0,
+          pointerEvents: collapsed ? undefined : "none",
+        }}
+      >
         <Popover open={open} onOpenChange={setOpen}>
           <Hint content="Formatting options">
             <PopoverTrigger asChild>
@@ -85,7 +105,7 @@ export function ResponsiveFormattingTools({
             {children}
           </PopoverContent>
         </Popover>
-      )}
+      </div>
     </div>
   );
 }

@@ -1,4 +1,215 @@
-import { expect, test } from "@playwright/test";
+import { expect, type Page, test } from "@playwright/test";
+
+async function openExpandAction(page: Page, label: string) {
+  await page
+    .getByRole("button", { name: `More ${label} view actions`, exact: true })
+    .click();
+  return page.getByRole("menuitem", { name: `Expand ${label}`, exact: true });
+}
+
+for (const markdown of [false, true]) {
+  test(`${markdown ? "Markdown" : "LaTeX"} formatting switches once and fades during panel resizing`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto(
+      markdown ? "/?debug=markdown-workspace" : "/?debug=comment-workspace&pdf",
+    );
+    const toolbar = page.getByTestId(
+      markdown ? "markdown-editor-toolbar" : "latex-editor-toolbar",
+    );
+    const formatting = toolbar.locator("[data-formatting-collapsed]");
+    await expect(formatting).toHaveAttribute(
+      "data-formatting-collapsed",
+      "true",
+    );
+    for (const action of ["Expand Editor", "Restore Editor"]) {
+      const button = await (action === "Expand Editor"
+        ? await openExpandAction(page, "Editor")
+        : page.getByRole("button", { name: action, exact: true })
+      ).elementHandle();
+      const samples = await button!.evaluate(async (button) => {
+        const panel = document
+          .querySelector(
+            '[data-testid="latex-editor-toolbar"], [data-testid="markdown-editor-toolbar"]',
+          )!
+          .closest("[data-workspace-panel-screen]")!;
+        const formatting = panel.querySelector<HTMLElement>(
+          "[data-formatting-collapsed]",
+        )!;
+        const tools = formatting.firstElementChild!;
+        const samples: {
+          collapsed: boolean;
+          moving: boolean;
+          opacity: number;
+          height: number;
+          gap: number;
+        }[] = [];
+        button.click();
+        const start = performance.now();
+        await new Promise<void>((resolve) => {
+          const sample = () => {
+            samples.push({
+              collapsed: formatting.dataset.formattingCollapsed === "true",
+              moving: panel.hasAttribute("data-panel-expansion-motion"),
+              opacity: Number(getComputedStyle(tools).opacity),
+              height: formatting.getBoundingClientRect().height,
+              gap: Number.parseFloat(
+                getComputedStyle(
+                  panel.querySelector("[data-panel-control-separator]")!,
+                ).marginLeft,
+              ),
+            });
+            // Include menu dismissal, the panel morph, and the formatting fade.
+            if (performance.now() - start < 900) requestAnimationFrame(sample);
+            else resolve();
+          };
+          requestAnimationFrame(sample);
+        });
+        return samples;
+      });
+      const changes = samples.filter(
+        (sample, index) =>
+          index > 0 && sample.collapsed !== samples[index - 1].collapsed,
+      );
+      expect(changes).toHaveLength(1);
+      expect(samples.some((s) => s.opacity > 0 && s.opacity < 1)).toBe(true);
+      expect(samples.every((s) => Math.abs(s.height - 28) < 1)).toBe(true);
+      expect(samples.every((sample) => sample.gap === 8)).toBe(true);
+      if (action === "Expand Editor")
+        expect(samples.filter((s) => s.moving).every((s) => s.collapsed)).toBe(
+          true,
+        );
+      expect(samples.at(-1)!.collapsed).toBe(action === "Restore Editor");
+      await toolbar.screenshot({
+        path: test
+          .info()
+          .outputPath(
+            `${action.startsWith("Expand") ? "expanded" : "compact"}-formatting.png`,
+          ),
+      });
+    }
+    await toolbar
+      .getByRole("button", { name: "Formatting options", exact: true })
+      .click();
+    await expect(
+      page
+        .getByRole("dialog", { name: "Formatting options", exact: true })
+        .getByRole("button", { name: "Bold", exact: true }),
+    ).toBeVisible();
+    await page.keyboard.press("Escape");
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await expect(formatting.locator(":scope > div").first()).toHaveCSS(
+      "transition-property",
+      "none",
+    );
+  });
+}
+
+test("Escape restores the editor without moving focus or its caret to the toolbar", async ({
+  page,
+}) => {
+  await page.goto("/?debug=input-transfer");
+  const content = page.locator(".cm-content").first();
+  await content.focus();
+  await page.keyboard.press("ControlOrMeta+Home");
+  await page.keyboard.press("ArrowRight");
+  const selection = await page.evaluate(() =>
+    window.__getInputTransferHarnessSelectionState?.(),
+  );
+  const expand = page.getByRole("button", {
+    name: "More Editor view actions",
+    exact: true,
+  });
+  await expand.click();
+  await page.getByRole("menuitem", { name: /^Expand / }).click();
+  const panel = page.getByRole("dialog", {
+    name: "Editor expanded",
+    exact: true,
+  });
+  await expect(panel).not.toHaveAttribute("data-panel-expansion-motion");
+  await expect(content).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(panel).toHaveCount(0);
+  await expect(content).toBeFocused();
+  expect(
+    await page.evaluate(() =>
+      window.__getInputTransferHarnessSelectionState?.(),
+    ),
+  ).toEqual(selection);
+  expect(await expand.evaluate((e) => e.matches(":focus-visible"))).toBe(false);
+  await page.keyboard.insertText("focus-preserved");
+  await expect(content).toContainText("focus-preserved");
+});
+
+test("PDF Escape preserves reading focus and Tab still exposes window-control focus", async ({
+  page,
+}) => {
+  await page.goto("/?debug=comment-workspace&pdf");
+  await expect(page.locator(".mupdf-text-layer").first()).toBeVisible();
+  const expand = page.getByRole("button", {
+    name: "More PDF view actions",
+    exact: true,
+  });
+  const panel = page.getByRole("dialog", { name: "PDF expanded", exact: true });
+  const content = page.getByTestId("pdf-scroll-container");
+  await expand.click();
+  await page.getByRole("menuitem", { name: /^Expand / }).click();
+  await expect(panel).not.toHaveAttribute("data-panel-expansion-motion");
+  await expect(content).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(panel).toHaveCount(0);
+  await expect(content).toBeFocused();
+  expect(await expand.evaluate((e) => e.matches(":focus-visible"))).toBe(false);
+  await expand.click();
+  await page.getByRole("menuitem", { name: /^Expand / }).click();
+  await expect(panel).not.toHaveAttribute("data-panel-expansion-motion");
+  await page.keyboard.press("Tab");
+  expect(await panel.evaluate((p) => p.contains(document.activeElement))).toBe(
+    true,
+  );
+  const restore = panel.getByRole("button", {
+    name: "Restore PDF",
+    exact: true,
+  });
+  await restore.focus();
+  await page.keyboard.press("Shift+Tab");
+  await expect(
+    panel.getByRole("button", {
+      name: "Pop out PDF",
+      exact: true,
+    }),
+  ).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(restore).toBeFocused();
+  expect(await restore.evaluate((e) => e.matches(":focus-visible"))).toBe(true);
+  // A keyboard-opened hint gets Escape before the enclosing panel does.
+  if (await page.getByRole("tooltip").isVisible()) {
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("tooltip")).toHaveCount(0);
+    await expect(panel).toBeVisible();
+  }
+  await page.keyboard.press("Escape");
+  await expect(panel).toHaveCount(0);
+  await expect(expand).toBeFocused();
+  expect(await expand.evaluate((e) => e.matches(":focus-visible"))).toBe(true);
+});
+
+test("Markdown Escape keeps focus in the preview iframe", async ({ page }) => {
+  await page.goto("/?debug=markdown-workspace");
+  const frame = page.getByTestId("markdown-preview").locator("iframe");
+  await expect(frame.contentFrame().locator("#write h1")).toBeVisible();
+  await (await openExpandAction(page, "Preview")).click();
+  const panel = page.getByRole("dialog", {
+    name: "Preview expanded",
+    exact: true,
+  });
+  await expect(panel).not.toHaveAttribute("data-panel-expansion-motion");
+  await expect(frame).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(panel).toHaveCount(0);
+  await expect(frame).toBeFocused();
+});
 
 test("expanded editor hides file tabs and retains its mounted editor, selection and undo", async ({
   page,
@@ -16,9 +227,7 @@ test("expanded editor hides file tabs and retains its mounted editor, selection 
     window.__getInputTransferHarnessSelectionState?.(),
   );
   const before = await content.innerText();
-  await page
-    .getByRole("button", { name: "Expand Editor", exact: true })
-    .click();
+  await (await openExpandAction(page, "Editor")).click();
   const expanded = page.getByRole("dialog", {
     name: "Editor expanded",
     exact: true,
@@ -65,9 +274,7 @@ test("Markdown expansion supports its theme menu, iframe Escape and backdrop foc
   await page.goto("/?debug=markdown-workspace");
   const preview = page.getByTestId("markdown-preview");
   await expect(preview).toBeVisible();
-  await page
-    .getByRole("button", { name: "Expand Preview", exact: true })
-    .click();
+  await (await openExpandAction(page, "Preview")).click();
   const expanded = page.getByRole("dialog", {
     name: "Preview expanded",
     exact: true,
@@ -87,9 +294,7 @@ test("Markdown expansion supports its theme menu, iframe Escape and backdrop foc
   await expanded.locator("iframe").contentFrame().locator("body").click();
   await page.keyboard.press("Escape");
   await expect(expanded).toHaveCount(0);
-  await page
-    .getByRole("button", { name: "Expand Preview", exact: true })
-    .click();
+  await (await openExpandAction(page, "Preview")).click();
   await page.mouse.click(5, 300);
   await page.keyboard.press("Escape");
   await expect(expanded).toHaveCount(0);
@@ -108,17 +313,16 @@ test("PDF and panel morph together on expand and restore", async ({ page }) => {
     .locator("..")
     .elementHandle();
   for (const action of ["Expand PDF", "Restore PDF"]) {
+    if (action === "Expand PDF") await openExpandAction(page, "PDF");
     const samples = await page.evaluate(
       async ({ action, toolbar }) => {
         const panel = document.querySelector<HTMLElement>(
           '[data-workspace-column="preview"]',
         )!;
-        const viewport = panel.querySelector<HTMLElement>(
-          '[data-testid="pdf-scroll-container"]',
-        )!;
-        const pdfPage = panel.querySelector<HTMLElement>(".mupdf-page")!;
         const button = [
-          ...panel.querySelectorAll<HTMLButtonElement>("button"),
+          ...document.querySelectorAll<HTMLElement>(
+            'button, [role="menuitem"]',
+          ),
         ].find((button) => button.getAttribute("aria-label") === action)!;
         const samples: {
           width: number;
@@ -136,6 +340,12 @@ test("PDF and panel morph together on expand and restore", async ({ page }) => {
         await new Promise<void>((resolve) => {
           const sample = () => {
             const rect = panel.getBoundingClientRect();
+            // A background compile can replace the PDF while the menu closes.
+            // Measure the live page rather than retaining its previous DOM node.
+            const viewport = panel.querySelector<HTMLElement>(
+              '[data-testid="pdf-scroll-container"]',
+            )!;
+            const pdfPage = panel.querySelector<HTMLElement>(".mupdf-page")!;
             samples.push({
               width: rect.width,
               pageWidth: pdfPage.getBoundingClientRect().width,
@@ -204,9 +414,7 @@ test("expansion reverses smoothly and honors reduced motion", async ({
 }) => {
   await page.goto("/?debug=input-transfer");
   await expect(page.locator(".cm-content").first()).toBeVisible();
-  await page
-    .getByRole("button", { name: "Expand Editor", exact: true })
-    .click();
+  await (await openExpandAction(page, "Editor")).click();
   const expanded = page.getByRole("dialog", {
     name: "Editor expanded",
     exact: true,
@@ -223,20 +431,10 @@ test("expansion reverses smoothly and honors reduced motion", async ({
     "data-panel-expansion-motion",
     "exiting",
   );
-  await expanded
-    .getByRole("button", { name: "Expand Editor", exact: true })
-    .evaluate((button: HTMLButtonElement) => button.click());
-  await expect(expanded).not.toHaveAttribute(
-    "data-panel-expansion-motion",
-    /.+/,
-  );
-  await page.keyboard.press("Escape");
   await expect(expanded).toHaveCount(0);
   await expect(page.locator("[data-expanded-panel-ancestor]")).toHaveCount(0);
   await page.emulateMedia({ reducedMotion: "reduce" });
-  await page
-    .getByRole("button", { name: "Expand Editor", exact: true })
-    .click();
+  await (await openExpandAction(page, "Editor")).click();
   await expect(expanded).toBeVisible();
   await expect(expanded).not.toHaveAttribute(
     "data-panel-expansion-motion",
@@ -252,9 +450,7 @@ test("editor restore lands on the split width without shifting the text inset", 
   await page.setViewportSize({ width: 1200, height: 800 });
   await page.goto("/?debug=comment-workspace&pdf");
   await expect(page.locator(".cm-content").first()).toBeVisible();
-  await page
-    .getByRole("button", { name: "Expand Editor", exact: true })
-    .click();
+  await (await openExpandAction(page, "Editor")).click();
   const expanded = page.getByRole("dialog", {
     name: "Editor expanded",
     exact: true,
@@ -317,9 +513,7 @@ for (const label of ["Editor", "PDF", "Preview"]) {
     );
     if (label !== "Preview")
       await expect(page.locator(".mupdf-text-layer").first()).toBeVisible();
-    await page
-      .getByRole("button", { name: `Expand ${label}`, exact: true })
-      .click();
+    await (await openExpandAction(page, label)).click();
     const panel = page.getByRole("dialog", {
       name: `${label} expanded`,
       exact: true,

@@ -919,3 +919,46 @@ it("releases inactive full and paged histories only after the save succeeds", as
     history: { total: 1000, start: 1000 },
   });
 });
+
+it("keeps open pop-out history loaded and releases it after the window closes", async () => {
+  runningTabs();
+  useAgentChatStore.setState((state) => ({
+    isStreaming: false,
+    tabs: state.tabs.map((tab) => ({
+      ...tab,
+      isStreaming: false,
+      turnPhase: null,
+    })),
+  }));
+  const child = { closed: false };
+  const original = window.__catalexPanelSessions;
+  window.__catalexPanelSessions = new Map([
+    [
+      "test",
+      {
+        kind: "chat",
+        chatId: "claude",
+        window: child,
+      } as unknown as import("@/lib/panel-window-runtime").PanelWindowSession,
+    ],
+  ]);
+  try {
+    await saveProjectChats();
+    expect(
+      useAgentChatStore.getState().tabs.find((tab) => tab.id === "claude")
+        ?.messages,
+    ).toHaveLength(1);
+    child.closed = true;
+    await saveProjectChats();
+    expect(
+      useAgentChatStore.getState().tabs.find((tab) => tab.id === "claude")
+        ?.messages,
+    ).toEqual([]);
+    expect(
+      useAgentChatStore.getState().tabs.find((tab) => tab.id === "codex")
+        ?.messages,
+    ).toHaveLength(1);
+  } finally {
+    window.__catalexPanelSessions = original;
+  }
+});

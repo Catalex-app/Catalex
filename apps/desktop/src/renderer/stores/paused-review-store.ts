@@ -1,9 +1,9 @@
+import { createPanelStore } from "@/lib/panel-window-runtime";
 import { synchronizePersistedStore } from "@/lib/persisted-store-sync";
 import {
   workspaceStatePersistence,
   flushWorkspaceState,
 } from "@/lib/workspace-state-storage";
-import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { invoke } from "@/lib/desktop/core";
 import { useAgentChatStore } from "./agent-chat-store";
@@ -53,6 +53,7 @@ async function inspect(session: AgentWorkspaceSession): Promise<Inspection> {
   });
 }
 
+const create = createPanelStore("paused");
 export const usePausedReviewStore = create<{
   pending: Record<string, PendingResume | undefined>;
   backups: Record<string, AgentWorkspaceSession[]>;

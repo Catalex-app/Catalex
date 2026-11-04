@@ -32,3 +32,9 @@
     calc(60px * var(--expanded-panel-elevation, 1))
     rgb(0 0 0 / calc(0.333333 * var(--expanded-panel-elevation, 1)));
 }
+
+/* Reserve panel-header space for expand/pop-out gestures, including in Electron. */
+[data-workspace-panel-header],
+[data-workspace-panel-header] [data-window-drag-region] {
+  -webkit-app-region: no-drag;
+}

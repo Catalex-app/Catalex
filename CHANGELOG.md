@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Open editor, preview, and chat panels in synchronized native windows; editor and preview windows stay pinned to their files, and each chat can have its own pinned window. Reopening a panel focuses its existing window.
+
 - Temporarily expand editor, preview, and chat panels across the app, with a shared header control and Escape to restore the workspace.
 
 ## [0.1.1]

@@ -46,11 +46,15 @@ export function PdfZoomControl({
           <MinusIcon className="size-3.5" />
         </button>
       </Hint>
+      <span
+        aria-hidden="true"
+        className="button-group-separator [--button-group-separator-inset:6px]"
+      />
       <input
         aria-label="Zoom percentage"
         inputMode="decimal"
         type="text"
-        className="h-full min-w-0 flex-1 border-border border-x bg-transparent px-0.5 text-center text-foreground text-xs tabular-nums outline-none"
+        className="h-full min-w-0 flex-1 bg-transparent px-0.5 text-center text-foreground text-xs tabular-nums outline-none"
         value={draft ?? `${Math.round(scale * 100)}%`}
         onFocus={(event) => event.currentTarget.select()}
         onChange={(event) => {
@@ -74,6 +78,10 @@ export function PdfZoomControl({
             event.currentTarget.blur();
           }
         }}
+      />
+      <span
+        aria-hidden="true"
+        className="button-group-separator [--button-group-separator-inset:6px]"
       />
       <Hint content="Zoom in">
         <button

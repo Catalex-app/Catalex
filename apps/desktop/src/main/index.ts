@@ -102,6 +102,8 @@ const pdfSnapshots = new PdfSnapshots(
   path.join(app.getPath("userData"), "pdf-snapshots"),
 );
 const windows = new Map<string, BrowserWindow>();
+// Dependent views share the owner's native project context, never another lease.
+const panelOwners = new Map<number, string>();
 const projectOwnership = new ProjectOwnership(() => {
   for (const win of windows.values())
     send(win, "project-ownership-changed", null);
@@ -161,7 +163,97 @@ function trustedSender(
 }
 
 function windowId(win: BrowserWindow) {
+  const owner = panelOwners.get(win.id);
+  if (owner) return owner;
   return [...windows].find(([, candidate]) => candidate === win)?.[0] ?? "main";
+}
+
+function configureWindowOpening(win: BrowserWindow, ownerId: string) {
+  const panelToken = (value: string) => {
+    const url = new URL(value);
+    const origin = new URL(developmentUrl ?? `${APP_PROTOCOL}://app`);
+    const token = url.searchParams.get("panel-window");
+    return !panelOwners.has(win.id) &&
+      url.origin === origin.origin &&
+      url.protocol === origin.protocol &&
+      url.host === origin.host &&
+      url.pathname === "/" &&
+      !url.hash &&
+      [...url.searchParams.keys()].length === 1 &&
+      token &&
+      /^[a-f0-9-]{36}$/.test(token)
+      ? token
+      : null;
+  };
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    const token = panelToken(url);
+    if (token)
+      return {
+        action: "allow",
+        outlivesOpener: false,
+        overrideBrowserWindowOptions: {
+          title: PRODUCT_NAME,
+          width: 960,
+          height: 720,
+          minWidth: 480,
+          minHeight: 360,
+          show: false,
+          backgroundColor: "#ffffff",
+          ...(process.platform === "darwin"
+            ? {
+                titleBarStyle: "hidden" as const,
+                trafficLightPosition: { x: 14, y: 13 },
+              }
+            : {}),
+          webPreferences: {
+            preload: path.join(__dirname, "../preload/index.cjs"),
+            contextIsolation: true,
+            nodeIntegration: false,
+            sandbox: true,
+            backgroundThrottling: false,
+            additionalArguments: [`--catalex-window=panel-${token}`],
+          },
+        },
+      };
+    if (/^https?:/i.test(url)) void shell.openExternal(url);
+    return { action: "deny" };
+  });
+  win.webContents.on("did-create-window", (child, details) => {
+    const token = panelToken(details.url);
+    if (!token) {
+      child.destroy();
+      return;
+    }
+    const id = `panel-${token}`;
+    windows.set(id, child);
+    panelOwners.set(child.id, ownerId);
+    configureWindowOpening(child, ownerId);
+    child.webContents.on("will-navigate", (event, url) => {
+      if (url !== details.url) event.preventDefault();
+    });
+    child.webContents.on("will-attach-webview", (event) =>
+      event.preventDefault(),
+    );
+    child.on("focus", () => send(child, "window-focus-restored"));
+    child.on("resize", () => send(child, "desktop:window:resized"));
+    child.on("close", (event) => {
+      if (
+        !quitting &&
+        closeHandlers.has(child.id) &&
+        !approvedClose.has(child.id)
+      ) {
+        event.preventDefault();
+        send(child, "desktop:window:close-requested");
+      }
+    });
+    child.on("closed", () => {
+      windows.delete(id);
+      panelOwners.delete(child.id);
+      closeHandlers.delete(child.id);
+      approvedClose.delete(child.id);
+    });
+    child.once("ready-to-show", () => child.show());
+  });
 }
 
 async function openExternal(value: unknown) {
@@ -207,10 +299,7 @@ async function createWindow(id: string, query = "") {
     },
   });
   windows.set(id, win);
-  win.webContents.setWindowOpenHandler(({ url }) => {
-    if (/^https?:/i.test(url)) void shell.openExternal(url);
-    return { action: "deny" };
-  });
+  configureWindowOpening(win, id);
   win.webContents.on("will-navigate", (event) => event.preventDefault());
   win.webContents.on("will-attach-webview", (event) => event.preventDefault());
   win.webContents.on("render-process-gone", (_event, details) => {
@@ -638,6 +727,29 @@ async function hostCommand(
     case "desktop:window:show":
       win.show();
       return { result: null };
+    case "desktop:window:focusOwner": {
+      const owner = panelOwners.get(win.id);
+      const target = owner ? windows.get(owner) : undefined;
+      if (!target || target.isDestroyed()) return { result: false };
+      if (target.isMinimized()) target.restore();
+      target.show();
+      target.focus();
+      return { result: true };
+    }
+    case "desktop:window:focusPanel": {
+      const target = windows.get(`panel-${String(args.token)}`);
+      if (
+        !target ||
+        target.isDestroyed() ||
+        panelOwners.has(win.id) ||
+        panelOwners.get(target.id) !== windowId(win)
+      )
+        return { result: false };
+      if (target.isMinimized()) target.restore();
+      target.show();
+      target.focus();
+      return { result: true };
+    }
     case "desktop:window:close":
       approvedClose.add(win.id);
       win.close();
@@ -883,7 +995,11 @@ async function start() {
     },
     (event) => {
       for (const [id, win] of windows)
-        if (!event.windowId || event.windowId === id)
+        if (
+          !event.windowId ||
+          event.windowId === id ||
+          panelOwners.get(win.id) === event.windowId
+        )
           send(win, event.event, event.payload);
     },
     (message) => {

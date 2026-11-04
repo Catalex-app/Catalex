@@ -1,4 +1,4 @@
-import { create } from "zustand";
+import { createPanelStore } from "@/lib/panel-window-runtime";
 import { invoke } from "@/lib/desktop/core";
 import { initialPiModelValue, type PiModelInfo } from "@/lib/pi-models";
 import { useSettingsStore } from "./settings-store";
@@ -39,6 +39,7 @@ let discovery: { generation: number; promise: Promise<PiModelInfo[]> } | null =
 const current = (request: number) =>
   request === generation && useSettingsStore.getState().enabledProviders.pi;
 
+const create = createPanelStore("pi");
 export const usePiSetupStore = create<PiSetupState>((set, get) => ({
   status: "disabled",
   error: null,

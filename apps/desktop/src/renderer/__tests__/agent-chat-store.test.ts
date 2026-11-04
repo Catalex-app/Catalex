@@ -2,10 +2,45 @@ import { invoke } from "@/lib/desktop/core";
 import { describe, it, expect, vi } from "vitest";
 import {
   offsetToLineCol,
+  lastCommunicationProvider,
+  lastCommunicationDetails,
   useAgentChatStore,
   type AgentStreamMessage,
 } from "@/stores/agent-chat-store";
 import { useDocumentStore } from "@/stores/document-store";
+
+describe("lastCommunicationProvider", () => {
+  it("follows conversation messages rather than the selected provider", () => {
+    const tab = {
+      ...useAgentChatStore.getState().tabs[0],
+      provider: "codex" as const,
+      messages: [
+        { type: "assistant", provider: "claude" },
+      ] as AgentStreamMessage[],
+      history: undefined,
+    };
+    expect(lastCommunicationProvider(tab)).toBe("claude");
+    tab.messages.push({ type: "user", provider: "codex" });
+    expect(lastCommunicationProvider(tab)).toBe("codex");
+    tab.messages.push({ type: "system", provider: "pi" });
+    expect(lastCommunicationProvider(tab)).toBe("codex");
+  });
+
+  it("keeps the latest provider while browsing older history, and leaves empty chats blank", () => {
+    const tab = {
+      ...useAgentChatStore.getState().tabs[0],
+      lastCommunicationProvider: "pi" as const,
+      messages: [
+        { type: "assistant", provider: "claude" },
+      ] as AgentStreamMessage[],
+      history: { start: 0, total: 100 },
+    };
+    expect(lastCommunicationProvider(tab)).toBe("pi");
+    expect(
+      lastCommunicationProvider({ ...tab, history: undefined, messages: [] }),
+    ).toBeUndefined();
+  });
+});
 
 describe("offsetToLineCol", () => {
   it("returns line 1, col 1 for offset 0 on empty string", () => {
@@ -250,4 +285,37 @@ it.each([
   } finally {
     useAgentChatStore.setState(initial);
   }
+});
+
+describe("latest exchange details", () => {
+  it("retains request effort with a reported model and never borrows it for a later unknown turn", () => {
+    const tab = {
+      ...useAgentChatStore.getState().tabs[0],
+      history: undefined,
+      messages: [
+        {
+          type: "user",
+          provider: "claude",
+          model: "sonnet",
+          reasoningEffort: "high",
+        },
+        {
+          type: "assistant",
+          provider: "claude",
+          message: { model: "claude-sonnet-4-6" },
+        },
+      ] as AgentStreamMessage[],
+    };
+    expect(lastCommunicationDetails(tab)).toEqual({
+      provider: "claude",
+      model: "claude-sonnet-4-6",
+      effort: "high",
+    });
+    tab.messages.push({ type: "user", provider: "claude" });
+    expect(lastCommunicationDetails(tab)).toEqual({
+      provider: "claude",
+      model: undefined,
+      effort: undefined,
+    });
+  });
 });

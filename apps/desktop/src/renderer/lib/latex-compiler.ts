@@ -1,3 +1,4 @@
+import { getPanelWindowSession } from "./panel-window-runtime";
 import {
   trackPdfSource,
   type PdfSource,
@@ -39,8 +40,10 @@ export function recordPdfCompilation(
 
 export function getPublishedCompilation(
   projectDir: string,
+  source = getCurrentPdfBytes(),
 ): PublishedCompilation | undefined {
-  const source = getCurrentPdfBytes();
+  const session = getPanelWindowSession();
+  if (session) return session.compilation(projectDir, source);
   const compiled = source ? pdfCompilations.get(source) : undefined;
   if (
     !compiled ||

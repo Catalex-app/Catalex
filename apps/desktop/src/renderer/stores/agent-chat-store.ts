@@ -1,3 +1,6 @@
+import { createStore, type StateCreator } from "zustand";
+import { createPanelStore, isChatPanelOpen } from "@/lib/panel-window-runtime";
+import { startsChatModelSection } from "@/lib/chat-model-sections";
 import {
   HARNESSES,
   harnessCommand,
@@ -32,7 +35,6 @@ import {
   findClaudeModel,
   claudeModelEfforts,
 } from "@/lib/claude-models";
-import { create } from "zustand";
 import {
   readAgentContextUsage,
   type AgentContextUsage,
@@ -123,9 +125,14 @@ export interface AgentStreamMessage {
   subtype?: string;
   session_id?: string;
   model?: string;
+  /** Effective thinking effort captured when this prompt was sent. */
+  reasoningEffort?: string;
+  /** Persist the section boundary so paging does not add or remove dividers. */
+  startsModelSection?: boolean;
   cwd?: string;
   tools?: string[];
   message?: {
+    model?: string;
     content?: ContentBlock[];
     usage?: { input_tokens: number; output_tokens: number };
   };
@@ -284,6 +291,8 @@ function getPinnedSelectionContext(
 }
 
 export interface TabState {
+  /** Per-conversation composer choices, shared by its workspace and pop-out. */
+  modelSelection?: ChatModelSelection;
   compacting?: boolean;
   contextUsage?: Partial<Record<ChatProvider, AgentContextUsage>>;
   providerStatus?: string | null;
@@ -300,6 +309,13 @@ export interface TabState {
   };
   /** Unix seconds of actual conversation activity; restoration never advances it. */
   lastActivityAt?: number;
+  /** Last communicating provider, retained when the latest messages are unloaded. */
+  lastCommunicationProvider?: ChatProvider;
+  lastCommunication?: {
+    provider: ChatProvider;
+    model?: string;
+    effort?: string;
+  };
   archived?: boolean;
   selectedClaudeExecutionMode?: AgentExecutionMode;
   selectedCodexExecutionMode?: AgentExecutionMode;
@@ -363,6 +379,7 @@ function permissionDefaults() {
 
 function tabPermissions(tab: TabState, state: AgentChatState) {
   return {
+    ...tab.modelSelection,
     selectedClaudeExecutionMode:
       tab.selectedClaudeExecutionMode ?? state.selectedClaudeExecutionMode,
     selectedCodexExecutionMode:
@@ -370,6 +387,58 @@ function tabPermissions(tab: TabState, state: AgentChatState) {
     selectedPiExecutionMode:
       tab.selectedPiExecutionMode ?? state.selectedPiExecutionMode,
   };
+}
+
+export function lastCommunicationDetails(tab: TabState | undefined) {
+  if (!tab) return undefined;
+  const includesLatest =
+    !tab.history ||
+    tab.history.start + tab.messages.length >= tab.history.total;
+  if (includesLatest) {
+    let provider: ChatProvider | undefined;
+    let model: string | undefined;
+    let effort: string | undefined;
+    let foundPrompt = false;
+    for (let index = tab.messages.length - 1; index >= 0; index--) {
+      const message = tab.messages[index];
+      if (message.type === "system") continue;
+      provider ??= message.provider;
+      if (!provider) continue;
+      if (message.provider && message.provider !== provider) break;
+      model ??= message.message?.model ?? message.model;
+      effort ??= message.reasoningEffort;
+      // Stop at this exchange's prompt, never borrow settings from an older turn.
+      if (message.type === "user" && message.subtype !== "question_answer") {
+        foundPrompt = true;
+        break;
+      }
+    }
+    if (
+      !foundPrompt &&
+      tab.history?.start &&
+      tab.lastCommunication &&
+      tab.lastCommunication.provider === provider
+    ) {
+      model ??= tab.lastCommunication.model;
+      effort ??= tab.lastCommunication.effort;
+    }
+    if (provider) return { provider, model, effort };
+    if (!tab.history || tab.history.total === 0) return undefined;
+  }
+  return (
+    tab.lastCommunication ??
+    (tab.lastCommunicationProvider
+      ? {
+          provider: tab.lastCommunicationProvider,
+          model: undefined,
+          effort: undefined,
+        }
+      : undefined)
+  );
+}
+
+export function lastCommunicationProvider(tab: TabState | undefined) {
+  return lastCommunicationDetails(tab)?.provider;
 }
 
 function makeDefaultTab(
@@ -520,6 +589,7 @@ function applyTabUpdate(
   }
   const result: Partial<AgentChatState> = { tabs: newTabs };
   if (tabId === state.activeTabId) {
+    if (updates.modelSelection) Object.assign(result, updates.modelSelection);
     if (updates.selectedClaudeExecutionMode !== undefined)
       result.selectedClaudeExecutionMode = updates.selectedClaudeExecutionMode;
     if (updates.selectedPiExecutionMode !== undefined)
@@ -711,7 +781,11 @@ function hasNewChatDraft(tab: TabState): boolean {
 
 function discardEmptyNewChats(tabs: TabState[], keepId?: string): TabState[] {
   return tabs.filter(
-    (tab) => tab.id === keepId || !isNewChatTab(tab) || hasNewChatDraft(tab),
+    (tab) =>
+      tab.id === keepId ||
+      isChatPanelOpen(tab.id) ||
+      !isNewChatTab(tab) ||
+      hasNewChatDraft(tab),
   );
 }
 
@@ -1195,12 +1269,51 @@ function applyActivityToMessages(
   return next;
 }
 
+const modelSelectionKeys = [
+  "selectedClaudeModel",
+  "selectedPiModel",
+  "selectedPiReasoningEffort",
+  "selectedCodexModel",
+  "selectedCodexReasoningEffort",
+  "selectedCodexFastMode",
+  "effortLevel",
+] as const;
+type ChatModelSelection = Pick<
+  AgentChatState,
+  (typeof modelSelectionKeys)[number]
+>;
+function readModelSelection(state: AgentChatState): ChatModelSelection {
+  return Object.fromEntries(
+    modelSelectionKeys.map((key) => [key, state[key]]),
+  ) as ChatModelSelection;
+}
+function updateModelSelection(
+  state: AgentChatState,
+  changes: Partial<ChatModelSelection>,
+): Partial<AgentChatState> {
+  return {
+    ...changes,
+    tabs: state.tabs.map((tab) =>
+      tab.id === state.activeTabId
+        ? {
+            ...tab,
+            modelSelection: {
+              ...readModelSelection(state),
+              ...tab.modelSelection,
+              ...changes,
+            },
+          }
+        : tab,
+    ),
+  };
+}
+
 // ─── Store ───
 
 const initialAgentDefaults = getAgentDefaults();
 const initialDefaultProvider = initialAgentDefaults.selectedProvider;
 
-export const useAgentChatStore = create<AgentChatState>()((set, get) => ({
+const createAgentChatState: StateCreator<AgentChatState> = (set, get) => ({
   chatProjectRoot: null,
   isLeavingProject: false,
   restoreProjectTabs: (projectRoot, savedTabs, savedActiveTabId) => {
@@ -1284,7 +1397,8 @@ export const useAgentChatStore = create<AgentChatState>()((set, get) => ({
   activeTabId: DEFAULT_TAB_ID,
 
   selectedClaudeModel: initialAgentDefaults.selectedClaudeModel,
-  setSelectedClaudeModel: (model) => set({ selectedClaudeModel: model }),
+  setSelectedClaudeModel: (model) =>
+    set((state) => updateModelSelection(state, { selectedClaudeModel: model })),
   selectedClaudeExecutionMode: initialAgentDefaults.selectedClaudeExecutionMode,
   setSelectedClaudeExecutionMode: (mode) =>
     set((state) =>
@@ -1294,10 +1408,13 @@ export const useAgentChatStore = create<AgentChatState>()((set, get) => ({
     ),
 
   selectedPiModel: initialAgentDefaults.selectedPiModel,
-  setSelectedPiModel: (model) => set({ selectedPiModel: model }),
+  setSelectedPiModel: (model) =>
+    set((state) => updateModelSelection(state, { selectedPiModel: model })),
   selectedPiReasoningEffort: initialAgentDefaults.selectedPiReasoningEffort,
   setSelectedPiReasoningEffort: (level) =>
-    set({ selectedPiReasoningEffort: level }),
+    set((state) =>
+      updateModelSelection(state, { selectedPiReasoningEffort: level }),
+    ),
   selectedPiExecutionMode: initialAgentDefaults.selectedPiExecutionMode,
   setSelectedPiExecutionMode: (mode) =>
     set((state) =>
@@ -1308,12 +1425,17 @@ export const useAgentChatStore = create<AgentChatState>()((set, get) => ({
   selectedCodexModel: initialAgentDefaults.selectedCodexModel,
   selectedCodexFastMode: false,
   setSelectedCodexFastMode: (enabled) =>
-    set({ selectedCodexFastMode: enabled }),
-  setSelectedCodexModel: (model) => set({ selectedCodexModel: model }),
+    set((state) =>
+      updateModelSelection(state, { selectedCodexFastMode: enabled }),
+    ),
+  setSelectedCodexModel: (model) =>
+    set((state) => updateModelSelection(state, { selectedCodexModel: model })),
   selectedCodexReasoningEffort:
     initialAgentDefaults.selectedCodexReasoningEffort,
   setSelectedCodexReasoningEffort: (level) =>
-    set({ selectedCodexReasoningEffort: level }),
+    set((state) =>
+      updateModelSelection(state, { selectedCodexReasoningEffort: level }),
+    ),
   selectedCodexExecutionMode: initialAgentDefaults.selectedCodexExecutionMode,
   setSelectedCodexExecutionMode: (mode) =>
     set((state) =>
@@ -1358,11 +1480,10 @@ export const useAgentChatStore = create<AgentChatState>()((set, get) => ({
       ...llmDefaults
     } = defaults;
     set((state) => ({
-      ...applyTabUpdate(
-        state,
-        activeTabId,
-        canApplyProviderDefault ? { provider: selectedProvider } : {},
-      ),
+      ...applyTabUpdate(state, activeTabId, {
+        ...(canApplyProviderDefault ? { provider: selectedProvider } : {}),
+        modelSelection: { ...readModelSelection(state), ...llmDefaults },
+      }),
       ...llmDefaults,
       ...(canApplyProviderDefault ? { selectedProvider } : {}),
     }));
@@ -1387,7 +1508,8 @@ export const useAgentChatStore = create<AgentChatState>()((set, get) => ({
   },
 
   effortLevel: initialAgentDefaults.effortLevel,
-  setEffortLevel: (level) => set({ effortLevel: level }),
+  setEffortLevel: (level) =>
+    set((state) => updateModelSelection(state, { effortLevel: level })),
 
   pendingInitialPrompt: null,
   setPendingInitialPrompt: (prompt) => set({ pendingInitialPrompt: prompt }),
@@ -1956,6 +2078,35 @@ export const useAgentChatStore = create<AgentChatState>()((set, get) => ({
       selectedPiExecutionMode,
       effortLevel,
     } = state;
+    const claudeModelInfo = findClaudeModel(
+      mergeClaudeModels(
+        useClaudeSetupStore.getState().models,
+        useSettingsStore.getState().customModels,
+      ),
+      selectedClaudeModel,
+    );
+    const supportedClaudeEfforts = claudeModelEfforts(claudeModelInfo);
+    const claudeEffort = claudeModelInfo
+      ? supportedClaudeEfforts.includes(effortLevel)
+        ? effortLevel
+        : supportedClaudeEfforts[0]
+      : effortLevel;
+    const piEffort = resolvePiThinkingLevel(
+      findPiModel(usePiSetupStore.getState().models, selectedPiModel),
+      selectedPiReasoningEffort,
+    );
+    const requestModel =
+      selectedProvider === "claude"
+        ? selectedClaudeModel
+        : selectedProvider === "pi"
+          ? selectedPiModel
+          : selectedCodexModel;
+    const requestEffort =
+      selectedProvider === "claude"
+        ? claudeEffort
+        : selectedProvider === "pi"
+          ? piEffort
+          : selectedCodexReasoningEffort;
     const sessionId = activeTab?.sessionId ?? null;
     const runtimeSessionKey =
       activeTab?.runtimeSessionKey ?? nextRuntimeSessionKey();
@@ -2020,6 +2171,17 @@ export const useAgentChatStore = create<AgentChatState>()((set, get) => ({
       type: "user",
       sentAt: Date.now(),
       provider: selectedProvider,
+      model: requestModel,
+      reasoningEffort: requestEffort,
+      startsModelSection: startsChatModelSection(
+        activeTab?.messages ?? [],
+        {
+          provider: selectedProvider,
+          model: requestModel,
+          reasoningEffort: requestEffort,
+        },
+        retryPausedRequest,
+      ),
       message: {
         content: [
           { type: "text", text: displayText },
@@ -2045,13 +2207,35 @@ export const useAgentChatStore = create<AgentChatState>()((set, get) => ({
       : undefined;
 
     set((s) => {
+      const messages = [
+        ...(s.tabs.find((t) => t.id === activeTabId)?.messages ?? []),
+      ];
+      if (retryPausedRequest) {
+        for (let index = messages.length - 1; index >= 0; index--) {
+          if (
+            messages[index].type === "user" &&
+            messages[index].subtype !== "question_answer"
+          ) {
+            messages[index] = {
+              ...messages[index],
+              provider: selectedProvider,
+              model: requestModel,
+              reasoningEffort: requestEffort,
+              startsModelSection: userMessage.startsModelSection,
+            };
+            break;
+          }
+        }
+      } else messages.push(userMessage);
       const tabUpdates: Partial<TabState> = {
         promptQueuePaused: false,
         lastActivityAt: Math.floor(Date.now() / 1000),
-        messages: [
-          ...(s.tabs.find((t) => t.id === activeTabId)?.messages ?? []),
-          ...(retryPausedRequest ? [] : [userMessage]),
-        ],
+        messages,
+        lastCommunication: {
+          provider: selectedProvider,
+          model: requestModel,
+          effort: requestEffort,
+        },
         isStreaming: true,
         roundTiming: {
           elapsedMs: 0,
@@ -2432,19 +2616,6 @@ export const useAgentChatStore = create<AgentChatState>()((set, get) => ({
       );
       if (selectedProvider === "claude") {
         const claudeModel = selectedClaudeModel;
-        const modelInfo = findClaudeModel(
-          mergeClaudeModels(
-            useClaudeSetupStore.getState().models,
-            useSettingsStore.getState().customModels,
-          ),
-          claudeModel,
-        );
-        const supportedEfforts = claudeModelEfforts(modelInfo);
-        const claudeEffort = modelInfo
-          ? supportedEfforts.includes(effortLevel)
-            ? effortLevel
-            : supportedEfforts[0]
-          : effortLevel;
         if (sessionId) {
           await invoke(harnessCommand("claude", "resume"), {
             projectPath: agentProjectPath,
@@ -2485,10 +2656,7 @@ export const useAgentChatStore = create<AgentChatState>()((set, get) => ({
           prompt,
           tabId: activeTabId,
           model: selectedPiModel,
-          reasoningEffort: resolvePiThinkingLevel(
-            piModel,
-            selectedPiReasoningEffort,
-          ),
+          reasoningEffort: piEffort,
           compileContext: verificationContext,
         });
       } else {
@@ -2855,26 +3023,23 @@ export const useAgentChatStore = create<AgentChatState>()((set, get) => ({
     const sharedCodexModel = normalizeCodexModel(session.last_codex_model);
     if (useSessionLlm) {
       if (sessionProvider === "pi") {
-        set({
-          selectedPiModel:
-            options.sessionPiModel ??
+        get().setSelectedPiModel(
+          options.sessionPiModel ??
             session.last_pi_model ??
             useSettingsStore.getState().defaultPiModel,
-        });
+        );
       } else if (sessionProvider === "claude") {
-        set({
-          selectedClaudeModel:
-            options.sessionClaudeModel ??
+        get().setSelectedClaudeModel(
+          options.sessionClaudeModel ??
             sharedClaudeModel ??
             useSettingsStore.getState().defaultClaudeModel,
-        });
+        );
       } else {
-        set({
-          selectedCodexModel:
-            options.sessionCodexModel ??
+        get().setSelectedCodexModel(
+          options.sessionCodexModel ??
             sharedCodexModel ??
             useSettingsStore.getState().defaultCodexModel,
-        });
+        );
       }
     }
 
@@ -2930,7 +3095,9 @@ export const useAgentChatStore = create<AgentChatState>()((set, get) => ({
   requestNewChat: () => {
     const state = get();
     const active = state.tabs.find((tab) => tab.id === state.activeTabId);
-    const draft = state.tabs.find(isNewChatTab);
+    const draft = state.tabs.find(
+      (tab) => isNewChatTab(tab) && !isChatPanelOpen(tab.id),
+    );
     // Attachments waiting for the composer belong to the chat being left.
     if (
       active &&
@@ -3071,6 +3238,8 @@ export const useAgentChatStore = create<AgentChatState>()((set, get) => ({
     }
     set((value) =>
       applyTabUpdate(value, tabId, {
+        lastCommunicationProvider: lastCommunicationProvider(current),
+        lastCommunication: lastCommunicationDetails(current),
         messages: rehydrateGeneratedImageMessages(messages),
         history:
           start === 0 && messages.length === tab.history!.total
@@ -3965,4 +4134,158 @@ export const useAgentChatStore = create<AgentChatState>()((set, get) => ({
   _syncSharedSession: async (tabId: string) => {
     await syncTabToSharedSession(tabId, get, set);
   },
-}));
+});
+
+const create = createPanelStore("chat");
+export const useAgentChatStore = create<AgentChatState>()(createAgentChatState);
+
+const projectedChatKeys = [
+  "activeTabId",
+  "selectedProvider",
+  "messages",
+  "sessionId",
+  "isStreaming",
+  "error",
+  "totalInputTokens",
+  "totalOutputTokens",
+  "selectedClaudeExecutionMode",
+  "selectedCodexExecutionMode",
+  "selectedPiExecutionMode",
+  ...modelSelectionKeys,
+] as const;
+
+function projectChatState(
+  state: AgentChatState,
+  tabId: string,
+): AgentChatState {
+  const tab = state.tabs.find((item) => item.id === tabId);
+  return {
+    ...state,
+    ...(tab ? tabPermissions(tab, state) : {}),
+    activeTabId: tabId,
+    selectedProvider: tab?.provider ?? state.selectedProvider,
+    messages: tab?.messages ?? [],
+    sessionId: tab?.sessionId ?? null,
+    isStreaming: tab?.isStreaming ?? false,
+    error: tab?.error ?? null,
+    totalInputTokens: tab?.totalInputTokens ?? 0,
+    totalOutputTokens: tab?.totalOutputTokens ?? 0,
+  };
+}
+
+/** A pinned view whose action closures still run inside the owning renderer.
+ * Reuse the same action definitions with a chat-scoped get/set, without ever
+ * temporarily changing the main window's active chat (including across awaits).
+ */
+export function createChatPanelStore(tabId: string) {
+  const owner = useAgentChatStore;
+  const initial = owner.getState();
+  const projectRoot = initial.chatProjectRoot;
+  if (!initial.tabs.some((tab) => tab.id === tabId))
+    throw new Error("Chat is no longer available.");
+  owner.setState((state) => ({
+    tabs: state.tabs.map((tab) =>
+      tab.id === tabId && !tab.modelSelection
+        ? { ...tab, modelSelection: readModelSelection(state) }
+        : tab,
+    ),
+  }));
+  let actions: Partial<AgentChatState> = {};
+  // Attachments belong to the surface that received them, not a different chat
+  // currently selected in the main window.
+  let local: Pick<
+    AgentChatState,
+    | "pendingAttachments"
+    | "drawerOpenRequested"
+    | "drawerCollapseRequestNonce"
+    | "composerFocusRequestNonce"
+  > = {
+    pendingAttachments: [],
+    drawerOpenRequested: false,
+    drawerCollapseRequestNonce: 0,
+    composerFocusRequestNonce: 0,
+  };
+  const get = (): AgentChatState => {
+    const source = owner.getState();
+    return {
+      ...projectChatState(
+        source.chatProjectRoot === projectRoot
+          ? source
+          : { ...source, tabs: [], isLeavingProject: true },
+        tabId,
+      ),
+      ...local,
+      ...actions,
+    };
+  };
+  // Zustand keeps its initial snapshot for the lifetime of the store. Do not
+  // retain transcripts that happened to be loaded when this window opened.
+  const view = createStore<AgentChatState>(() => ({
+    ...get(),
+    tabs: [],
+    messages: [],
+  }));
+  const set: Parameters<StateCreator<AgentChatState>>[0] = (update) => {
+    const current = get();
+    if (!current.tabs.some((tab) => tab.id === tabId)) return;
+    const patch = typeof update === "function" ? update(current) : update;
+    if (!patch) return;
+    for (const key of Object.keys(local) as Array<keyof typeof local>) {
+      if (key in patch) local = { ...local, [key]: patch[key] };
+    }
+    owner.setState((source) => {
+      const shared = Object.fromEntries(
+        Object.entries(patch).filter(
+          ([key, value]) =>
+            typeof value !== "function" &&
+            !projectedChatKeys.includes(
+              key as (typeof projectedChatKeys)[number],
+            ) &&
+            !(key in local),
+        ),
+      ) as Partial<AgentChatState>;
+      const next = { ...source, ...shared };
+      const modelChanges = Object.fromEntries(
+        modelSelectionKeys
+          .filter((key) => key in patch)
+          .map((key) => [key, patch[key]]),
+      );
+      if (
+        Object.keys(modelChanges).length &&
+        (!patch.activeTabId || patch.activeTabId === tabId)
+      ) {
+        next.tabs = next.tabs.map((tab) =>
+          tab.id === tabId
+            ? {
+                ...tab,
+                modelSelection: {
+                  ...readModelSelection(current),
+                  ...tab.modelSelection,
+                  ...modelChanges,
+                },
+              }
+            : tab,
+        );
+      }
+      // An explicit fork may select its new chat in the main window. The pop-out
+      // remains pinned to its original conversation.
+      const selected =
+        patch.activeTabId && patch.activeTabId !== tabId
+          ? patch.activeTabId
+          : source.activeTabId;
+      return projectChatState(next, selected);
+    });
+  };
+  const initialized = createAgentChatState(set, get, view);
+  actions = Object.fromEntries(
+    Object.entries(initialized).filter(
+      ([, value]) => typeof value === "function",
+    ),
+  );
+  actions.setActiveTab = () => {};
+  actions.createTab = () => owner.getState().createTab();
+  actions.requestNewChat = () => owner.getState().requestNewChat();
+  view.setState(get(), true);
+  const dispose = owner.subscribe(() => view.setState(get(), true));
+  return { store: view, dispose };
+}

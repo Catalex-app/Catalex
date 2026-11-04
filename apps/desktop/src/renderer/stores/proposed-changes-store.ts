@@ -1,3 +1,4 @@
+import { createPanelStore } from "@/lib/panel-window-runtime";
 import { PRODUCT_NAME } from "../../branding";
 import {
   normalizeDocumentText,
@@ -11,7 +12,6 @@ import {
   workspaceStatePersistence,
   flushWorkspaceState,
 } from "@/lib/workspace-state-storage";
-import { create } from "zustand";
 import { toast } from "sonner";
 import { persist } from "zustand/middleware";
 import { synchronizePersistedStore } from "@/lib/persisted-store-sync";
@@ -756,6 +756,7 @@ function toProposedChanges(
   }));
 }
 
+const create = createPanelStore("proposals");
 export const useProposedChangesStore = create<ProposedChangesState>()(
   persist(
     (set, get) => ({

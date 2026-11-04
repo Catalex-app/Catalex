@@ -1,3 +1,4 @@
+import { getPanelWindowSession } from "./panel-window-runtime";
 interface PersistedStore {
   persist: {
     getOptions: () => { name?: string };
@@ -9,6 +10,7 @@ const subscriptions = new Map<string, () => void>();
 
 /** Keep each window's saved state current without broadcasting runtime state. */
 export function synchronizePersistedStore(store: PersistedStore) {
+  if (getPanelWindowSession()) return;
   const key = store.persist.getOptions().name;
   if (!key) return;
   subscriptions.get(key)?.();
