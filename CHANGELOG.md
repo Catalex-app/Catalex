@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Keep editor pop-outs open through agent review, with synchronized edits and decisions. Main-workspace selections supply live context to open chats; editor and PDF pop-outs retain reference and review actions without sending new agent requests. Fade the chat drawer smoothly when focusing and restoring a panel.
+
 - Open editor, preview, and chat panels in synchronized native windows; editor and preview windows stay pinned to their files, and each chat can have its own pinned window. Reopening a panel focuses its existing window.
 
 - Temporarily expand editor, preview, and chat panels across the app, with a shared header control and Escape to restore the workspace.

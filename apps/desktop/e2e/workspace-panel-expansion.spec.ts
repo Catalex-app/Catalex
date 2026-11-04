@@ -607,3 +607,70 @@ for (const label of ["Editor", "PDF", "Preview"]) {
     });
   });
 }
+
+test("the chat drawer fades out and back in when focusing a panel", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto("/?debug=input-transfer");
+  const drawer = page.locator("[data-chat-drawer-overlay]");
+  const composer = drawer.locator('textarea[data-chat-composer-input="true"]');
+  await composer.fill("Preserve this draft while focusing the editor.");
+  const originalComposer = await composer.elementHandle();
+  for (const entering of [true, false]) {
+    const action = entering
+      ? await openExpandAction(page, "Editor")
+      : page.getByRole("button", { name: "Restore Editor", exact: true });
+    const recording = action.evaluate(
+      (button) =>
+        new Promise<{ opacity: number; width: number }[]>((resolve) => {
+          const overlay = document.querySelector("[data-chat-drawer-overlay]")!;
+          const drawer = overlay.querySelector("[data-chat-drawer-panel]")!;
+          const samples: { opacity: number; width: number }[] = [];
+          const start = performance.now();
+          (button as HTMLElement).click();
+          const sample = () => {
+            samples.push({
+              opacity: Number(getComputedStyle(overlay).opacity),
+              width: parseFloat(getComputedStyle(drawer).width),
+            });
+            if (performance.now() - start < 500) requestAnimationFrame(sample);
+            else resolve(samples);
+          };
+          requestAnimationFrame(sample);
+        }),
+    );
+    if (entering)
+      await expect(
+        page.locator("[data-expanded-workspace-panel]"),
+      ).toBeVisible();
+    await page.waitForTimeout(80);
+    await page.screenshot({
+      path: test
+        .info()
+        .outputPath(entering ? "drawer-exiting.png" : "drawer-returning.png"),
+    });
+    const frames = await recording;
+    expect(frames.some(({ opacity }) => opacity > 0 && opacity < 1)).toBe(true);
+    expect(
+      Math.max(...frames.map(({ width }) => width)) -
+        Math.min(...frames.map(({ width }) => width)),
+    ).toBeLessThan(2);
+    await expect(drawer).toHaveCSS("opacity", entering ? "0" : "1");
+    await expect(composer).toHaveValue(
+      "Preserve this draft while focusing the editor.",
+    );
+    expect(
+      await originalComposer!.evaluate((element) => element.isConnected),
+    ).toBe(true);
+  }
+  await expect(page.locator(".cm-content").first()).toBeFocused();
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await (await openExpandAction(page, "Editor")).click();
+  await expect(drawer).toHaveCSS("transition-duration", "0s");
+  await expect(drawer).toHaveCSS("opacity", "0");
+  await page
+    .getByRole("button", { name: "Restore Editor", exact: true })
+    .click();
+  await expect(drawer).toHaveCSS("opacity", "1");
+});

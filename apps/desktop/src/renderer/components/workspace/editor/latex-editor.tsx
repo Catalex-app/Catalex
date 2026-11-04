@@ -47,6 +47,7 @@ import {
 } from "./comment-draft-history";
 import { getActiveComment } from "./active-comment";
 import { attachCommentToChat } from "@/lib/comment-chat-context";
+import { isReferencePanelWindow } from "@/lib/panel-window-runtime";
 import {
   commentChangeTransaction,
   commentHistoryEffect,
@@ -140,7 +141,12 @@ import {
   replaceNext,
   replaceAll,
 } from "@codemirror/search";
-import { unifiedMergeView, getChunks, getOriginalDoc } from "@codemirror/merge";
+import {
+  unifiedMergeView,
+  getChunks,
+  getOriginalDoc,
+  originalDocChangeEffect,
+} from "@codemirror/merge";
 import { latexLinter } from "codemirror-lang-latex";
 import { forEachDiagnostic, type Diagnostic } from "@codemirror/lint";
 import { useDocumentStore, type ProjectFile } from "@/stores/document-store";
@@ -1229,6 +1235,7 @@ interface LatexEditorProps {
 }
 
 function sendDiagnosticToChat(view: EditorView, issues: DiagnosticChatIssue[]) {
+  if (isReferencePanelWindow()) return;
   const state = useDocumentStore.getState();
   const file = state.files.find((file) => file.id === state.activeFileId);
   const fileName = file?.relativePath ?? "main.tex";
@@ -1262,7 +1269,7 @@ export function LatexEditor({
   reviewToolbarTarget = null,
   assistantMode = "duet",
   chatLayout = "drawer",
-  selectionAiEnabled = assistantMode === "duet",
+  selectionAiEnabled: requestedSelectionAiEnabled = assistantMode === "duet",
   suppressToolbar = false,
   debugInlineCommentsByFile,
   scrollSyncEnabled = false,
@@ -1271,6 +1278,8 @@ export function LatexEditor({
   scrollSyncTarget = null,
   onScrollPositionChange,
 }: LatexEditorProps = {}) {
+  const selectionAiEnabled =
+    requestedSelectionAiEnabled && !isReferencePanelWindow();
   const renderReviewToolbar = (bar: ReactNode) =>
     reviewToolbarTarget ? createPortal(bar, reviewToolbarTarget) : bar;
   const containerRef = useRef<HTMLDivElement>(null);
@@ -1295,6 +1304,9 @@ export function LatexEditor({
   const agentWorkspaceRoot = useDocumentStore((s) => s.agentWorkspaceRoot);
   // These annotations belong to the source, not a potentially different draft.
   const commentProjectRoot = agentWorkspaceRoot ? null : projectRoot;
+  const isReviewApplying = useProposedChangesStore(
+    (s) => !!s.workspaceReview?.isApplying,
+  );
   const isEditorReadOnly = useDocumentStore(
     (s) =>
       s.isApplyingAgentDraft ||
@@ -1312,7 +1324,10 @@ export function LatexEditor({
   const clearJumpRequest = useDocumentStore((s) => s.clearJumpRequest);
 
   const activeFile = files.find((f) => f.id === activeFileId);
-  const showSidecarUi = assistantMode === "duet" && chatLayout === "drawer";
+  const showSidecarUi =
+    assistantMode === "duet" &&
+    chatLayout === "drawer" &&
+    !isReferencePanelWindow();
   const selectedCommentIdsJson = useAgentChatStore((state) =>
     JSON.stringify(
       state.tabs
@@ -2257,6 +2272,8 @@ export function LatexEditor({
     button.name = type;
     button.textContent = type === "accept" ? "Accept" : "Reject";
     button.onmousedown = (event) => {
+      if (useProposedChangesStore.getState().workspaceReview?.isApplying)
+        return;
       const view = viewRef.current;
       const widget = button.closest(".cm-deletedChunk");
       if (!view || !widget) return;
@@ -2375,6 +2392,7 @@ export function LatexEditor({
 
   // Keep all changes (⌘Y)
   handleKeepAllRef.current = () => {
+    if (useProposedChangesStore.getState().workspaceReview?.isApplying) return;
     if (pendingChangeRef.current?.source === "external") {
       void settleExternal(pendingChangeRef.current.newContent);
       return;
@@ -2452,6 +2470,7 @@ export function LatexEditor({
 
   // Undo all changes (⌘N)
   handleUndoAllRef.current = () => {
+    if (useProposedChangesStore.getState().workspaceReview?.isApplying) return;
     if (pendingChangeRef.current?.source === "external") {
       void settleExternal(pendingChangeRef.current.oldContent);
       return;
@@ -2981,7 +3000,13 @@ export function LatexEditor({
           // Auto-resolve when all chunks have been individually accepted/rejected
           // Note: acceptChunk doesn't change the main doc (only the original),
           // so we check total === 0 regardless of docChanged
-          if (total === 0 && getThreeWayRegions(update.state).length === 0) {
+          if (
+            total === 0 &&
+            getThreeWayRegions(update.state).length === 0 &&
+            !update.transactions.some((transaction) =>
+              transaction.annotation(diskRefresh),
+            )
+          ) {
             const change = pendingChangeRef.current;
             if (change) {
               setTimeout(() => {
@@ -3410,7 +3435,7 @@ export function LatexEditor({
         historyCompartmentRef.current.of(history()),
         commentHistory((patch) => replayCommentRef.current(patch)),
         readOnlyCompartmentRef.current.of([
-          EditorState.readOnly.of(isEditorReadOnly),
+          EditorState.readOnly.of(isEditorReadOnly || isReviewApplying),
           EditorView.editable.of(!isEditorReadOnly),
         ]),
         keymap.of([
@@ -3835,11 +3860,13 @@ export function LatexEditor({
     if (!view) return;
     view.dispatch({
       effects: readOnlyCompartmentRef.current.reconfigure([
-        EditorState.readOnly.of(isEditorReadOnly || isResolvingGitConflict),
+        EditorState.readOnly.of(
+          isEditorReadOnly || isResolvingGitConflict || isReviewApplying,
+        ),
         EditorView.editable.of(!isEditorReadOnly && !isResolvingGitConflict),
       ]),
     });
-  }, [isEditorReadOnly, isResolvingGitConflict]);
+  }, [isEditorReadOnly, isResolvingGitConflict, isReviewApplying]);
 
   useEffect(() => {
     const view = viewRef.current;
@@ -4161,6 +4188,54 @@ export function LatexEditor({
     clearSelectionUiState,
     editorReadyRevision,
     isTextFile,
+  ]);
+
+  // A review can be visible in several windows. Mirror its live draft and
+  // accepted baseline without recording a new edit or making another decision.
+  useEffect(() => {
+    const view = viewRef.current;
+    if (
+      !view ||
+      !isMergeActiveRef.current ||
+      activeMergeChange?.source !== "proposal" ||
+      !activeMergeChange.workspaceSessionId ||
+      activeMergeChange.workspaceSessionId !==
+        useDocumentStore.getState().agentWorkspaceSessionId ||
+      pendingChangeRef.current?.id !== activeMergeChange.id ||
+      activeFileContent === undefined
+    )
+      return;
+    const original = getOriginalDoc(view.state).toString();
+    const baseline =
+      activeMergeChange.reviewedContent ?? activeMergeChange.oldContent;
+    const content = view.state.doc.toString();
+    // A deleted file has a source-text placeholder in the document tree until
+    // review settles. Its untouched proposed document is still empty.
+    const draftContent =
+      activeMergeChange.workspaceChangeKind === "deleted" &&
+      !activeFile?.isDirty &&
+      activeFileContent === activeMergeChange.oldContent
+        ? activeMergeChange.newContent
+        : activeFileContent;
+    if (content === draftContent && original === baseline) return;
+    view.dispatch({
+      changes: createDocumentChangeSet(content, draftContent),
+      effects:
+        original === baseline
+          ? []
+          : [
+              originalDocChangeEffect(
+                view.state,
+                createDocumentChangeSet(original, baseline),
+              ),
+            ],
+      annotations: [Transaction.addToHistory.of(false), diskRefresh.of(true)],
+    });
+  }, [
+    activeFileContent,
+    activeFile?.isDirty,
+    activeMergeChange,
+    editorReadyRevision,
   ]);
 
   useEffect(() => {
@@ -4736,6 +4811,8 @@ export function LatexEditor({
         return;
       }
 
+      if (!selectionAiEnabled) return;
+
       if (actionId === "fix-selected-issues") {
         const view = viewRef.current;
         const issues = getSelectedDiagnosticIssues();
@@ -4765,7 +4842,6 @@ export function LatexEditor({
           : undefined;
       toolbarStickyRef.current = false;
       setSelectionCoords(null);
-      setSelectionRange(null);
       if (actionId === "proofread") {
         useAgentChatStore
           .getState()
@@ -4781,6 +4857,7 @@ export function LatexEditor({
       getSelectedDiagnosticIssues,
       selectionLabel,
       selectionRange,
+      selectionAiEnabled,
       setSelectionRange,
     ],
   );
@@ -5869,6 +5946,7 @@ export function LatexEditor({
           activeFileChange &&
           renderReviewToolbar(
             <ProposedChangesPanel
+              disabled={isReviewApplying}
               threeWay={!!activeFileChange.conflictContents}
               onUseStarting={useStartingRegions}
               showChunkNavigation={!reviewToolbarTarget}

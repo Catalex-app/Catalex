@@ -5,6 +5,27 @@
   transition: none !important;
 }
 
+[data-chat-drawer-overlay] {
+  transition: opacity 180ms ease-out, translate 180ms ease-out;
+}
+
+[data-chat-drawer-overlay][data-workspace-panel-background] {
+  z-index: 45;
+  transition: opacity 180ms ease-out, translate 180ms ease-out !important;
+}
+
+[data-chat-drawer-overlay][data-panel-drawer-hidden] {
+  opacity: 0;
+  translate: 0 8px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-chat-drawer-overlay],
+  [data-chat-drawer-overlay][data-workspace-panel-background] {
+    transition: none !important;
+  }
+}
+
 [data-expanded-panel-ancestor] {
   overflow: visible !important;
   transform: none !important;

@@ -58,6 +58,12 @@ export function getPanelWindowSession(): PanelWindowSession | undefined {
   }
 }
 
+/** File pop-outs support editing and review; only the main workspace supplies agent context. */
+export function isReferencePanelWindow(): boolean {
+  const kind = getPanelWindowSession()?.kind;
+  return kind === "editor" || kind === "preview";
+}
+
 /** Actions run in the owner, so there is one agent/session/persistence runtime. */
 export function createPanelStore(name: string): typeof create {
   const parent = getPanelWindowSession()?.stores[name] as

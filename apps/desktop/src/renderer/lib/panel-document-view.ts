@@ -48,7 +48,16 @@ export function connectPanelDocumentView(
     const source = parent.getState();
     const current = store.getState();
     const view = Object.fromEntries(viewKeys.map((key) => [key, current[key]]));
-    const file = source.files.find((file) => file.id === session.fileId);
+    const liveFile = source.files.find((file) => file.id === session.fileId);
+    // Deleted files are temporarily absent while the draft tree is installed.
+    // Keep their source visible until the shared review adds its deletion entry.
+    const file =
+      liveFile ??
+      source.sourceViewSnapshot?.files.find(
+        (file) => file.id === session.fileId,
+      );
+    const changedWorkspace =
+      source.agentWorkspaceRoot !== current.agentWorkspaceRoot;
     applying = true;
     try {
       store.setState(
@@ -58,6 +67,20 @@ export function connectPanelDocumentView(
               ...source,
               ...view,
               ...pinnedActions,
+              ...(!liveFile && file
+                ? {
+                    files: [...source.files, file],
+                    isAgentWorkspaceReadOnly: true,
+                  }
+                : {}),
+              ...(changedWorkspace
+                ? {
+                    selectionRange: null,
+                    selectionPreviewRange: null,
+                    commentSelectionContext: null,
+                    pdfSelectionContext: null,
+                  }
+                : {}),
               activeFileId: session.fileId,
               openFileIds: [session.fileId],
               compileError:

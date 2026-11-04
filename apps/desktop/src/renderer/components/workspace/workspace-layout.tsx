@@ -1152,7 +1152,13 @@ function ProjectWorkspaceLayout() {
   }, [isPreviewableFile, viewMode]);
 
   const updateDrawerAnchor = useCallback(() => {
-    if (drawerAnchorLockRef.current) return;
+    // The drawer belongs to the normal workspace slot, not the floating panel.
+    // Keep that geometry through expansion and restoration so its fade is stable.
+    if (
+      drawerAnchorLockRef.current ||
+      document.querySelector("[data-expanded-workspace-panel]")
+    )
+      return;
     const next = getDrawerAnchorSnapshot();
     if (!next) return;
 

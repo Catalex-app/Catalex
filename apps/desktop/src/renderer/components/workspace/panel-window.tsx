@@ -21,6 +21,8 @@ import { Hint, TooltipProvider } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
 import { Toaster } from "@/components/ui/sonner";
 import { LatexEditor } from "./editor/latex-editor";
+import { AgentFileReview } from "./editor/agent-file-review";
+import { useProposedChangesStore } from "@/stores/proposed-changes-store";
 import { PdfPreview } from "./preview/pdf-preview";
 import { MarkdownPreview } from "./preview/markdown-preview";
 import { CsvTable } from "./preview/csv-table";
@@ -35,6 +37,18 @@ function PanelContent() {
   useKeyboardShortcuts();
   const file = useDocumentStore((state) =>
     state.files.find((file) => file.id === session.fileId),
+  );
+  const workspaceSessionId = useDocumentStore(
+    (state) => state.agentWorkspaceSessionId,
+  );
+  const wholeFileChange = useProposedChangesStore(
+    (state) =>
+      state.changes.find(
+        (change) =>
+          change.filePath === file?.relativePath &&
+          change.workspaceSessionId === workspaceSessionId &&
+          (change.binary || file?.type === "image" || file?.type === "pdf"),
+      ) ?? null,
   );
   const chatTitle = useAgentChatStore(
     (state) =>
@@ -167,12 +181,18 @@ function PanelContent() {
       </TrafficLightSafeHeader>
       <div className="min-h-0 flex-1 px-2 pb-2">
         {session.kind === "editor" ? (
-          <LatexEditor
-            suppressToolbar
-            expansion={expansion}
-            assistantMode={session.mode}
-            chatLayout="workspace"
-          />
+          <AgentFileReview file={file ?? null} change={wholeFileChange}>
+            {({ current }) => (
+              <LatexEditor
+                suppressToolbar
+                expansion={expansion}
+                assistantMode={session.mode}
+                chatLayout="workspace"
+                selectionAiEnabled={false}
+                agentFileReviewContent={current}
+              />
+            )}
+          </AgentFileReview>
         ) : session.kind === "chat" ? (
           <ChatWorkspacePane expansion={expansion} />
         ) : (

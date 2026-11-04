@@ -14,6 +14,7 @@ import { isComposingKey } from "@/lib/keyboard-events";
 import { PdfZoomControl } from "./pdf-zoom-control";
 import { setCommentDraft } from "../editor/comment-draft-history";
 import { attachCommentToChat } from "@/lib/comment-chat-context";
+import { isReferencePanelWindow } from "@/lib/panel-window-runtime";
 import { registerSelectionContextActions } from "@/lib/context-menu";
 import { Hint } from "@/components/ui/tooltip";
 import {
@@ -186,7 +187,8 @@ export function PdfPreview({
 }) {
   const panelMotion = useWorkspacePanelMotion();
   const layoutAnimating = columnLayoutAnimating || !!panelMotion?.animating;
-  const aiEnabled = requestedAiEnabled && !isolatedSnapshot;
+  const aiEnabled =
+    requestedAiEnabled && !isolatedSnapshot && !isReferencePanelWindow();
   const scrollSyncEnabled = requestedScrollSyncEnabled && !isolatedSnapshot;
   const scrollSyncSourceTarget = isolatedSnapshot
     ? null
@@ -1204,8 +1206,8 @@ export function PdfPreview({
       const label = pdfContextLabel;
       const sel = pdfSelection;
       setPdfSelection(null);
-      sel.clear();
-      if (actionId === "proofread") {
+      if (actionId !== "proofread") sel.clear();
+      if (actionId === "proofread" && aiEnabled) {
         useAgentChatStore
           .getState()
           .sendPrompt("Proofread and fix any errors in this text", {
@@ -1217,6 +1219,7 @@ export function PdfPreview({
     },
     [
       pdfSelection,
+      aiEnabled,
       commentStatus,
       checkedSelection,
       currentRootFileId,
@@ -2173,6 +2176,7 @@ export function PdfPreview({
       ];
 
       const handleFixWithChat = () => {
+        if (isReferencePanelWindow()) return;
         const errorList = errors.map((e) => `- ${e}`).join("\n");
         useAgentChatStore
           .getState()
@@ -2204,13 +2208,15 @@ export function PdfPreview({
             <div className="mt-3 flex items-center gap-2">
               {!isStandalonePdf ? (
                 <>
-                  <button
-                    onClick={handleFixWithChat}
-                    className="flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 font-medium text-primary-foreground text-xs shadow-sm transition-colors hover:bg-primary/90"
-                  >
-                    <MousePointerClickIcon className="size-3.5" />
-                    Fix with Chat
-                  </button>
+                  {!isReferencePanelWindow() && (
+                    <button
+                      onClick={handleFixWithChat}
+                      className="flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 font-medium text-primary-foreground text-xs shadow-sm transition-colors hover:bg-primary/90"
+                    >
+                      <MousePointerClickIcon className="size-3.5" />
+                      Fix with Chat
+                    </button>
+                  )}
                   <button
                     onClick={() => handleCompile(true)}
                     className="flex items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-1.5 font-medium text-foreground text-xs transition-colors hover:bg-muted"

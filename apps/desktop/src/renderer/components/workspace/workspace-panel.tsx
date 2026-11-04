@@ -225,6 +225,7 @@ export function WorkspacePanel({
       backgroundRef.current = [];
       for (const element of background) {
         element.removeAttribute("data-workspace-panel-background");
+        element.removeAttribute("data-panel-drawer-hidden");
         element.style.removeProperty("--panel-background-origin");
         element.style.removeProperty("--panel-background-scale");
       }
@@ -248,6 +249,15 @@ export function WorkspacePanel({
       else if (panel.isConnected) focusContent();
     };
   }, [floating]);
+
+  useLayoutEffect(() => {
+    // Keep the mounted drawer above the moving panel just long enough to fade
+    // away, and reveal it while the panel returns to its original slot.
+    for (const element of backgroundRef.current) {
+      if (element.matches("[data-chat-drawer-overlay]"))
+        element.toggleAttribute("data-panel-drawer-hidden", expanded);
+    }
+  }, [expanded, floating]);
 
   useLayoutEffect(() => {
     // Bring the background's top edge just behind the panel's 36px top inset.

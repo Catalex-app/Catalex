@@ -2,6 +2,7 @@ import type { InlineEditorComment } from "@/components/workspace/editor/inline-c
 import { useDocumentStore } from "@/stores/document-store";
 import { SELECTION_OWNER_EVENT } from "./workspace-events";
 import type { ChatContextBadge } from "./chat-context";
+import { isReferencePanelWindow } from "./panel-window-runtime";
 
 export function commentChatContext(
   filePath: string,
@@ -33,6 +34,7 @@ export function attachCommentToChat(
 ) {
   const document = useDocumentStore.getState();
   if (
+    isReferencePanelWindow() ||
     !projectRoot ||
     document.projectRoot !== projectRoot ||
     document.agentWorkspaceRoot ||

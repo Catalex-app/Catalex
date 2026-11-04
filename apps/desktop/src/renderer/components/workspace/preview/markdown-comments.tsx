@@ -2,6 +2,7 @@ import { canHandleEscape, consumeKey } from "@/lib/keyboard-events";
 import { getActiveComment, setActiveComment } from "../editor/active-comment";
 import type { CommentRange } from "../editor/comment-range";
 import { attachCommentToChat } from "@/lib/comment-chat-context";
+import { isReferencePanelWindow } from "@/lib/panel-window-runtime";
 import { registerSelectionContextActions } from "@/lib/context-menu";
 import { createPortal } from "react-dom";
 import { CommentsPanel, CommentsSummaryButton } from "../editor/comments-panel";
@@ -407,8 +408,9 @@ export function MarkdownComments({
       return {
         historyScope: projectRoot ? { root: projectRoot, filePath } : undefined,
         selectedCommentIds,
-        onAttach: (comment) =>
-          attachCommentToChat(projectRoot, filePath, comment),
+        onAttach: isReferencePanelWindow()
+          ? undefined
+          : (comment) => attachCommentToChat(projectRoot, filePath, comment),
         onResize: (id, range) =>
           setFiles(
             (current) => ({

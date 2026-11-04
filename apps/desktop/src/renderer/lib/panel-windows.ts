@@ -26,7 +26,6 @@ export function openPanelWindow(kind: PanelWindowKind, mode: WorkspaceMode) {
   const state = useDocumentStore.getState();
   if (!state.projectRoot) return;
   const fileId = state.activeFileId;
-  const agentWorkspaceRoot = state.agentWorkspaceRoot;
   const chatId =
     kind === "chat" ? useAgentChatStore.getState().activeTabId : undefined;
   const sessions = (window.__catalexPanelSessions ??= new Map());
@@ -100,8 +99,14 @@ export function openPanelWindow(kind: PanelWindowKind, mode: WorkspaceMode) {
   const stop = useDocumentStore.subscribe((next) => {
     if (
       next.projectRoot !== session.projectRoot ||
-      (kind !== "chat" && next.agentWorkspaceRoot !== agentWorkspaceRoot) ||
-      (kind !== "chat" && !next.files.some((file) => file.id === fileId))
+      (kind !== "chat" &&
+        !next.files.some((file) => file.id === fileId) &&
+        !next.isAgentWorkspaceReadOnly &&
+        !next.isApplyingAgentDraft &&
+        !(
+          next.agentWorkspaceRoot &&
+          next.sourceViewSnapshot?.files.some((file) => file.id === fileId)
+        ))
     ) {
       if (session.close) void session.close();
       else child.close();
