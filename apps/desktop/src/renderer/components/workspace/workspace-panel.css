@@ -1,0 +1,34 @@
+/* Preserve mounted editors and previews, and the split layout beneath them. */
+[data-workspace-panel-background] {
+  transform-origin: var(--panel-background-origin);
+  scale: var(--panel-background-scale, 1);
+  transition: none !important;
+}
+
+[data-expanded-panel-ancestor] {
+  overflow: visible !important;
+  transform: none !important;
+  filter: none !important;
+  perspective: none !important;
+  contain: none !important;
+  isolation: auto !important;
+  z-index: auto !important;
+}
+
+[data-expanded-workspace-panel] {
+  position: fixed !important;
+  left: var(--expanded-panel-left, 12px) !important;
+  top: var(--expanded-panel-top, 36px) !important;
+  z-index: 40 !important;
+  width: var(--expanded-panel-width, calc(100vw - 24px)) !important;
+  height: var(--expanded-panel-height, calc(100vh - 48px)) !important;
+  margin: 0 !important;
+  box-shadow: none;
+}
+
+.dark [data-expanded-workspace-panel] {
+  box-shadow:
+    0 calc(20px * var(--expanded-panel-elevation, 1))
+    calc(60px * var(--expanded-panel-elevation, 1))
+    rgb(0 0 0 / calc(0.333333 * var(--expanded-panel-elevation, 1)));
+}

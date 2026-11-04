@@ -281,7 +281,7 @@ export function SelectionToolbar({
         if (!event.currentTarget.contains(event.relatedTarget as Node | null))
           setFocused(false);
       }}
-      className="popup-glass absolute z-30 w-64 overflow-y-auto overflow-x-hidden rounded-lg border border-[color:var(--popup-surface-border,var(--border))] bg-[var(--popup-surface-background,var(--background))] shadow-[0_0_0_transparent,var(--popup-surface-shadow,var(--shadow-xl))] transition-[width] duration-200 ease-[cubic-bezier(0.2,0,0.2,1)] motion-reduce:transition-none"
+      className="popup-glass absolute z-50 w-64 overflow-y-auto overflow-x-hidden rounded-lg border border-[color:var(--popup-surface-border,var(--border))] bg-[var(--popup-surface-background,var(--background))] shadow-[0_0_0_transparent,var(--popup-surface-shadow,var(--shadow-xl))] transition-[width] duration-200 ease-[cubic-bezier(0.2,0,0.2,1)] motion-reduce:transition-none"
       style={{
         position: getAnchor ? "fixed" : "absolute",
         width: getAnchor ? (expanded ? 184 : 42) : undefined,

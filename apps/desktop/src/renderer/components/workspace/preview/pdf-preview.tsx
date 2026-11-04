@@ -16,7 +16,10 @@ import { setCommentDraft } from "../editor/comment-draft-history";
 import { attachCommentToChat } from "@/lib/comment-chat-context";
 import { registerSelectionContextActions } from "@/lib/context-menu";
 import { Hint } from "@/components/ui/tooltip";
-import { WorkspacePanelHeader } from "../workspace-panel";
+import {
+  WorkspacePanelHeader,
+  useWorkspacePanelMotion,
+} from "../workspace-panel";
 import { CommentsPanel, CommentsSummaryButton } from "../editor/comments-panel";
 import { ProblemsMotion } from "../editor/problems-motion";
 import { pickPdfCommentRange } from "./pdf-comment-selection";
@@ -140,7 +143,7 @@ export function clearZoomCache(): void {
 export function PdfPreview({
   aiEnabled: requestedAiEnabled = false,
   editorVisible = false,
-  layoutAnimating = false,
+  layoutAnimating: columnLayoutAnimating = false,
   layoutTarget,
   standalonePdfData = null,
   standaloneRootFileId,
@@ -181,6 +184,8 @@ export function PdfPreview({
   scrollSyncSourceTarget?: { id: number; position: number } | null;
   onScrollSyncToEditor?: (position: number) => void;
 }) {
+  const panelMotion = useWorkspacePanelMotion();
+  const layoutAnimating = columnLayoutAnimating || !!panelMotion?.animating;
   const aiEnabled = requestedAiEnabled && !isolatedSnapshot;
   const scrollSyncEnabled = requestedScrollSyncEnabled && !isolatedSnapshot;
   const scrollSyncSourceTarget = isolatedSnapshot
@@ -268,6 +273,11 @@ export function PdfPreview({
     },
     [],
   );
+  // Read this frame's viewport before paint so PDF geometry shares the panel's clock.
+  useLayoutEffect(() => {
+    const viewport = fitViewportRef.current;
+    if (viewport && panelMotion) handleContainerResize(0, 0, viewport);
+  }, [panelMotion, handleContainerResize]);
   const [firstPageSize, setFirstPageSize] = useState<{
     width: number;
     height: number;
@@ -1301,18 +1311,19 @@ export function PdfPreview({
     [fitMode, firstPageSize, scale],
   );
   const openingPdf =
-    layoutAnimating &&
+    columnLayoutAnimating &&
     layoutTarget &&
     layoutTarget.from <= 0.5 &&
     layoutTarget.to > 0.5;
-  const closingPdf = layoutAnimating && layoutTarget && layoutTarget.to <= 0.5;
+  const closingPdf =
+    columnLayoutAnimating && layoutTarget && layoutTarget.to <= 0.5;
   const motionScale =
     fitMode &&
     containerSize &&
     (openingPdf || containerSize.width > 1) &&
     !closingPdf
       ? fittedScale(
-          layoutAnimating && layoutTarget
+          columnLayoutAnimating && layoutTarget
             ? (openingPdf ? layoutTarget.width : layoutTarget.currentWidth) -
                 viewportScrollbarWidth.current
             : containerSize.width,

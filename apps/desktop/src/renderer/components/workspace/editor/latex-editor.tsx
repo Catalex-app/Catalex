@@ -53,7 +53,11 @@ import {
   commentHistory,
   recordCommentChange,
 } from "./comment-history";
-import { WorkspacePanel } from "../workspace-panel";
+import {
+  WorkspacePanel,
+  WorkspacePanelHeader,
+  type WorkspacePanelExpansion,
+} from "../workspace-panel";
 import { SELECTION_OWNER_EVENT } from "@/lib/workspace-events";
 import { PDF_COMMENT_NAVIGATE_EVENT } from "@/lib/workspace-events";
 import {
@@ -1205,6 +1209,7 @@ export function clearEditorStateCache(): void {
 }
 
 interface LatexEditorProps {
+  expansion?: WorkspacePanelExpansion;
   fileConflict?: ConflictFile | null;
   currentConflictContent?: ReactNode;
   agentFileReviewContent?: ReactNode;
@@ -1248,6 +1253,7 @@ function sendDiagnosticToChat(view: EditorView, issues: DiagnosticChatIssue[]) {
 }
 
 export function LatexEditor({
+  expansion,
   fileConflict = null,
   currentConflictContent,
   agentFileReviewContent,
@@ -5626,78 +5632,81 @@ export function LatexEditor({
         closeSearch();
       }}
     >
-      {activeFile?.externalChange &&
-        !activeFileChange &&
-        !activeGitConflict && (
-          <div
-            data-external-file-review="true"
-            className="flex flex-wrap items-center gap-2 border-border border-b bg-muted/50 px-3 py-2 text-sm"
-          >
-            <span className="mr-auto font-medium">
-              {activeFile.externalChange.disk === null
-                ? "File deleted on disk"
-                : "File changed on disk"}
-            </span>
-            <span className="text-muted-foreground text-xs">
-              Your text is preserved. Autosave is paused.
-            </span>
-            <button
-              type="button"
-              disabled={isResolvingGitConflict}
-              className="rounded border px-2 py-1 hover:bg-background"
-              onClick={() => void settleExternal(activeFile.content ?? "")}
-            >
-              {activeFile.externalChange.disk === null
-                ? "Restore my file"
-                : "Keep my version"}
-            </button>
-            <button
-              type="button"
-              disabled={isResolvingGitConflict}
-              className="rounded border px-2 py-1 hover:bg-background"
-              onClick={() =>
-                void settleExternal(activeFile.externalChange!.disk)
-              }
-            >
-              {activeFile.externalChange.disk === null
-                ? "Close deleted file"
-                : "Use disk version"}
-            </button>
-            {activeFile.externalChange.disk !== null && (
-              <button
-                type="button"
-                disabled={isResolvingGitConflict}
-                className="rounded bg-primary px-2 py-1 text-primary-foreground"
-                onClick={() =>
-                  void settleExternal(
-                    viewRef.current?.state.doc.toString() ??
-                      activeFile.content ??
-                      "",
-                  )
-                }
-              >
-                Save reviewed version
-              </button>
-            )}
-            {gitConflictError && (
-              <span role="alert" className="w-full text-destructive text-xs">
-                {gitConflictError}
-              </span>
-            )}
-          </div>
-        )}
       {/* Toolbar — adapts to file type */}
-      {shouldRenderInlineToolbar ? toolbarNode : null}
+      {shouldRenderInlineToolbar ? (
+        <div className="h-10 shrink-0">{toolbarNode}</div>
+      ) : null}
       {!shouldRenderInlineToolbar && toolbarNode && globalToolbarTarget
         ? createPortal(toolbarNode, globalToolbarTarget)
         : null}
       <WorkspacePanel
+        expansion={expansion}
         data-drawer-shell="true"
         data-workspace-panel-screen="true"
         className={`flex flex-1 flex-col ${
           showToolbar && !useGlobalToolbar ? "mt-2" : ""
         }`}
       >
+        {activeFile?.externalChange &&
+          !activeFileChange &&
+          !activeGitConflict && (
+            <div
+              data-external-file-review="true"
+              className="flex flex-wrap items-center gap-2 border-border border-b bg-muted/50 px-3 py-2 text-sm"
+            >
+              <span className="mr-auto font-medium">
+                {activeFile.externalChange.disk === null
+                  ? "File deleted on disk"
+                  : "File changed on disk"}
+              </span>
+              <span className="text-muted-foreground text-xs">
+                Your text is preserved. Autosave is paused.
+              </span>
+              <button
+                type="button"
+                disabled={isResolvingGitConflict}
+                className="rounded border px-2 py-1 hover:bg-background"
+                onClick={() => void settleExternal(activeFile.content ?? "")}
+              >
+                {activeFile.externalChange.disk === null
+                  ? "Restore my file"
+                  : "Keep my version"}
+              </button>
+              <button
+                type="button"
+                disabled={isResolvingGitConflict}
+                className="rounded border px-2 py-1 hover:bg-background"
+                onClick={() =>
+                  void settleExternal(activeFile.externalChange!.disk)
+                }
+              >
+                {activeFile.externalChange.disk === null
+                  ? "Close deleted file"
+                  : "Use disk version"}
+              </button>
+              {activeFile.externalChange.disk !== null && (
+                <button
+                  type="button"
+                  disabled={isResolvingGitConflict}
+                  className="rounded bg-primary px-2 py-1 text-primary-foreground"
+                  onClick={() =>
+                    void settleExternal(
+                      viewRef.current?.state.doc.toString() ??
+                        activeFile.content ??
+                        "",
+                    )
+                  }
+                >
+                  Save reviewed version
+                </button>
+              )}
+              {gitConflictError && (
+                <span role="alert" className="w-full text-destructive text-xs">
+                  {gitConflictError}
+                </span>
+              )}
+            </div>
+          )}
         {isMarkdownDocument && !reviewingSnapshot ? (
           <MarkdownEditorHeader
             selectedWords={editorTextStatistics.selectedWords}
@@ -5720,19 +5729,15 @@ export function LatexEditor({
             onBlockFormat={applyLatexBlockFormat}
           />
         ) : null}
-        {(!(isMarkdownDocument || isLatexDocument) || reviewingSnapshot) && (
-          <ProblemsMotion
-            kind="bar"
-            open={
-              (canShowProblems && !problemsPanelOpen) ||
-              (canShowComments && !commentsPanelOpen)
-            }
-          >
-            <div className="flex h-12 shrink-0 items-center justify-end border-border border-b bg-background px-2">
+        {!isPdf &&
+          !isFilePreview &&
+          !isWholeFileReview &&
+          (!(isMarkdownDocument || isLatexDocument) || reviewingSnapshot) && (
+            <WorkspacePanelHeader className="justify-end">
               {problemsSummary}
-            </div>
-          </ProblemsMotion>
-        )}
+            </WorkspacePanelHeader>
+          )}
+
         {/* Text-editor-only panels */}
         {!isPdf &&
           !isFilePreview &&

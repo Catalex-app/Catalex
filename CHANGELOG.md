@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Temporarily expand editor, preview, and chat panels across the app, with a shared header control and Escape to restore the workspace.
+
 ## [0.1.1]
 
 - Prioritize exact conference matches in the deadline picker, with highlighted search text and separate exact and fuzzy result sections.

@@ -1,5 +1,5 @@
 import { canHandleEscape, consumeKey } from "@/lib/keyboard-events";
-import { setActiveComment } from "../editor/active-comment";
+import { getActiveComment, setActiveComment } from "../editor/active-comment";
 import type { CommentRange } from "../editor/comment-range";
 import { attachCommentToChat } from "@/lib/comment-chat-context";
 import { registerSelectionContextActions } from "@/lib/context-menu";
@@ -78,6 +78,8 @@ export function MarkdownComments({
     range: Range;
     sourceRange: ReturnType<typeof markdownSelectionRange>;
   } | null>(null);
+  const selectionRef = useRef(selection);
+  selectionRef.current = selection;
   const [requestedCommentId, setRequestedCommentId] = useState<string | null>(
     null,
   );
@@ -230,8 +232,13 @@ export function MarkdownComments({
           event.stopPropagation();
         }
       }
-      if (canHandleEscape(event)) {
+      if (
+        canHandleEscape(event) &&
+        (selectionRef.current || getActiveComment())
+      ) {
         consumeKey(event);
+        if (selectionRef.current)
+          frameDocument.getSelection()?.removeAllRanges();
         setSelection(null);
         setActiveComment(null);
       }

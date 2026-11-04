@@ -1,3 +1,8 @@
+import {
+  WorkspacePanel,
+  WorkspacePanelHeader,
+  type WorkspacePanelExpansion,
+} from "../workspace/workspace-panel";
 import type { ReactNode } from "react";
 import { AgentDraftNotice } from "./agent-question-prompt";
 import { ChatComposer } from "./chat-composer";
@@ -5,12 +10,16 @@ import { ChatMessages } from "./chat-messages";
 import { ChatTabBar } from "./chat-tab-bar";
 
 export function ChatWorkspacePane({
+  expansion,
+  title = "Chat",
   displayControl,
   showTabBar = true,
   composerTransferPhase = "idle",
   forceHideComposer = false,
   acceptPendingAttachments = true,
 }: {
+  expansion?: WorkspacePanelExpansion;
+  title?: ReactNode;
   displayControl?: ReactNode;
   showTabBar?: boolean;
   composerTransferPhase?:
@@ -23,10 +32,18 @@ export function ChatWorkspacePane({
   acceptPendingAttachments?: boolean;
 }) {
   return (
-    <div
+    <WorkspacePanel
+      expansion={expansion}
       data-workspace-panel-screen="true"
       className="flex h-full min-h-0 flex-col overflow-hidden rounded-panel border border-border/70 bg-card"
     >
+      {expansion && (
+        <WorkspacePanelHeader>
+          <span className="flex min-w-0 flex-1 items-center px-1 font-medium text-sm">
+            {title}
+          </span>
+        </WorkspacePanelHeader>
+      )}
       {showTabBar ? <ChatTabBar /> : null}
       <div
         data-chat-messages
@@ -88,6 +105,6 @@ export function ChatWorkspacePane({
           acceptPendingAttachments={acceptPendingAttachments}
         />
       </div>
-    </div>
+    </WorkspacePanel>
   );
 }

@@ -1,3 +1,4 @@
+import { WorkspacePanelHeader } from "../workspace-panel";
 import { useCallback, useMemo } from "react";
 import { Columns3Icon, PlusIcon, Rows3Icon } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -113,7 +114,10 @@ export function CsvTable() {
       aria-label={`${activeFile.name} table`}
       data-testid="csv-table"
     >
-      <header className="flex h-10 shrink-0 items-center gap-2 border-border/70 border-b px-3">
+      <WorkspacePanelHeader
+        as="header"
+        className="flex h-10 shrink-0 items-center gap-2 border-border/70 border-b px-3"
+      >
         <div className="min-w-0 flex-1 truncate text-muted-foreground text-xs">
           <span data-testid="csv-table-size">
             {csv.rows.length.toLocaleString()} rows · {columnCount} columns
@@ -145,7 +149,7 @@ export function CsvTable() {
           <PlusIcon className="-ml-1 size-3" />
           Column
         </Button>
-      </header>
+      </WorkspacePanelHeader>
 
       <div className="min-h-0 flex-1 overflow-auto" data-testid="csv-grid">
         <table className="min-w-full table-fixed border-separate border-spacing-0 text-sm">

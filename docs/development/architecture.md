@@ -93,6 +93,22 @@ palette. The welcome screen and separate Settings window use Modern. Theme rules
 may style control density (Classic uses compact toolbar controls), but must not
 change workspace layout, available features, or mode transition behavior. Keep theme decisions out of individual feature components.
 
+Workspace panels share a temporary expanded state in `workspace-layout.tsx`.
+`workspace-panel.tsx` keeps the live content mounted and lifts the selected panel
+above the app while making the surrounding workspace inactive. The split ratios
+remain unchanged. Headers use the same expand/restore control; Escape restores
+the panel after nested menus or search have handled the key. The editor and preview expand the same `WorkspacePanel` boundary, including its
+header and content. File tabs stay outside that boundary; file-change notices
+stay inside the editor panel. Markdown forwards Escape from its iframe.
+Expansion and restoration share the split-layout timing. Live panel bounds and
+PDF display scale update together before each paint; PDF raster rendering waits
+until motion finishes. Background branches scale together around the viewport
+center on that same timeline, bringing the toolbar behind the expanded panel
+without scaling the native traffic lights or the focused content. Light mode
+uses a white backdrop; dark mode retains its dim backdrop and outer shadow.
+Reduced motion skips the transition. This state is local
+to the workspace and resets when its project or mode changes.
+
 ## Native backend and sidecar
 
 Rust lives under `backend/`, with its implementation unchanged by the folder reorganization. `src/main.rs` starts

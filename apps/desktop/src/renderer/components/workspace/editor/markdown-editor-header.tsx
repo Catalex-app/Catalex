@@ -1,3 +1,4 @@
+import { WorkspacePanelHeader } from "../workspace-panel";
 import { Hint } from "@/components/ui/tooltip";
 import { memo, type ReactNode } from "react";
 import { ResponsiveFormattingTools } from "./responsive-formatting-tools";
@@ -118,7 +119,7 @@ export function MarkdownEditorHeader({
   onBlockFormat,
 }: MarkdownEditorHeaderProps) {
   return (
-    <div
+    <WorkspacePanelHeader
       data-testid="markdown-editor-toolbar"
       className="flex h-12 shrink-0 items-center gap-2 border-border border-b bg-background px-2"
     >
@@ -152,7 +153,7 @@ export function MarkdownEditorHeader({
         </span>
       </div>
       {trailingContent}
-    </div>
+    </WorkspacePanelHeader>
   );
 }
 

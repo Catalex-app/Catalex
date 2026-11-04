@@ -13,7 +13,10 @@ export function ownsKey(event: KeyEvent, scope: Element | null | undefined) {
   return Boolean(scope && event.target && scope.contains(event.target as Node));
 }
 export function hasActiveModal(event: KeyEvent) {
-  const selector = '[aria-modal="true"], [role="alertdialog"], dialog[open]';
+  // Expanded workspace panels still contain normal editor/preview key scopes.
+  // Their own Escape handler runs after those scopes have handled the event.
+  const selector =
+    ':is([aria-modal="true"], [role="alertdialog"], dialog[open]):not([data-expanded-workspace-panel])';
   const target = event.target as Element | null;
   if (target?.closest?.(selector)) return true;
   return Array.from(document.querySelectorAll<HTMLElement>(selector)).some(

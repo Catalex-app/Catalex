@@ -1,3 +1,7 @@
+import {
+  WorkspacePanelHeader,
+  useWorkspacePanelExpansion,
+} from "../workspace-panel";
 import { usePreviewSearch, PreviewSearchPanel } from "./preview-search-panel";
 import { useMarkdownSearch } from "./markdown-search";
 import { installContextMenus } from "@/lib/context-menu";
@@ -489,6 +493,20 @@ export function MarkdownPreview({
   const ignorePreviewScrollUntilRef = useRef(0);
   const lastPreviewScrollPositionRef = useRef<number | null>(null);
   const [frameDocument, setFrameDocument] = useState<Document | null>(null);
+  const expansion = useWorkspacePanelExpansion();
+  useEffect(() => {
+    if (!frameDocument || !expansion?.expanded) return;
+    const keydown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      event.preventDefault();
+      expansion.onExpandedChange(false);
+    };
+    // Selection/comment handlers on the frame document get the first Escape.
+    const frameWindow = frameDocument.defaultView;
+    frameWindow?.addEventListener("keydown", keydown);
+    return () => frameWindow?.removeEventListener("keydown", keydown);
+  }, [frameDocument, expansion]);
+
   useEffect(() => {
     if (!frameDocument) return;
     const removeMouseBoundary = installMouseBoundary(frameDocument);
@@ -1149,7 +1167,7 @@ export function MarkdownPreview({
       data-testid="markdown-preview"
       style={previewPanelStyle}
     >
-      <div
+      <WorkspacePanelHeader
         className="flex h-12 shrink-0 items-center border-border border-b bg-background px-2"
         data-testid="markdown-preview-toolbar"
       >
@@ -1242,7 +1260,7 @@ export function MarkdownPreview({
             </Button>
           </Hint>
         </div>
-      </div>
+      </WorkspacePanelHeader>
       <div ref={setCommentPanel} className="shrink-0" />
       <div className="relative flex min-h-0 flex-1">
         <PreviewSearchPanel search={search} {...markdownSearch} />

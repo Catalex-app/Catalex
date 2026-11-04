@@ -7,7 +7,7 @@ type ScrollSyncProbeWindow = Window & {
   __scrollSyncProbe: { lines: number[]; release?: () => void };
 };
 
-test("Duet workspace expands content and restores its split without losing chat draft", async ({
+test("Duet workspace expands a live panel and restores the split and chat draft", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -21,101 +21,88 @@ test("Duet workspace expands content and restores its split without losing chat 
   const chat = page.locator('[data-workspace-chat-pane="true"]');
   const input = chat.locator("textarea");
   await expect(input).toBeVisible();
-  const mode = page.getByRole("tablist", { name: "Chat workspace content" });
-  const area = page.locator('[data-workspace-mode-content="true"]');
   await expect(
     page.locator("[data-workspace-layout-animating]"),
   ).toHaveAttribute("data-workspace-layout-animating", "false");
-  await expect
-    .poll(async () => (await chat.boundingBox())!.width)
-    .toBeGreaterThan(400);
-  await expect(
-    page.locator("[data-workspace-panel-screen] [data-chat-composer-shell]"),
-  ).toHaveAttribute("data-composer-transfer-phase", "idle");
-  const contentGroup = page.getByRole("group", {
-    name: "Chat workspace content",
-    exact: true,
-  });
-  const historyGroup = page.getByRole("group", {
-    name: "Project history",
-    exact: true,
-  });
-  for (const theme of ["modern", "classic"]) {
-    await page.evaluate((theme) => {
-      document.documentElement.dataset.uiTheme = theme;
-    }, theme);
-    const contentStroke = await contentGroup
-      .locator(".button-group-separator")
-      .evaluate((element) => {
-        const style = getComputedStyle(element, "::before");
-        return { top: style.top, bottom: style.bottom, height: style.height };
-      });
-    expect(contentStroke).toEqual(
-      theme === "modern"
-        ? { top: "8px", bottom: "8px", height: "16px" }
-        : { top: "0px", bottom: "0px", height: "32px" },
-    );
-    if (theme === "modern") {
-      const historyStroke = await historyGroup
-        .locator(".button-group-separator")
-        .evaluate((element) => getComputedStyle(element, "::before").height);
-      expect(historyStroke).toBe(contentStroke.height);
-    }
-    await contentGroup.screenshot({
-      path: `test-results/chat-workspace-divider-${theme}.png`,
-    });
-    await historyGroup.screenshot({
-      path: `test-results/history-workspace-divider-${theme}.png`,
-    });
-  }
-  await page.evaluate(() => {
-    document.documentElement.dataset.uiTheme = "modern";
-  });
+  await expect(chat.locator("[data-chat-composer-shell]")).toHaveAttribute(
+    "data-composer-transfer-phase",
+    "idle",
+  );
+  await expect(page.locator("[data-chat-drawer-overlay]")).toHaveCount(0);
   await input.fill("Keep this draft");
-  const initial = await chat.boundingBox();
-  await page
-    .getByRole("button", { name: "Expand content panel", exact: true })
-    .click();
-  const restore = page.getByRole("button", {
-    name: "Restore split layout",
-    exact: true,
-  });
-  await expect(restore).toHaveAttribute("aria-pressed", "true");
-  await expect
-    .poll(async () => (await chat.boundingBox())?.width ?? 0)
-    .toBeLessThan(2);
-  await expect(chat).toHaveAttribute("inert", "");
-  await mode.getByRole("tab", { name: "Editor", exact: true }).click();
-  await expect
-    .poll(
-      async () =>
-        (await page.locator(".cm-editor").boundingBox())!.width /
-        (await area.boundingBox())!.width,
-    )
-    .toBeGreaterThan(0.95);
-  await page.screenshot({
-    path: test.info().outputPath("vibe-expanded-editor.png"),
-  });
-  await restore.click();
-  await expect
-    .poll(async () =>
-      Math.abs((await chat.boundingBox())!.width - initial!.width),
-    )
-    .toBeLessThan(3);
   await expect(input).toHaveValue("Keep this draft");
   await page
-    .getByRole("button", { name: "Expand content panel", exact: true })
+    .getByRole("button", { name: "Click to jump to page", exact: true })
     .click();
-  await restore.click();
-  await page.getByRole("button", { name: "Half", exact: true }).click();
   await page
-    .getByRole("button", { name: "Toggle drawer", exact: true })
-    .locator("..")
-    .hover();
-  await page.getByRole("button", { name: "Full", exact: true }).click();
-  await expect(
-    page.getByRole("button", { name: "Expand content panel", exact: true }),
-  ).toBeVisible();
+    .getByRole("textbox", { name: "Page number", exact: true })
+    .fill("3");
+  await page
+    .getByRole("textbox", { name: "Page number", exact: true })
+    .press("Enter");
+  const currentPage = page.locator("[data-pdf-page-current]").first();
+  await expect(currentPage).toHaveText("3");
+  const pdfScroller = await page
+    .getByTestId("pdf-scroll-container")
+    .elementHandle();
+  const initial = await chat.boundingBox();
+  for (const label of ["PDF", "Chat"]) {
+    await page
+      .getByRole("button", { name: `Expand ${label}`, exact: true })
+      .click();
+    const expanded = page.getByRole("dialog", {
+      name: `${label} expanded`,
+      exact: true,
+    });
+    await expect(expanded).toBeVisible();
+    if (label === "PDF") {
+      await expect(currentPage).toHaveText("3");
+      expect(
+        await pdfScroller!.evaluate((element) => element.isConnected),
+      ).toBe(true);
+    }
+    await expect(expanded).not.toHaveAttribute(
+      "data-panel-expansion-motion",
+      /.+/,
+    );
+    const bounds = await expanded.boundingBox();
+    expect(bounds!.x).toBe(12);
+    expect(bounds!.y).toBe(36);
+    expect(bounds!.width).toBe(1416);
+    expect(bounds!.height).toBe(852);
+    await page.screenshot({
+      path: test.info().outputPath(`expanded-${label}.png`),
+    });
+    await page.keyboard.press("Escape");
+    await expect(expanded).toHaveCount(0);
+    await expect(input).toHaveValue("Keep this draft");
+    await expect(currentPage).toHaveText("3");
+    expect((await chat.boundingBox())!.width).toBeCloseTo(initial!.width, 0);
+  }
+  await page
+    .getByRole("tablist", { name: "Chat workspace content" })
+    .getByRole("tab", { name: "Editor", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Expand Editor", exact: true })
+    .click();
+  const editor = page.getByRole("dialog", {
+    name: "Editor expanded",
+    exact: true,
+  });
+  await expect(editor.locator("[data-editor-toolbar]")).toHaveCount(0);
+  await expect(editor.getByTestId("latex-editor-toolbar")).toBeVisible();
+  await expect(editor.locator(".cm-content")).toBeVisible();
+  await expect(editor).not.toHaveAttribute("data-panel-expansion-motion");
+  await page.screenshot({
+    path: test.info().outputPath("expanded-editor.png"),
+  });
+  await page
+    .getByRole("button", { name: "Restore Editor", exact: true })
+    .click();
+  await expect(editor).toHaveCount(0);
+  await expect(input).toHaveValue("Keep this draft");
+  expect((await chat.boundingBox())!.width).toBeCloseTo(initial!.width, 0);
 });
 
 test("Duet workspace applies scroll mappings after switching to the destination panel", async ({
