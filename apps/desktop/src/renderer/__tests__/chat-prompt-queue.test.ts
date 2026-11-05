@@ -96,6 +96,34 @@ beforeEach(() => {
 });
 
 describe("chat prompt queue", () => {
+  it("resets manual Mini prompt visibility on each chat visit", () => {
+    const store = useAgentChatStore.getState();
+    store.setMiniPromptsExpanded("one", true);
+    store.setMiniPromptsExpanded("two", false);
+    store.setActiveTab("two");
+    expect(
+      useAgentChatStore.getState().tabs.find((item) => item.id === "two")
+        ?.miniPromptsExpanded,
+    ).toBeUndefined();
+    store.setActiveTab("one");
+    expect(tab().miniPromptsExpanded).toBeUndefined();
+  });
+  it("folds only the submitting tab's Mini prompts after acceptance, not rejection", async () => {
+    const store = useAgentChatStore.getState();
+    store.setMiniPromptsExpanded("one", true);
+    store.setMiniPromptsExpanded("two", true);
+    const accepted = vi.fn();
+    await store.sendPrompt("", [], false, accepted);
+    expect(accepted).not.toHaveBeenCalled();
+    expect(tab().miniPromptsExpanded).toBe(true);
+    await store.sendPrompt("Review this", [], false, accepted);
+    expect(accepted).toHaveBeenCalledOnce();
+    expect(tab().miniPromptsExpanded).toBe(false);
+    expect(
+      useAgentChatStore.getState().tabs.find((item) => item.id === "two")
+        ?.miniPromptsExpanded,
+    ).toBe(true);
+  });
   it("continues after a turn that completed before its launch acknowledgement", async () => {
     update({
       isStreaming: false,

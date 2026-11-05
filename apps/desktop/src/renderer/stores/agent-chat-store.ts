@@ -291,6 +291,8 @@ function getPinnedSelectionContext(
 }
 
 export interface TabState {
+  /** Prompt visibility across chat modes for this visit; reset on chat entry. */
+  miniPromptsExpanded?: boolean;
   /** Per-conversation composer choices, shared by its workspace and pop-out. */
   modelSelection?: ChatModelSelection;
   compacting?: boolean;
@@ -909,6 +911,7 @@ interface AgentChatState {
     restoredTab?: TabState,
   ) => void;
   setActiveTab: (tabId: string, finishSessionLoad?: boolean) => void;
+  setMiniPromptsExpanded: (tabId: string, expanded: boolean) => void;
   saveDraft: (tabId: string, draft: TabDraft) => void;
 
   /** True when any tab is streaming */
@@ -1744,6 +1747,10 @@ const createAgentChatState: StateCreator<AgentChatState> = (set, get) => ({
     targetTabId?: string,
   ) => {
     const requestedTab = targetTabId ?? get().activeTabId;
+    const acceptPrompt = () => {
+      get().setMiniPromptsExpanded(requestedTab, false);
+      onAccepted?.();
+    };
     const requestedState = get().tabs.find((tab) => tab.id === requestedTab);
     if (
       requestedState &&
@@ -1755,7 +1762,7 @@ const createAgentChatState: StateCreator<AgentChatState> = (set, get) => ({
         requestedState.queuedPrompts?.length)
     ) {
       if (get().enqueuePrompt(requestedTab, userPrompt, contextOverride)) {
-        onAccepted?.();
+        acceptPrompt();
         void get()._runNextQueuedPrompt(requestedTab);
       }
       return;
@@ -1848,7 +1855,7 @@ const createAgentChatState: StateCreator<AgentChatState> = (set, get) => ({
         }),
       );
       get()._setProviderStatus(requestedTab, requestedProvider, "compacting");
-      onAccepted?.();
+      acceptPrompt();
       try {
         const settings = get();
         const piModel = findPiModel(
@@ -2011,7 +2018,7 @@ const createAgentChatState: StateCreator<AgentChatState> = (set, get) => ({
             .getState()
             .check(activeTabId, userPrompt, contextOverride)
         ) {
-          onAccepted?.();
+          acceptPrompt();
           return;
         }
       } catch (error) {
@@ -2264,7 +2271,7 @@ const createAgentChatState: StateCreator<AgentChatState> = (set, get) => ({
       if (tabTitle) tabUpdates.title = tabTitle;
       return applyTabUpdate(s, activeTabId, tabUpdates);
     });
-    onAccepted?.();
+    acceptPrompt();
     await syncTabToSharedSession(activeTabId, get, set);
 
     const stopBeforeLaunch = async (
@@ -3116,6 +3123,9 @@ const createAgentChatState: StateCreator<AgentChatState> = (set, get) => ({
     const id = draft ? draft.id : get().createTab();
     if (draft) get().setActiveTab(draft.id);
     set((current) => ({
+      tabs: current.tabs.map((tab) =>
+        tab.id === id ? { ...tab, miniPromptsExpanded: undefined } : tab,
+      ),
       composerFocusRequestNonce: current.composerFocusRequestNonce + 1,
     }));
     return id;
@@ -3602,7 +3612,11 @@ const createAgentChatState: StateCreator<AgentChatState> = (set, get) => ({
         newTabs.find((item) => !item.archived);
       if (!newActive) return;
       set({
-        tabs: newTabs,
+        tabs: newTabs.map((tab) =>
+          tab.id === newActive.id
+            ? { ...tab, miniPromptsExpanded: undefined }
+            : tab,
+        ),
         activeTabId: newActive.id,
         selectedProvider: newActive.provider,
         ...tabPermissions(newActive, state),
@@ -3618,6 +3632,12 @@ const createAgentChatState: StateCreator<AgentChatState> = (set, get) => ({
     } else {
       set({ tabs: newTabs });
     }
+  },
+
+  setMiniPromptsExpanded: (tabId, expanded) => {
+    set((state) =>
+      applyTabUpdate(state, tabId, { miniPromptsExpanded: expanded }),
+    );
   },
 
   setActiveTab: (tabId: string, finishSessionLoad = false) => {
@@ -3645,7 +3665,9 @@ const createAgentChatState: StateCreator<AgentChatState> = (set, get) => ({
     }
     // Project the target tab's fields to top-level
     set({
-      tabs: discardEmptyNewChats(state.tabs, tabId),
+      tabs: discardEmptyNewChats(state.tabs, tabId).map((tab) =>
+        tab.id === tabId ? { ...tab, miniPromptsExpanded: undefined } : tab,
+      ),
       activeTabId: tabId,
       selectedProvider: targetTab.provider,
       ...tabPermissions(targetTab, state),

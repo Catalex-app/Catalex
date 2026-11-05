@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+- Add a customizable prompt library with optional icons and a searchable icon picker in Agent settings, with cards in empty chats and compact suggestions beside the mini-mode chat switcher. Prompt clicks send in the current conversation while preserving the typed draft.
+- Simplify prompt availability to Always, Has text selection, or Has issues, with automatic text context. The four defaults are Improve writing (including proofreading), Fix issues, Review & comment, and Tighten layout.
+
 - Keep editor pop-outs open through agent review, with synchronized edits and decisions. Main-workspace selections supply live context to open chats; editor and PDF pop-outs retain reference and review actions without sending new agent requests. Fade the chat drawer smoothly when focusing and restoring a panel.
 
 - Open editor, preview, and chat panels in synchronized native windows; editor and preview windows stay pinned to their files, and each chat can have its own pinned window. Reopening a panel focuses its existing window.

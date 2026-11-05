@@ -7,6 +7,9 @@ import { type ReactNode, useLayoutEffect, useRef, useState } from "react";
 import { AgentDraftNotice } from "./agent-question-prompt";
 import { ChatComposer } from "./chat-composer";
 import { ChatMessages } from "./chat-messages";
+import { PromptSuggestions } from "./prompt-suggestions";
+import { areLibraryPromptsExpanded } from "@/lib/prompt-library";
+import { useSettingsStore } from "@/stores/settings-store";
 import { useShallow } from "zustand/react/shallow";
 import {
   useAgentChatStore,
@@ -37,6 +40,11 @@ export function ChatWorkspacePane({
   forceHideComposer?: boolean;
   acceptPendingAttachments?: boolean;
 }) {
+  const activeTab = useAgentChatStore((s) =>
+    s.tabs.find((tab) => tab.id === s.activeTabId),
+  );
+  const promptsPinned = useSettingsStore((s) => s.keepMiniPromptsOpen);
+  const promptsFolded = !areLibraryPromptsExpanded(activeTab, promptsPinned);
   const lastExchange = useAgentChatStore(
     useShallow((s) =>
       lastCommunicationDetails(s.tabs.find((tab) => tab.id === s.activeTabId)),
@@ -205,13 +213,25 @@ export function ChatWorkspacePane({
       </WorkspacePanelHeader>
       <div
         data-chat-messages
-        className="relative min-h-0 flex-1 overflow-hidden"
+        className="chat-conversation-fade relative min-h-0 flex-1 overflow-hidden"
       >
-        <ChatMessages />
+        <ChatMessages reservePromptSpace />
       </div>
-      {displayControl && (
-        <div className="flex shrink-0 justify-center px-3 pt-1">
+      <AgentDraftNotice />
+      {(displayControl || promptsFolded) && (
+        <div
+          data-chat-mode-row
+          className="relative flex min-h-[34px] shrink-0 items-center justify-center px-3 pt-1"
+        >
           {displayControl}
+          {promptsFolded && (
+            <div
+              data-folded-prompt-toggle="full"
+              className="fade-in absolute right-3 bottom-0 animate-in duration-200 motion-reduce:animate-none"
+            >
+              <PromptSuggestions />
+            </div>
+          )}
         </div>
       )}
       <div
@@ -256,7 +276,6 @@ export function ChatWorkspacePane({
               : undefined,
         }}
       >
-        <AgentDraftNotice />
         <ChatComposer
           isOpen
           isExpanded

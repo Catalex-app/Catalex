@@ -1,3 +1,4 @@
+import { PromptLibrarySettings } from "./prompt-library-settings";
 import { Kbd } from "@/components/ui/kbd";
 import { useUpdater } from "@/hooks/use-updater";
 import { usePiSetupStore } from "@/stores/pi-setup-store";
@@ -1620,6 +1621,18 @@ export function SettingsWindow() {
         searchText: ["Global Instructions", "System Prompt", "Agent Prompt"],
       },
       {
+        id: "agent-prompt-library",
+        section: "agent",
+        label: "Prompt Library",
+        valueLabel: "Manage",
+        searchText: [
+          "Prompt Library",
+          "Saved prompts",
+          "Predefined prompts",
+          "Proofread",
+        ],
+      },
+      {
         id: "auto-compile",
         section: "rendering",
         label: "Auto compile",
@@ -2751,6 +2764,7 @@ export function SettingsWindow() {
                           </SettingsGroup>
                         </>
                       )}
+                      <PromptLibrarySettings />
                     </div>
                   </section>
                 )}

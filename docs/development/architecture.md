@@ -167,6 +167,63 @@ commands through their own harness tools. Similar-looking provider discovery
 and process-launching code may have different platform requirements and should
 not be merged solely to remove duplication.
 
+The prompt library is a provider-independent list in the persisted settings
+store (`catalex-settings`). `lib/prompt-library.ts` defines defaults and validates
+saved entries; an empty list stays empty. Settings → Agent manages titles, text,
+availability (Always, Has text selection, Has issues), optional icons, enabled
+state, and ordering. The defaults are Improve writing, Fix issues, Review &
+comment, and Tighten layout. A complete, untouched older set upgrades in place.
+Customized libraries and intentionally deleted prompts are preserved.
+The icon picker starts with 16 suggested Lucide icons. Search and the All icons tab
+load the installed catalog on demand (`lib/prompt-icons.ts`). Default icon uses
+the prompt's assigned icon or a bookmark for custom prompts. No icon is saved
+as `null`.
+Half/Full use a
+card strip above the composer with a narrow right-side fold/menu column. Mini
+uses a title strip beside the chat switcher, with its fold control at the left
+and menu at the right. All three modes share `areLibraryPromptsExpanded`: new
+chats start expanded and existing conversations start folded with one expand
+button. In Half, the folded button floats above the composer with its bottom
+aligned to the expanded shelf's bottom (8px above the input). The virtual list
+reserves 36px of scrollable footer space while folded so the last message can
+clear it. In Full, the folded button sits at the right of the mode-switch row,
+independently of its centered switcher. Full shares the same 36px footer space
+so the last message and its actions can scroll above the conversation fade.
+The composer shelf stays mounted so width, height, and reserved space transition
+over 200ms when opening or folding, with reduced motion respected. Full fades
+the shelf out while revealing its separate mode-row button.
+Typing and selection do not change visibility.
+The tab's window-local `miniPromptsExpanded` choice resets on each chat visit:
+empty chats expand and existing conversations fold. An accepted `sendPrompt`
+submission (including queued submissions) folds the strip; rejections preserve
+its visibility. The persisted app-wide `keepMiniPromptsOpen` setting overrides
+these defaults in Mini, Half, and Full, including while sending. Its original
+storage key is retained to preserve existing pins. Enable it through “Pin
+prompt bar” in any prompt menu; the chevron becomes a pin that unpins globally
+and folds the current chat's strip in one click. Existing Mini chats retain their
+status icon beside expanded prompts, with status details on hover. Folding
+prompts restores the status or latest-message preview and elapsed timer.
+The strip's dots menu exposes the full library and pin preference; the input
+toolbar keeps only its command and mention shortcuts.
+Command completion replaces only the active `/query` at the caret, preserving
+the surrounding draft and leaving a space for continued typing. Command and
+mention popovers anchor 8px above the input surface, overlaying the prompt shelf
+instead of moving upward when the shelf is expanded.
+Selecting a prompt sends it through the current chat's normal `sendPrompt` path
+with an explicit context snapshot, preserving history and the unsent composer
+draft. Global instructions remain a separate new-chat setting.
+Context is automatic: live selection, then pinned selection, then current text
+file. Always can also send without a file. Has issues uses the editor's transient
+`promptDiagnostics` snapshot, shared with chat popouts through the document view.
+It requires matching project, file, draft session, and content. A selection scopes
+issues to its lines (an end at column one excludes that ending line); a clean or
+stale selection never borrows unrelated file issues. File context includes
+unlocated compiler problems. Diagnostic messages, severity, and locations travel
+with the source attachment and stay separate from the user's prompt text.
+Selection popups in Artisan and Duet expose only Comment, including editor and
+PDF selections. AI quick actions live in the prompt bar. When comments are
+unavailable for a surface, no empty selection popup is rendered.
+
 ## Repository support and generated files
 
 - `scripts/`: workspace version synchronization and platform build helpers.

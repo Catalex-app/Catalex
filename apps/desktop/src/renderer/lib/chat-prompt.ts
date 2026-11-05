@@ -54,6 +54,16 @@ function formatAttachment(context: ChatContextBadge): string {
         ]
       : [`Label: ${context.label}`]),
     `Text:\n${context.selectedText}`,
+    ...(context.diagnostics?.length
+      ? [
+          `Detected issues:\n${context.diagnostics
+            .map(
+              (issue) =>
+                `- ${context.filePath}${issue.line === null ? "" : `:${issue.line}`} — [${issue.severity}] ${issue.message}`,
+            )
+            .join("\n")}`,
+        ]
+      : []),
   ].join("\n");
 }
 

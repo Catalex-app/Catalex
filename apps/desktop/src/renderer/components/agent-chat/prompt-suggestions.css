@@ -1,0 +1,15 @@
+[data-prompt-suggestions] {
+  --prompt-divider-inset: 4px;
+}
+
+[data-prompt-divider] {
+  /* Shorten the original border without repositioning it or its segment. */
+  border-image: linear-gradient(
+      to bottom,
+      transparent var(--prompt-divider-inset),
+      color-mix(in oklab, var(--border) 70%, transparent) var(--prompt-divider-inset),
+      color-mix(in oklab, var(--border) 70%, transparent) calc(100% - var(--prompt-divider-inset)),
+      transparent calc(100% - var(--prompt-divider-inset))
+    )
+    0 1;
+}

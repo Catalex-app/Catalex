@@ -62,13 +62,17 @@ export function createDiagnosticChatFooter(
   icon.setAttribute("stroke-linecap", "round");
   icon.setAttribute("stroke-linejoin", "round");
   icon.setAttribute("aria-hidden", "true");
-  // Match the MousePointerClick icon used by the Problems bar.
+  icon.setAttribute("class", "lucide lucide-wand-sparkles");
+  // Lucide WandSparkles, shared visually with the Fix issues prompt.
   for (const d of [
-    "M14 4.1 12 6",
-    "m5.1 8-2.9-.8",
-    "m6 12-1.9 2",
-    "M7.2 2.2 8 5.1",
-    "M9.037 9.69a.498.498 0 0 1 .653-.653l11 4.5a.5.5 0 0 1-.074.949l-4.349 1.041a1 1 0 0 0-.74.739l-1.04 4.35a.5.5 0 0 1-.95.074z",
+    "m21.64 3.64-1.28-1.28a1.21 1.21 0 0 0-1.72 0L2.36 18.64a1.21 1.21 0 0 0 0 1.72l1.28 1.28a1.2 1.2 0 0 0 1.72 0L21.64 5.36a1.2 1.2 0 0 0 0-1.72",
+    "m14 7 3 3",
+    "M5 6v4",
+    "M19 14v4",
+    "M10 2v2",
+    "M7 8H3",
+    "M21 16h-4",
+    "M11 3H9",
   ]) {
     const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
     path.setAttribute("d", d);

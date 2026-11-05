@@ -352,6 +352,23 @@ html.solar-mode body::after {
   outline-offset: 1px;
 }
 
+.chat-conversation-fade {
+  background-color: inherit;
+}
+
+.chat-conversation-fade::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  /* Leave the thin scrollbar clear, including its hover target. */
+  right: 8px;
+  height: 24px;
+  background-color: inherit;
+  mask-image: linear-gradient(to top, black, transparent);
+  pointer-events: none;
+}
+
 .app-scrollbar {
   scrollbar-width: thin;
   scrollbar-color: color-mix(

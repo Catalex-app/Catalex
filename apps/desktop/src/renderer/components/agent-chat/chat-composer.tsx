@@ -1,3 +1,9 @@
+import { PromptSuggestions } from "./prompt-suggestions";
+import { PRODUCT_NAME } from "../../../branding";
+import {
+  areLibraryPromptsExpanded,
+  isPromptSelection,
+} from "@/lib/prompt-library";
 import { usePiSetupStore } from "@/stores/pi-setup-store";
 import {
   findPiModel,
@@ -435,6 +441,8 @@ export const ChatComposer: FC<{
   const queueTab = useAgentChatStore((s) =>
     s.tabs.find((tab) => tab.id === s.activeTabId),
   );
+  const promptsPinned = useSettingsStore((s) => s.keepMiniPromptsOpen);
+  const promptsExpanded = areLibraryPromptsExpanded(queueTab, promptsPinned);
   const queuedPrompts = queueTab?.queuedPrompts ?? [];
   const hasQueuedPrompts = queuedPrompts.length > 0;
   const queueSensors = useSensors(
@@ -687,6 +695,36 @@ export const ChatComposer: FC<{
     : modelTooltipLabel;
   const [input, setInput] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const [toolbarElement, setToolbarElement] = useState<HTMLDivElement | null>(
+    null,
+  );
+  const [hideToolbarShortcuts, setHideToolbarShortcuts] = useState(false);
+
+  useLayoutEffect(() => {
+    if (!toolbarElement) return;
+    const shortcuts = toolbarElement.querySelector<HTMLElement>(
+      "[data-composer-shortcuts]",
+    );
+    const controls = toolbarElement.querySelector<HTMLElement>(
+      "[data-composer-controls]",
+    );
+    if (!shortcuts || !controls) return;
+    const measure = () => {
+      const style = getComputedStyle(toolbarElement);
+      const available =
+        toolbarElement.clientWidth -
+        Number.parseFloat(style.paddingLeft) -
+        Number.parseFloat(style.paddingRight);
+      setHideToolbarShortcuts(
+        shortcuts.offsetWidth + controls.offsetWidth + 8 > available,
+      );
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    for (const element of [toolbarElement, shortcuts, controls])
+      observer.observe(element);
+    return () => observer.disconnect();
+  }, [toolbarElement]);
 
   // Model picker state
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
@@ -791,7 +829,7 @@ export const ChatComposer: FC<{
 
   // / slash command state
   const [slashQuery, setSlashQuery] = useState<string | null>(null);
-  const slashSelectedRef = useRef(false); // true after user picks a command — suppresses re-open
+  const slashRangeRef = useRef<{ start: number; end: number } | null>(null);
 
   // Restore each tab’s persisted draft when switching chats.
   const prevTabIdRef = useRef(activeTabId);
@@ -896,6 +934,7 @@ export const ChatComposer: FC<{
 
   const [slashCommands, setSlashCommands] = useState<SlashCommand[]>([]);
   const composerRef = useRef<HTMLDivElement>(null);
+  const inputSurfaceRef = useRef<HTMLDivElement>(null);
 
   // Watch the live document selection independently of explicitly pinned excerpts
   const selectionRange = useDocumentStore((s) => s.selectionRange);
@@ -1391,13 +1430,17 @@ export const ChatComposer: FC<{
   }, [mentionQuery, files]);
 
   useLayoutEffect(() => {
-    if (slashQuery !== null || mentionQuery === null || !composerRef.current)
+    if (
+      slashQuery !== null ||
+      mentionQuery === null ||
+      !inputSurfaceRef.current
+    )
       return;
-    const rect = composerRef.current.getBoundingClientRect();
+    const rect = inputSurfaceRef.current.getBoundingClientRect();
     setMentionPickerPos({
-      left: rect.left + 12,
-      right: Math.max(window.innerWidth - rect.right + 12, 12),
-      bottom: window.innerHeight - rect.top,
+      left: rect.left,
+      right: Math.max(window.innerWidth - rect.right, 12),
+      bottom: window.innerHeight - rect.top + 8,
     });
   }, [mentionQuery, mentionFiles.length, slashQuery, isCollapsed, isVisible]);
 
@@ -1459,24 +1502,33 @@ export const ChatComposer: FC<{
 
   const selectSlashCommand = useCallback(
     (command: SlashCommand) => {
-      // Insert command syntax into input (opcode-style)
-      const newInput = `${commandSyntaxForProvider(command, selectedProvider)} `;
+      // Replace only the active /query, keeping the rest of the draft intact.
+      const cursor = textareaRef.current?.selectionStart ?? input.length;
+      const range = slashRangeRef.current ?? { start: cursor, end: cursor };
+      const before = input.slice(0, range.start);
+      const after = input.slice(range.end);
+      const separator = before && !/\s$/.test(before) ? " " : "";
+      const existingSpace = after.startsWith(" ");
+      const insertion = `${separator}${commandSyntaxForProvider(command, selectedProvider)}${existingSpace ? "" : " "}`;
+      const newInput = before + insertion + after;
+      const nextCursor =
+        before.length + insertion.length + (existingSpace ? 1 : 0);
 
       setInput(newInput);
       setSlashQuery(null);
-      slashSelectedRef.current = true;
+      slashRangeRef.current = null;
 
-      // Refocus and move cursor to end
+      // Continue typing immediately after the inserted command.
       setTimeout(() => {
         const textarea = textareaRef.current;
         if (textarea) {
           textarea.focus();
-          textarea.selectionStart = textarea.selectionEnd = newInput.length;
+          textarea.selectionStart = textarea.selectionEnd = nextCursor;
           resizeTextarea(textarea);
         }
       }, 0);
     },
-    [resizeTextarea, selectedProvider],
+    [input, resizeTextarea, selectedProvider],
   );
 
   const focusTextareaAt = useCallback(
@@ -1499,17 +1551,21 @@ export const ChatComposer: FC<{
       const selectionEnd = textarea?.selectionEnd ?? selectionStart;
       const start = Math.max(0, Math.min(selectionStart, input.length));
       const end = Math.max(start, Math.min(selectionEnd, input.length));
-      const nextInput = input.slice(0, start) + trigger + input.slice(end);
+      const prefix = input.slice(0, start);
+      const separator =
+        trigger === "/" && prefix && !/\s$/.test(prefix) ? " " : "";
+      const triggerStart = start + separator.length;
+      const nextInput = prefix + separator + trigger + input.slice(end);
 
       setInput(nextInput);
-      focusTextareaAt(start + trigger.length);
+      focusTextareaAt(triggerStart + trigger.length);
+      return { start: triggerStart, end: triggerStart + trigger.length };
     },
     [focusTextareaAt, input],
   );
 
   const openSlashTrigger = useCallback(() => {
-    insertTriggerAtSelection("/");
-    slashSelectedRef.current = false;
+    slashRangeRef.current = insertTriggerAtSelection("/");
     setSlashQuery("");
     setMentionQuery(null);
   }, [insertTriggerAtSelection]);
@@ -1518,7 +1574,7 @@ export const ChatComposer: FC<{
     insertTriggerAtSelection("@");
     setMentionQuery("");
     setSlashQuery(null);
-    slashSelectedRef.current = false;
+    slashRangeRef.current = null;
   }, [insertTriggerAtSelection]);
 
   // Handle file drops — guard against duplicate calls from stale HMR listeners
@@ -1764,7 +1820,7 @@ export const ChatComposer: FC<{
         setInput((current) => (current === input ? "" : current));
         setMentionQuery(null);
         setSlashQuery(null);
-        slashSelectedRef.current = false;
+        slashRangeRef.current = null;
         if (textareaRef.current) textareaRef.current.style.height = "auto";
         setPinnedContexts((current) =>
           current === pinnedContexts ? [] : current,
@@ -1864,23 +1920,24 @@ export const ChatComposer: FC<{
       const value = e.target.value;
       setInput(value);
 
-      // Detect / slash command trigger — only at the very start of input
-      const slashMatch = value.match(/^\/(\S*)$/);
+      const cursorPos = e.target.selectionStart;
+      const textBefore = value.slice(0, cursorPos);
+      // Complete a /query at the caret, including within an existing draft.
+      const slashMatch = textBefore.match(/(?:^|\s)\/(\S*)$/);
       if (slashMatch) {
-        // Typing /query with no space yet — open picker
-        slashSelectedRef.current = false;
+        slashRangeRef.current = {
+          start: cursorPos - slashMatch[1].length - 1,
+          end: cursorPos,
+        };
         setSlashQuery(slashMatch[1]);
         setMentionQuery(null);
-      } else if (slashSelectedRef.current) {
-        // User already selected a command — don't re-open picker
-      } else if (!value.startsWith("/")) {
+      } else {
+        slashRangeRef.current = null;
         setSlashQuery(null);
       }
 
       // Detect @ mention trigger (only when not in slash command mode)
-      if (!value.startsWith("/")) {
-        const cursorPos = e.target.selectionStart;
-        const textBefore = value.slice(0, cursorPos);
+      if (!slashMatch) {
         // Match @ at start of input or after a space
         const atMatch = textBefore.match(/(?:^|[\s])@([^\s]*)$/);
         if (atMatch) {
@@ -1973,13 +2030,31 @@ export const ChatComposer: FC<{
 
   return (
     <div ref={composerRef} className="relative flex min-h-0 flex-col p-3">
+      {!isCollapsed && queueTab && (
+        <div
+          data-prompt-shelf=""
+          aria-hidden={isExpanded && !promptsExpanded ? true : undefined}
+          inert={isExpanded && !promptsExpanded}
+          className={cn(
+            "pointer-events-none relative z-10 mb-2 shrink-0 transition-[margin-top,opacity,visibility] duration-200 ease-out motion-reduce:transition-none [&>[data-prompt-suggestions]]:pointer-events-auto",
+            // Cancel the folded shell's 30px height and 8px gap, so it floats
+            // with the same bottom edge without reserving a composer row.
+            promptsExpanded ? "mt-0" : "-mt-[38px]",
+            isExpanded && !promptsExpanded && "invisible opacity-0",
+          )}
+        >
+          <PromptSuggestions
+            foldedPlacement={isExpanded ? undefined : "half"}
+          />
+        </div>
+      )}
       {/* / slash command picker — portal to body to escape all stacking contexts */}
       {slashQuery !== null && (
         <SlashCommandPicker
           projectPath={projectRoot}
           provider={selectedProvider}
           query={slashQuery}
-          anchorRef={composerRef}
+          anchorRef={inputSurfaceRef}
           onSelect={selectSlashCommand}
           onClose={() => {
             setSlashQuery(null);
@@ -2408,6 +2483,7 @@ export const ChatComposer: FC<{
 
       <div data-chat-feedback-slot="above" />
       <div
+        ref={inputSurfaceRef}
         className={cn(
           "flex min-h-0 w-full flex-col rounded-xl border transition-colors",
           showErrorPanel
@@ -2561,7 +2637,7 @@ export const ChatComposer: FC<{
                               setPinnedContexts(draft.pinnedContexts);
                               setMentionQuery(null);
                               setSlashQuery(null);
-                              slashSelectedRef.current = false;
+                              slashRangeRef.current = null;
                               textareaRef.current?.focus({
                                 preventScroll: true,
                               });
@@ -2958,7 +3034,11 @@ export const ChatComposer: FC<{
                   onChange={handleInput}
                   onKeyDown={handleKeyDown}
                   onPaste={handlePaste}
-                  placeholder="Ask me anything"
+                  placeholder={
+                    pinnedContexts.some(isPromptSelection)
+                      ? "Ask about this selection…"
+                      : `Write with ${PRODUCT_NAME}…`
+                  }
                   className="scrollbar-none max-h-12 min-h-8 flex-1 resize-none overflow-y-auto overflow-x-hidden bg-transparent px-2 py-1.5 text-sm outline-none placeholder:text-muted-foreground"
                   rows={1}
                 />
@@ -3006,16 +3086,31 @@ export const ChatComposer: FC<{
                   onChange={handleInput}
                   onKeyDown={handleKeyDown}
                   onPaste={handlePaste}
-                  placeholder="Ask me anything"
+                  placeholder={
+                    pinnedContexts.some(isPromptSelection)
+                      ? "Ask about this selection…"
+                      : `Write with ${PRODUCT_NAME}…`
+                  }
                   className="scrollbar-none max-h-40 min-h-10 w-full shrink-0 resize-none overflow-y-auto overflow-x-hidden bg-transparent px-4 py-2 text-sm outline-none placeholder:text-muted-foreground"
                   rows={1}
                 />
 
                 <div
+                  ref={setToolbarElement}
                   data-chat-composer-toolbar
-                  className="flex shrink-0 items-center justify-between px-2 pb-2"
+                  className="relative flex shrink-0 items-center justify-end gap-2 px-2 pb-2"
                 >
-                  <div className="flex items-center gap-0">
+                  <div
+                    data-composer-shortcuts
+                    aria-hidden={hideToolbarShortcuts || undefined}
+                    inert={hideToolbarShortcuts}
+                    className={cn(
+                      "mr-auto flex w-max shrink-0 items-center gap-0 whitespace-nowrap",
+                      // Keep its natural width measurable so shortcuts return as
+                      // soon as they fit, including after model labels change.
+                      hideToolbarShortcuts && "invisible absolute left-2",
+                    )}
+                  >
                     <button
                       type="button"
                       onClick={openSlashTrigger}
@@ -3032,7 +3127,10 @@ export const ChatComposer: FC<{
                     </button>
                   </div>
 
-                  <div className="flex shrink-0 items-center gap-2">
+                  <div
+                    data-composer-controls
+                    className="flex shrink-0 items-center gap-2"
+                  >
                     {/* Model & settings selector */}
                     <div
                       data-chat-agent-controls

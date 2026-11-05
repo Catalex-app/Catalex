@@ -24,6 +24,27 @@ const comment: ChatContextBadge = {
 };
 
 describe("chat prompt context", () => {
+  it("keeps diagnostic snapshots with their source text and separate from the user request", () => {
+    const context = {
+      ...text,
+      diagnostics: [
+        { line: 12, severity: "error", message: "Undefined control sequence" },
+        { line: null, severity: "warning", message: "Unlocated warning" },
+      ],
+    };
+    const result = formatChatPrompt(
+      "Fix issues.",
+      "intro.tex",
+      JSON.parse(JSON.stringify([context])),
+    );
+    expect(result).toContain(
+      "Text:\nThe baseline uses the standard configuration.",
+    );
+    expect(result).toContain(
+      "Detected issues:\n- intro.tex:12 — [error] Undefined control sequence\n- intro.tex — [warning] Unlocated warning",
+    );
+    expect(result).toContain("[User request]\nFix issues.");
+  });
   it("formats mixed text and human comments separately without losing their identity", () => {
     expect(
       formatChatPrompt("Revise this passage.", "intro.tex", [text, comment]),

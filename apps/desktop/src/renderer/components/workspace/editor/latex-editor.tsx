@@ -79,6 +79,7 @@ import {
   type CommentFilter,
 } from "./comments-panel";
 import { useFileCompileDiagnostics } from "@/hooks/use-file-compile-diagnostics";
+import type { PromptDiagnostic } from "@/lib/prompt-library";
 import { FilePreview } from "./file-preview";
 import {
   type ConflictFile,
@@ -182,8 +183,6 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import {
-  SpellCheckIcon,
-  MousePointerClickIcon,
   MessageSquareTextIcon,
   RotateCcwIcon,
   TagIcon,
@@ -1302,6 +1301,9 @@ export function LatexEditor({
   const activeFileId = useDocumentStore((s) => s.activeFileId);
   const projectRoot = useDocumentStore((s) => s.projectRoot);
   const agentWorkspaceRoot = useDocumentStore((s) => s.agentWorkspaceRoot);
+  const promptDraftSessionId = useDocumentStore(
+    (s) => s.agentWorkspaceSessionId,
+  );
   // These annotations belong to the source, not a potentially different draft.
   const commentProjectRoot = agentWorkspaceRoot ? null : projectRoot;
   const isReviewApplying = useProposedChangesStore(
@@ -3917,6 +3919,59 @@ export function LatexEditor({
     }
   }, [activeFileContent, activeMergeChange, isTextFile]);
 
+  // Share the same mapped diagnostics used by the selection actions. Read from
+  // the mounted editor so a file switch cannot publish the previous file's list.
+  useEffect(() => {
+    if (isReferencePanelWindow()) return;
+    const view = viewRef.current;
+    if (!view || !isTextFile || !activeFile) {
+      useDocumentStore.setState({ promptDiagnostics: null });
+      return;
+    }
+    const issues: PromptDiagnostic[] = [];
+    if (!suppressSyntaxDiagnostics) {
+      forEachDiagnostic(view.state, (diagnostic, from, to) => {
+        issues.push({
+          from,
+          to,
+          line: view.state.doc.lineAt(from).number,
+          endLine: view.state.doc.lineAt(Math.max(from, to - 1)).number,
+          severity: diagnostic.severity,
+          message: diagnostic.message,
+        });
+      });
+      for (const diagnostic of view.state.field(compileDiagnosticField, false)
+        ?.unlocated ?? []) {
+        issues.push({
+          from: null,
+          to: null,
+          line: null,
+          endLine: null,
+          severity: diagnostic.severity,
+          message: diagnostic.message,
+        });
+      }
+    }
+    useDocumentStore.setState({
+      promptDiagnostics: {
+        projectRoot,
+        draftSessionId: promptDraftSessionId,
+        filePath: activeFile.relativePath,
+        content: view.state.doc.toString(),
+        issues,
+      },
+    });
+  }, [
+    diagnostics,
+    unlocatedCompileDiagnostics,
+    activeFile,
+    isTextFile,
+    projectRoot,
+    promptDraftSessionId,
+    editorReadyRevision,
+    suppressSyntaxDiagnostics,
+  ]);
+
   // Watch for proposed changes or Git conflicts → update the merge view.
   useEffect(() => {
     const view = viewRef.current;
@@ -4442,56 +4497,9 @@ export function LatexEditor({
     }
   }, [selectionCoords, selectionRange]);
 
-  const getSelectedDiagnosticIssues = useCallback(() => {
-    const view = viewRef.current;
-    if (!view || !selectionRange || suppressSyntaxDiagnostics) return [];
-    const { doc } = view.state;
-    const from = Math.max(
-      0,
-      Math.min(selectionRange.start, selectionRange.end, doc.length),
-    );
-    const to = Math.min(
-      doc.length,
-      Math.max(selectionRange.start, selectionRange.end),
-    );
-    if (from >= to) return [];
-    const firstLine = doc.lineAt(from).number;
-    // Selection ends are exclusive: ending at the next row's start excludes it.
-    const lastLine = doc.lineAt(to - 1).number;
-    const issues: DiagnosticChatIssue[] = [];
-    forEachDiagnostic(view.state, (diagnostic, start, end) => {
-      const issueFirstLine = doc.lineAt(start).number;
-      const issueLastLine = doc.lineAt(Math.max(start, end - 1)).number;
-      if (issueFirstLine <= lastLine && issueLastLine >= firstLine) {
-        issues.push({ diagnostic, from: start });
-      }
-    });
-    return issues;
-  }, [selectionRange, suppressSyntaxDiagnostics]);
-
-  // Diagnostics may arrive asynchronously after the selection was made.
-  const hasSelectedIssues =
-    diagnostics.length > 0 && getSelectedDiagnosticIssues().length > 0;
-
   const editorToolbarActions: ToolbarAction[] = useMemo(
     () =>
       [
-        ...(hasSelectedIssues
-          ? [
-              {
-                id: "fix-selected-issues",
-                isAI: true,
-                label: "Fix Selected Issues",
-                icon: <MousePointerClickIcon className="size-4" />,
-              },
-            ]
-          : []),
-        {
-          id: "proofread",
-          isAI: true,
-          label: "Proofread",
-          icon: <SpellCheckIcon className="size-4" />,
-        },
         {
           id: "comment",
           isAI: false,
@@ -4503,12 +4511,7 @@ export function LatexEditor({
         (action) =>
           action.id !== "comment" || (displayComments && !agentWorkspaceRoot),
       ),
-    [
-      agentWorkspaceRoot,
-      hasSelectedIssues,
-      displayComments,
-      inlineCommentsLoaded,
-    ],
+    [agentWorkspaceRoot, displayComments, inlineCommentsLoaded],
   );
 
   const openCommentForSelection = useCallback(() => {
@@ -4806,60 +4809,9 @@ export function LatexEditor({
 
   const handleToolbarAction = useCallback(
     (actionId: string) => {
-      if (actionId === "comment") {
-        openCommentForSelection();
-        return;
-      }
-
-      if (!selectionAiEnabled) return;
-
-      if (actionId === "fix-selected-issues") {
-        const view = viewRef.current;
-        const issues = getSelectedDiagnosticIssues();
-        toolbarStickyRef.current = false;
-        setSelectionCoords(null);
-        setSelectionRange(null);
-        if (view && issues.length > 0) sendDiagnosticToChat(view, issues);
-        return;
-      }
-
-      const contextOverride =
-        activeFile && selectionRange && selectionLabel && activeFile.content
-          ? {
-              label: selectionLabel,
-              filePath: activeFile.relativePath,
-              selectedText: activeFile.content.slice(
-                Math.max(
-                  0,
-                  Math.min(selectionRange.start, activeFile.content.length),
-                ),
-                Math.max(
-                  0,
-                  Math.min(selectionRange.end, activeFile.content.length),
-                ),
-              ),
-            }
-          : undefined;
-      toolbarStickyRef.current = false;
-      setSelectionCoords(null);
-      if (actionId === "proofread") {
-        useAgentChatStore
-          .getState()
-          .sendPrompt(
-            "Proofread and fix any errors in this text",
-            contextOverride,
-          );
-      }
+      if (actionId === "comment") openCommentForSelection();
     },
-    [
-      activeFile,
-      openCommentForSelection,
-      getSelectedDiagnosticIssues,
-      selectionLabel,
-      selectionRange,
-      selectionAiEnabled,
-      setSelectionRange,
-    ],
+    [openCommentForSelection],
   );
 
   const handleToolbarDismiss = useCallback(
@@ -6267,7 +6219,8 @@ export function LatexEditor({
                 {reviewingSnapshot && historyDiffResult && (
                   <HistoryDiffView diffs={historyDiffResult} />
                 )}
-                {toolbarPosition &&
+                {editorToolbarActions.length > 0 &&
+                  toolbarPosition &&
                   selectionLabel &&
                   !isReviewDisplay &&
                   !isSearchOpen && (
@@ -6276,7 +6229,6 @@ export function LatexEditor({
                       getAnchor={getToolbarAnchor}
                       contextLabel={selectionLabel}
                       actions={editorToolbarActions}
-                      aiEnabled={selectionAiEnabled}
                       onAction={handleToolbarAction}
                       onDismiss={handleToolbarDismiss}
                     />

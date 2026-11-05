@@ -4,6 +4,7 @@ import { getPanelWindowSession } from "@/lib/panel-window-runtime";
 import type { PdfSource } from "@/lib/mupdf/pdf-source";
 import { normalizeDocumentText, encodeDocumentText } from "@/lib/document-text";
 import type { ChatContextBadge } from "@/lib/chat-context";
+import type { PromptDiagnosticSnapshot } from "@/lib/prompt-library";
 import type { CompileDiagnostic } from "@/lib/latex-compiler";
 import { create } from "zustand";
 import { useSettingsStore } from "@/stores/settings-store";
@@ -152,6 +153,8 @@ export interface DocumentState {
   cursorPosition: number;
   outlineScrollPosition: number | null;
   selectionRange: { start: number; end: number } | null;
+  /** Live editor diagnostics, shared with chat pop-outs but never persisted. */
+  promptDiagnostics: PromptDiagnosticSnapshot | null;
   commentSelectionContext: ChatContextBadge | null;
   setCommentSelectionContext: (context: ChatContextBadge | null) => void;
   pdfSelectionContext: {
@@ -929,6 +932,7 @@ export const useDocumentStore = create<DocumentState>()((set, get) => ({
   cursorPosition: 0,
   outlineScrollPosition: null,
   selectionRange: null,
+  promptDiagnostics: null,
   pdfSelectionContext: null,
   commentSelectionContext: null,
   selectionPreviewRange: null,

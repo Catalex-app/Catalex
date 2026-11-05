@@ -18,6 +18,11 @@ import {
 } from "@/components/workspace/editor/editor-minimap-model";
 import { type CustomModel, normalizeCustomModels } from "@/lib/custom-models";
 import { persist } from "zustand/middleware";
+import {
+  migrateStockPromptIcons,
+  normalizePromptLibrary,
+  type LibraryPrompt,
+} from "@/lib/prompt-library";
 import { DEFAULT_AGENT_MD } from "@/lib/default-agent-md";
 import {
   DEFAULT_MODE_THEMES,
@@ -131,6 +136,13 @@ export interface SettingsState {
   defaultCodexReasoningEffort: CodexReasoningEffort;
   defaultAgentExecutionMode: AgentExecutionMode;
   globalAgentPrompt: string;
+  promptLibrary: LibraryPrompt[];
+  /** Shared by all chat modes; retain the original persisted key. */
+  keepMiniPromptsOpen: boolean;
+  setKeepMiniPromptsOpen: (pinned: boolean) => void;
+  saveLibraryPrompt: (prompt: LibraryPrompt) => void;
+  deleteLibraryPrompt: (id: string) => void;
+  moveLibraryPrompt: (id: string, direction: -1 | 1) => void;
   editorColorScheme: EditorColorScheme;
   editorFontSize: number;
   spellCheck: boolean;
@@ -446,7 +458,7 @@ function normalizePiPaths(value: unknown, selected: unknown): string[] | null {
   return paths.length || Array.isArray(value) ? [...new Set(paths)] : null;
 }
 
-export function migrateSettingsState(persistedState: unknown) {
+export function migrateSettingsState(persistedState: unknown, version = 0) {
   const persisted = persistedState as
     | {
         customModels?: unknown;
@@ -475,6 +487,8 @@ export function migrateSettingsState(persistedState: unknown) {
         defaultDuetExecutionMode?: AgentExecutionMode | "plan";
         defaultVibeExecutionMode?: AgentExecutionMode | "plan";
         globalAgentPrompt?: string;
+        promptLibrary?: unknown;
+        keepMiniPromptsOpen?: unknown;
         useGlobalAgentPrompt?: boolean;
         useProjectAgentPrompt?: unknown;
         useClaudeAgentPrompt?: unknown;
@@ -530,6 +544,7 @@ export function migrateSettingsState(persistedState: unknown) {
   const legacyMarkdownTheme = normalizeOptionalPath(
     persisted?.markdownPreviewThemePath,
   );
+  const promptLibrary = normalizePromptLibrary(persisted?.promptLibrary);
 
   const {
     workspaceModesByProject: _legacyWorkspaceModes,
@@ -602,6 +617,12 @@ export function migrateSettingsState(persistedState: unknown) {
         persisted?.defaultDuetExecutionMode,
     ),
     globalAgentPrompt: normalizeGlobalAgentPrompt(persisted?.globalAgentPrompt),
+    promptLibrary:
+      version < 27 ? migrateStockPromptIcons(promptLibrary) : promptLibrary,
+    keepMiniPromptsOpen: normalizeBoolean(
+      persisted?.keepMiniPromptsOpen,
+      false,
+    ),
     editorColorScheme,
     editorFontSize,
     spellCheck: normalizeBoolean(persisted?.spellCheck, true),
@@ -783,6 +804,9 @@ export const useSettingsStore = create<SettingsState>()(
       defaultCodexReasoningEffort: "medium",
       defaultAgentExecutionMode: "default",
       globalAgentPrompt: DEFAULT_AGENT_MD,
+      promptLibrary: normalizePromptLibrary(undefined),
+      keepMiniPromptsOpen: false,
+      setKeepMiniPromptsOpen: (pinned) => set({ keepMiniPromptsOpen: pinned }),
       editorColorScheme: "default",
       editorFontSize: 14,
       spellCheck: true,
@@ -932,6 +956,29 @@ export const useSettingsStore = create<SettingsState>()(
         }),
       setDefaultAgentExecutionMode: (mode) =>
         set({ defaultAgentExecutionMode: normalizeAgentExecutionMode(mode) }),
+      saveLibraryPrompt: (prompt) =>
+        set((state) => ({
+          promptLibrary: normalizePromptLibrary(
+            state.promptLibrary.some((item) => item.id === prompt.id)
+              ? state.promptLibrary.map((item) =>
+                  item.id === prompt.id ? prompt : item,
+                )
+              : [...state.promptLibrary, prompt],
+          ),
+        })),
+      deleteLibraryPrompt: (id) =>
+        set((state) => ({
+          promptLibrary: state.promptLibrary.filter((item) => item.id !== id),
+        })),
+      moveLibraryPrompt: (id, direction) =>
+        set((state) => {
+          const prompts = [...state.promptLibrary];
+          const index = prompts.findIndex((item) => item.id === id);
+          const next = index + direction;
+          if (index < 0 || next < 0 || next >= prompts.length) return state;
+          [prompts[index], prompts[next]] = [prompts[next], prompts[index]];
+          return { promptLibrary: prompts };
+        }),
       setGlobalAgentPrompt: (prompt) =>
         set({ globalAgentPrompt: normalizeGlobalAgentPrompt(prompt) }),
       resetGlobalAgentPrompt: () =>
@@ -1029,7 +1076,7 @@ export const useSettingsStore = create<SettingsState>()(
     }),
     {
       name: "catalex-settings",
-      version: 26,
+      version: 27,
       migrate: migrateSettingsState,
       merge: (persisted, current) => {
         const saved = persisted as
@@ -1041,6 +1088,11 @@ export const useSettingsStore = create<SettingsState>()(
         return {
           ...current,
           ...saved,
+          promptLibrary: normalizePromptLibrary(saved?.promptLibrary),
+          keepMiniPromptsOpen: normalizeBoolean(
+            saved?.keepMiniPromptsOpen,
+            false,
+          ),
           skippedUpdateVersions: [
             ...new Set(
               skippedVersions.filter(

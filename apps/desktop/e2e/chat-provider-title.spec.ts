@@ -1,5 +1,12 @@
 import { expect, test } from "@playwright/test";
 
+test.beforeEach(async ({ context }) => {
+  // The browser harness loads the renderer as individual development modules.
+  await context.addInitScript(() =>
+    performance.setResourceTimingBufferSize(4096),
+  );
+});
+
 test("chat titlebar names the conversation and panel header shows the last communicating provider", async ({
   page,
 }) => {
@@ -317,6 +324,15 @@ test("chat pop-out keeps the workspace header below a separate conversation titl
   await expect(actions).toBeDisabled();
   await actions.hover();
   await expect(chat.getByRole("tooltip")).toHaveText("No actions available");
+  // Use an actual pointer click: locator.click intentionally refuses disabled
+  // buttons, but the menu trigger must also ignore their pointer-down events.
+  const actionsBox = (await actions.boundingBox())!;
+  await chat.mouse.click(
+    actionsBox.x + actionsBox.width / 2,
+    actionsBox.y + actionsBox.height / 2,
+  );
+  await expect(actions).toHaveAttribute("aria-expanded", "false");
+  await expect(chat.getByRole("menu")).toHaveCount(0);
   await childHeader.locator("[data-panel-header-space]").dblclick();
   await expect(chat.locator("[data-expanded-workspace-panel]")).toHaveCount(0);
   await chat.screenshot({
@@ -358,24 +374,26 @@ test("chat pop-out keeps the workspace header below a separate conversation titl
   await expect(page.locator("[data-chat-title-current]")).toHaveText(
     "ClaudeSonnet 4.6 · High",
   );
-  await chat.getByPlaceholder("Ask me anything").fill("Shared pop-out draft");
+  await chat
+    .locator("[data-chat-composer-input]:visible")
+    .fill("Shared pop-out draft");
   await expect(
     page
       .locator("[data-workspace-chat-pane]")
-      .getByPlaceholder("Ask me anything"),
+      .locator("[data-chat-composer-input]:visible"),
   ).toHaveValue("Shared pop-out draft");
   await page
     .locator("[data-workspace-chat-pane]")
-    .getByPlaceholder("Ask me anything")
+    .locator("[data-chat-composer-input]:visible")
     .fill("Updated from the main window");
-  await expect(chat.getByPlaceholder("Ask me anything")).toHaveValue(
+  await expect(chat.locator("[data-chat-composer-input]:visible")).toHaveValue(
     "Updated from the main window",
   );
-  await chat.getByPlaceholder("Ask me anything").fill("");
+  await chat.locator("[data-chat-composer-input]:visible").fill("");
   await expect(
     page
       .locator("[data-workspace-chat-pane]")
-      .getByPlaceholder("Ask me anything"),
+      .locator("[data-chat-composer-input]:visible"),
   ).toHaveValue("");
   await chat.screenshot({
     path: test.info().outputPath("chat-workspace-popout.png"),
@@ -569,7 +587,7 @@ test("each chat pop-out remains pinned while the owner changes chats", async ({
   await expect(first.locator("[data-panel-window-title]")).toHaveText(
     "Review manuscript comments",
   );
-  await first.getByPlaceholder("Ask me anything").fill("First draft");
+  await first.locator("[data-chat-composer-input]:visible").fill("First draft");
   const ids = await page.evaluate(async () => {
     const url = performance
       .getEntriesByType("resource")
@@ -595,7 +613,7 @@ test("each chat pop-out remains pinned while the owner changes chats", async ({
   await expect(first.locator("[data-panel-window-title]")).toHaveText(
     "Review manuscript comments",
   );
-  await expect(first.getByPlaceholder("Ask me anything")).toHaveValue(
+  await expect(first.locator("[data-chat-composer-input]:visible")).toHaveValue(
     "First draft",
   );
   // An empty popped-out chat must not be discarded when another chat is selected.
@@ -613,14 +631,16 @@ test("each chat pop-out remains pinned while the owner changes chats", async ({
   await expect(second.locator("[data-panel-window-title]")).toHaveText(
     "Second chat",
   );
-  await second.getByPlaceholder("Ask me anything").fill("Second draft");
-  await expect(first.getByPlaceholder("Ask me anything")).toHaveValue(
+  await second
+    .locator("[data-chat-composer-input]:visible")
+    .fill("Second draft");
+  await expect(first.locator("[data-chat-composer-input]:visible")).toHaveValue(
     "First draft",
   );
   await expect(
     page
       .locator("[data-workspace-chat-pane]")
-      .getByPlaceholder("Ask me anything"),
+      .locator("[data-chat-composer-input]:visible"),
   ).toHaveValue("First draft");
   await page.evaluate(async (ids) => {
     const url = performance
@@ -671,9 +691,9 @@ test("each chat pop-out remains pinned while the owner changes chats", async ({
   });
   await first.close();
   const reopened = await openChat();
-  await expect(reopened.getByPlaceholder("Ask me anything")).toHaveValue(
-    "First draft",
-  );
+  await expect(
+    reopened.locator("[data-chat-composer-input]:visible"),
+  ).toHaveValue("First draft");
   await second.close();
   await reopened.close();
 });

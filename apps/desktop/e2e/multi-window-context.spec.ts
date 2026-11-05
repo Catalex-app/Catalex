@@ -66,7 +66,7 @@ async function selectPdf(page: Page) {
 }
 
 for (const source of ["editor", "pdf"] as const) {
-  test(`${source} selection reaches every open chat but Proofread only targets the main chat`, async ({
+  test(`${source} selection reaches every open chat with a comment-only popup`, async ({
     page,
   }) => {
     await page.goto("/?debug=comment-workspace&pdf");
@@ -108,15 +108,13 @@ for (const source of ["editor", "pdf"] as const) {
       const doc = (window as any).panelTest.doc.getState();
       return { editor: doc.selectionRange, pdf: doc.pdfSelectionContext };
     });
-    await page.locator("[data-selection-toolbar]").hover();
-    await page.getByRole("button", { name: "Proofread", exact: true }).click();
-    expect(await page.evaluate(() => (window as any).requests)).toEqual([
-      expect.objectContaining({
-        tab: "main",
-        prompt: "Proofread and fix any errors in this text",
-        context: expect.objectContaining({ selectedText: expect.any(String) }),
-      }),
-    ]);
+    const toolbar = page.locator("[data-selection-toolbar]");
+    await toolbar.hover();
+    await expect(toolbar.getByRole("button")).toHaveCount(1);
+    await expect(
+      toolbar.getByRole("button", { name: "Comment", exact: true }),
+    ).toBeVisible();
+    expect(await page.evaluate(() => (window as any).requests)).toEqual([]);
     await expect(chip(other)).toHaveCount(1);
     await expect(chip(third)).toHaveCount(1);
     expect(

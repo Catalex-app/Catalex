@@ -1,4 +1,7 @@
+import { useSettingsStore } from "@/stores/settings-store";
+import { PromptSuggestions } from "./prompt-suggestions";
 import { isChatArchiveEligible } from "@/lib/chat-archive-eligibility";
+import { areLibraryPromptsExpanded } from "@/lib/prompt-library";
 import { useAgentReviewQueueStore } from "@/stores/agent-review-queue-store";
 import { RoundElapsedTime } from "./round-elapsed-time";
 import { Button } from "@/components/ui/button";
@@ -19,7 +22,14 @@ import {
   sessionStatusLabel,
 } from "./session-status";
 import { ButtonGroup } from "@/components/ui/button-group";
-import { useCallback, useRef, useEffect, useMemo, useState } from "react";
+import {
+  useCallback,
+  useRef,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useState,
+} from "react";
 import {
   ArchiveIcon,
   CheckIcon,
@@ -111,6 +121,40 @@ export function ChatTabBar({
   );
 
   const isNewChatActive = newChat?.id === activeTabId;
+  const setMiniPromptsExpanded = useAgentChatStore(
+    (s) => s.setMiniPromptsExpanded,
+  );
+  const keepMiniPromptsOpen = useSettingsStore((s) => s.keepMiniPromptsOpen);
+  const showPromptSuggestions = areLibraryPromptsExpanded(
+    activeTab,
+    keepMiniPromptsOpen,
+  );
+  const miniBarRef = useRef<HTMLDivElement>(null);
+  const miniPresentation = JSON.stringify([
+    compact,
+    activeTabId,
+    isNewChatActive,
+    showPromptSuggestions,
+    keepMiniPromptsOpen,
+  ]);
+  const previousMiniPresentation = useRef(miniPresentation);
+  useLayoutEffect(() => {
+    const changed = previousMiniPresentation.current !== miniPresentation;
+    previousMiniPresentation.current = miniPresentation;
+    const bar = miniBarRef.current;
+    if (
+      !changed ||
+      !bar ||
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    )
+      return;
+    // One subtle fade for every presentation change; leave live status updates alone.
+    const animation = bar.animate([{ opacity: 0.65 }, { opacity: 1 }], {
+      duration: 200,
+      easing: "ease-out",
+    });
+    return () => animation.cancel();
+  }, [miniPresentation]);
   const conversationCount = conversationTabs.length;
   const scrollActiveTabIntoView = useCallback(
     (behavior: ScrollBehavior = "smooth") => {
@@ -225,9 +269,17 @@ export function ChatTabBar({
 
   if (compact) {
     return (
-      <div className="flex items-center gap-1 px-3 pt-1 pb-0.5">
-        <div className="flex shrink-0 items-center gap-0.5">
-          <SessionSelector triggerMode="title" titleLabel={activeTab?.title} />
+      <div
+        ref={miniBarRef}
+        data-mini-chat-bar
+        className="@container/mini-bar flex items-center gap-1 px-3 pt-1 pb-0.5"
+      >
+        <div className="flex shrink-0 items-center gap-1">
+          <SessionSelector
+            triggerMode="title"
+            titleLabel={activeTab?.title}
+            className="max-w-[min(190px,32cqw)]"
+          />
           {showNewChatButton && !isNewChatActive && (
             <Tooltip>
               <TooltipTrigger asChild>
@@ -246,56 +298,90 @@ export function ChatTabBar({
             </Tooltip>
           )}
         </div>
-        {!isNewChatActive && (
-          <Hint content={statusText}>
-            <div
-              className={cn(
-                "flex h-7 min-w-0 flex-1 items-center gap-1.5 truncate text-xs leading-none",
-                activeTab?.isStreaming
-                  ? "text-foreground"
-                  : "text-muted-foreground",
-              )}
-            >
-              {activeStatus ? (
-                <SessionStatusIndicator status={activeStatus} />
-              ) : statusMeta.state === "streaming" ? (
-                <LoaderCircleIcon
-                  className="size-3.5 shrink-0 animate-spin text-primary"
-                  aria-hidden="true"
-                />
-              ) : statusMeta.state === "finished" ? (
-                <CheckCircle2Icon
-                  className="size-3.5 shrink-0 text-emerald-500"
-                  aria-hidden="true"
-                />
-              ) : statusMeta.state === "error" ? (
-                <AlertCircleIcon
-                  className="size-3.5 shrink-0 text-destructive"
-                  aria-hidden="true"
-                />
-              ) : (
-                <CircleIcon
-                  className="size-3 shrink-0 text-muted-foreground/60"
-                  aria-hidden="true"
-                />
-              )}
-              {activeStatus === "review" ||
-              activeStatus === "queued" ||
-              holdsReview ? (
-                <AgentDraftNotice compact />
-              ) : (
-                <span data-testid="collapsed-chat-status" className="truncate">
-                  {statusText}
-                </span>
-              )}
-              {activeTab?.roundTiming && activeTab.pauseState !== "paused" && (
-                <span data-testid="collapsed-round-timer" className="shrink-0">
-                  <RoundElapsedTime timing={activeTab.roundTiming} />
-                </span>
-              )}
-            </div>
-          </Hint>
-        )}
+        <div className="flex h-[30px] min-w-0 flex-1 items-center gap-2">
+          {!isNewChatActive && (
+            <Hint content={activeStatus ? null : statusText}>
+              <span
+                data-mini-status-icon
+                role="img"
+                aria-label={statusText}
+                className="flex size-3.5 shrink-0 items-center justify-center"
+              >
+                {activeStatus ? (
+                  <SessionStatusIndicator status={activeStatus} />
+                ) : statusMeta.state === "streaming" ? (
+                  <LoaderCircleIcon
+                    className="size-3.5 shrink-0 animate-spin text-primary"
+                    aria-hidden="true"
+                  />
+                ) : statusMeta.state === "finished" ? (
+                  <CheckCircle2Icon
+                    className="size-3.5 shrink-0 text-emerald-500"
+                    aria-hidden="true"
+                  />
+                ) : statusMeta.state === "error" ? (
+                  <AlertCircleIcon
+                    className="size-3.5 shrink-0 text-destructive"
+                    aria-hidden="true"
+                  />
+                ) : (
+                  <CircleIcon
+                    className="size-3 shrink-0 text-muted-foreground/60"
+                    aria-hidden="true"
+                  />
+                )}
+              </span>
+            </Hint>
+          )}
+          <div className="relative h-full min-w-0 flex-1">
+            {!isNewChatActive && (
+              <Hint content={statusText}>
+                <div
+                  aria-hidden={showPromptSuggestions}
+                  inert={showPromptSuggestions}
+                  className={cn(
+                    "absolute inset-0 flex min-w-0 items-center gap-1.5 truncate pr-8 text-xs leading-none transition-[opacity,visibility] duration-150 ease-out motion-reduce:transition-none",
+                    showPromptSuggestions
+                      ? "invisible opacity-0"
+                      : "visible opacity-100",
+                    activeTab?.isStreaming
+                      ? "text-foreground"
+                      : "text-muted-foreground",
+                  )}
+                >
+                  {activeStatus === "review" ||
+                  activeStatus === "queued" ||
+                  holdsReview ? (
+                    <AgentDraftNotice compact />
+                  ) : (
+                    <span
+                      data-testid="collapsed-chat-status"
+                      className="truncate"
+                    >
+                      {statusText}
+                    </span>
+                  )}
+                  {activeTab?.roundTiming &&
+                    activeTab.pauseState !== "paused" && (
+                      <span
+                        data-testid="collapsed-round-timer"
+                        className="shrink-0"
+                      >
+                        <RoundElapsedTime timing={activeTab.roundTiming} />
+                      </span>
+                    )}
+                </div>
+              </Hint>
+            )}
+            <PromptSuggestions
+              compact
+              compactExpanded={showPromptSuggestions}
+              onCompactExpandedChange={(expanded) =>
+                setMiniPromptsExpanded(activeTabId, expanded)
+              }
+            />
+          </div>
+        </div>
       </div>
     );
   }

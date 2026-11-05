@@ -1,4 +1,5 @@
 import { RoundElapsedTime } from "./round-elapsed-time";
+import { areLibraryPromptsExpanded } from "@/lib/prompt-library";
 import { Separator } from "@/components/ui/separator";
 import { chatModelSectionLabels } from "@/lib/chat-model-sections";
 import { providerStatusLabel } from "@/lib/agent-provider-status";
@@ -83,23 +84,31 @@ const StreamingIndicator: FC = memo(() => {
 
 // ─── Chat Messages (main component) ───
 
-export const ChatMessages: FC<{ revealHistory?: boolean }> = ({
-  revealHistory,
-}) => {
+export const ChatMessages: FC<{
+  revealHistory?: boolean;
+  reservePromptSpace?: boolean;
+}> = ({ revealHistory, reservePromptSpace = false }) => {
   const activeTabId = useAgentChatStore((s) => s.activeTabId);
   const projectRoot = useAgentChatStore((s) => s.chatProjectRoot);
+  const activeTab = useAgentChatStore((s) =>
+    s.tabs.find((tab) => tab.id === s.activeTabId),
+  );
+  const promptsPinned = useSettingsStore((s) => s.keepMiniPromptsOpen);
+  const promptsFolded = !areLibraryPromptsExpanded(activeTab, promptsPinned);
   return (
     <ChatMessagesForTab
       key={`${projectRoot}:${activeTabId}`}
       revealHistory={revealHistory}
+      reservePromptSpace={reservePromptSpace && promptsFolded}
     />
   );
 };
 
 // Keep pending page requests and scroll observers scoped to the displayed chat.
-const ChatMessagesForTab: FC<{ revealHistory?: boolean }> = ({
-  revealHistory,
-}) => {
+const ChatMessagesForTab: FC<{
+  revealHistory?: boolean;
+  reservePromptSpace: boolean;
+}> = ({ revealHistory, reservePromptSpace }) => {
   const [historyReady, setHistoryReady] = useState(false);
   const revealFrame = useRef<number | null>(null);
   const historyMeasured = useRef(false);
@@ -138,7 +147,6 @@ const ChatMessagesForTab: FC<{ revealHistory?: boolean }> = ({
     const timing = s.tabs.find((tab) => tab.id === s.activeTabId)?.roundTiming;
     return Boolean(timing && !timing.finished && timing.waitingFor.length);
   });
-  const selectedProvider = useAgentChatStore((s) => s.selectedProvider);
   const forkSessionAtMessage = useAgentChatStore((s) => s.forkSessionAtMessage);
   const projectRoot = useAgentChatStore((s) => s.chatProjectRoot);
   const positionKey = `${projectRoot}:${activeTabId}`;
@@ -358,14 +366,10 @@ const ChatMessagesForTab: FC<{ revealHistory?: boolean }> = ({
     );
   if (displayMessages.length === 0 && !isStreaming)
     return (
-      <div className="flex h-full items-center justify-center text-muted-foreground text-sm">
-        {history?.total
-          ? "Loading chat…"
-          : selectedProvider === "claude"
-            ? "Ask Claude about your LaTeX document..."
-            : selectedProvider === "pi"
-              ? "Ask Pi about your LaTeX document..."
-              : "Ask Codex about your LaTeX document..."}
+      <div className="app-scrollbar flex h-full flex-col items-center overflow-y-auto p-4">
+        {history?.total ? (
+          <span className="text-muted-foreground text-sm">Loading chat…</span>
+        ) : null}
       </div>
     );
   return (
@@ -467,12 +471,22 @@ const ChatMessagesForTab: FC<{ revealHistory?: boolean }> = ({
       }}
       followOutput={() => (!userScrolled.current ? "auto" : false)}
       components={{
-        Footer: () =>
-          isStreaming || isPaused || isWaiting ? (
-            <div className="px-4">
-              <StreamingIndicator />
-            </div>
-          ) : null,
+        Footer: () => (
+          <>
+            {(isStreaming || isPaused || isWaiting) && (
+              <div className="px-4">
+                <StreamingIndicator />
+              </div>
+            )}
+            {reservePromptSpace && (
+              <div
+                data-prompt-scroll-clearance
+                aria-hidden="true"
+                className="h-9"
+              />
+            )}
+          </>
+        ),
       }}
       itemContent={(logicalIndex, { message, messageIndex, sectionLabel }) => {
         const index = logicalIndex;

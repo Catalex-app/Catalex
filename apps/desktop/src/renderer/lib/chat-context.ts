@@ -7,6 +7,11 @@ export interface ChatContextBadge {
   imageDataUrl?: string;
   attachment?: boolean;
   proposedDraft?: { sessionId: string; contentVersion?: string };
+  diagnostics?: Array<{
+    line: number | null;
+    severity: string;
+    message: string;
+  }>;
   comment?: {
     id: string;
     agent: boolean;

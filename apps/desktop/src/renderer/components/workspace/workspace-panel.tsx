@@ -447,14 +447,16 @@ export function WorkspacePanelExpandControl({
             <Hint
               content={hasActions ? "Panel actions" : "No actions available"}
             >
-              <DropdownMenuTrigger asChild>
+              <DropdownMenuTrigger
+                asChild
+                disabled={expansion?.disabled || !hasActions}
+              >
                 <Button
                   data-panel-expand-control=""
                   variant="ghost"
                   size="icon-xs"
                   className="size-6 text-muted-foreground focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset"
                   aria-label={`More ${label} view actions`}
-                  disabled={expansion?.disabled || !hasActions}
                 >
                   <EllipsisIcon className="size-3.5" />
                 </Button>

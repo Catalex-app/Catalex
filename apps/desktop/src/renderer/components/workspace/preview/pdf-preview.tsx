@@ -41,7 +41,6 @@ import {
   FileTextIcon,
   CheckIcon,
   MessageSquareTextIcon,
-  SpellCheckIcon,
   AlertCircleIcon,
   LoaderIcon,
   RefreshCwIcon,
@@ -1084,26 +1083,8 @@ export function PdfPreview({
       ? `~@PDF page ${pdfSelection.pageNumber}`
       : "";
 
-  const buildPdfContext = useCallback(
-    (text: string) => {
-      const locationNote = resolvedSource
-        ? `near ${resolvedSource.file}:${resolvedSource.line}`
-        : pdfSelection
-          ? `PDF page ${pdfSelection.pageNumber}`
-          : "PDF";
-      return `[Selected from PDF output, approximate source location: ${locationNote}]\n${text}`;
-    },
-    [resolvedSource, pdfSelection],
-  );
-
   const pdfToolbarActions: ToolbarAction[] = useMemo(
     () => [
-      {
-        id: "proofread",
-        isAI: true,
-        label: "Proofread",
-        icon: <SpellCheckIcon className="size-4" />,
-      },
       ...(pdfCommentsVisible &&
       !isStandalonePdf &&
       !agentWorkspaceRoot &&
@@ -1139,95 +1120,79 @@ export function PdfPreview({
 
   const handlePdfToolbarAction = useCallback(
     async (actionId: string) => {
-      if (!pdfSelection) return;
-      if (actionId === "comment") {
-        if (!commentsLoaded) return;
-        const choice =
-          commentStatus === "ready" ? checkedSelection?.choice : null;
-        const document = useDocumentStore.getState();
-        if (
-          !choice ||
-          !checkedSelection ||
-          document.projectRoot !== projectRoot ||
-          document.agentWorkspaceRoot ||
-          document.files !== checkedSelection.files ||
-          document.contentGeneration !== checkedSelection.generation ||
-          document.lastCompiledGenerations.get(currentRootFileId) !==
-            checkedSelection.compiledGeneration
-        )
-          return;
-        const filePath = choice.filePath;
-        const range = choice.range;
-        const id = crypto.randomUUID();
-        const draftComment = {
-          id,
-          ...range,
-          text: "",
-          createdAt: new Date().toISOString(),
+      if (!pdfSelection || actionId !== "comment") return;
+      if (!commentsLoaded) return;
+      const choice =
+        commentStatus === "ready" ? checkedSelection?.choice : null;
+      const document = useDocumentStore.getState();
+      if (
+        !choice ||
+        !checkedSelection ||
+        document.projectRoot !== projectRoot ||
+        document.agentWorkspaceRoot ||
+        document.files !== checkedSelection.files ||
+        document.contentGeneration !== checkedSelection.generation ||
+        document.lastCompiledGenerations.get(currentRootFileId) !==
+          checkedSelection.compiledGeneration
+      )
+        return;
+      const filePath = choice.filePath;
+      const range = choice.range;
+      const id = crypto.randomUUID();
+      const draftComment = {
+        id,
+        ...range,
+        text: "",
+        createdAt: new Date().toISOString(),
 
-          isEditing: true,
-        };
-        setProjectComments((current) => ({
-          ...current,
-          [filePath]: [
-            ...(current[filePath] ?? []).filter(
-              (comment) => comment.text.trim() || !comment.isEditing,
-            ),
-            draftComment,
-          ],
-        }));
-        if (projectRoot)
-          setCommentDraft({ root: projectRoot, filePath }, id, {
-            comment: draftComment,
-            text: "",
-          });
-        setCenterRequestedComment(false);
-        setNewCommentId(id);
-        setCommentRequestRevision((revision) => revision + 1);
-        if (choice.approximate) {
-          toast.info("Matched approximately—check the highlighted source.", {
-            duration: 10000,
-            action: {
-              label: "Show source",
-              onClick: () => {
-                if (useDocumentStore.getState().projectRoot !== projectRoot)
-                  return;
-                onRevealSource?.();
-                window.dispatchEvent(
-                  new CustomEvent(PDF_COMMENT_NAVIGATE_EVENT, {
-                    detail: { projectRoot, filePath, commentId: id },
-                  }),
-                );
-              },
+        isEditing: true,
+      };
+      setProjectComments((current) => ({
+        ...current,
+        [filePath]: [
+          ...(current[filePath] ?? []).filter(
+            (comment) => comment.text.trim() || !comment.isEditing,
+          ),
+          draftComment,
+        ],
+      }));
+      if (projectRoot)
+        setCommentDraft({ root: projectRoot, filePath }, id, {
+          comment: draftComment,
+          text: "",
+        });
+      setCenterRequestedComment(false);
+      setNewCommentId(id);
+      setCommentRequestRevision((revision) => revision + 1);
+      if (choice.approximate) {
+        toast.info("Matched approximately—check the highlighted source.", {
+          duration: 10000,
+          action: {
+            label: "Show source",
+            onClick: () => {
+              if (useDocumentStore.getState().projectRoot !== projectRoot)
+                return;
+              onRevealSource?.();
+              window.dispatchEvent(
+                new CustomEvent(PDF_COMMENT_NAVIGATE_EVENT, {
+                  detail: { projectRoot, filePath, commentId: id },
+                }),
+              );
             },
-          });
-        }
+          },
+        });
       }
-      const label = pdfContextLabel;
       const sel = pdfSelection;
       setPdfSelection(null);
-      if (actionId !== "proofread") sel.clear();
-      if (actionId === "proofread" && aiEnabled) {
-        useAgentChatStore
-          .getState()
-          .sendPrompt("Proofread and fix any errors in this text", {
-            label,
-            filePath: resolvedSource?.file ?? "document.pdf",
-            selectedText: buildPdfContext(sel.text),
-          });
-      }
+      sel.clear();
     },
     [
       pdfSelection,
-      aiEnabled,
       commentStatus,
       checkedSelection,
       currentRootFileId,
       setProjectComments,
       commentsLoaded,
-      pdfContextLabel,
-      resolvedSource,
-      buildPdfContext,
       activeFile?.relativePath,
       projectRoot,
       onRevealSource,
@@ -3019,13 +2984,12 @@ export function PdfPreview({
       {toolbarWidthProbes}
       {renderContent()}
       {/* PDF selection toolbar */}
-      {!isolatedSnapshot && pdfSelection && (
+      {!isolatedSnapshot && pdfSelection && pdfToolbarActions.length > 0 && (
         <SelectionToolbar
           position={pdfSelection.position}
           getAnchor={getPdfToolbarAnchor}
           contextLabel={pdfContextLabel}
           actions={pdfToolbarActions}
-          aiEnabled={aiEnabled}
           onAction={handlePdfToolbarAction}
           onDismiss={handlePdfToolbarDismiss}
         />
