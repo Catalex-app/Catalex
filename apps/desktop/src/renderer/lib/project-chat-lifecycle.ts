@@ -458,3 +458,40 @@ export async function updateArchivedChatTab(
     .getState()
     .updateSessionArchive(sharedSessionId, archived, restored);
 }
+
+/** Load a saved chat without switching the main chat, file, or composer. */
+export async function loadChatInBackground(
+  projectRoot: string,
+  sharedSessionId: string,
+) {
+  const isCurrentProject = () =>
+    useDocumentStore.getState().projectRoot === projectRoot &&
+    useAgentChatStore.getState().chatProjectRoot === projectRoot &&
+    !useAgentChatStore.getState().isLeavingProject;
+  if (!isCurrentProject()) return;
+  const existing = useAgentChatStore
+    .getState()
+    .tabs.find((tab) => tab.sharedSessionId === sharedSessionId);
+  if (existing) return existing.archived ? undefined : existing.id;
+  const session = await invoke<SharedSessionPayload>("load_shared_session", {
+    projectPath: projectRoot,
+    sharedSessionId,
+  });
+  if (!isCurrentProject()) return;
+  // A normal open or another request may have restored it while we loaded.
+  const current = useAgentChatStore
+    .getState()
+    .tabs.find((tab) => tab.sharedSessionId === sharedSessionId);
+  if (current) return current.archived ? undefined : current.id;
+  const restored = tabFromSharedSession(session);
+  // Match normal resume: keep the current provider until the user chooses
+  // whether to use this session's previous LLM.
+  const provider = useAgentChatStore.getState().selectedProvider;
+  const tab = {
+    ...restored,
+    provider,
+    sessionId: restored.providerSessionIds[provider] ?? null,
+  };
+  useAgentChatStore.setState((state) => ({ tabs: [...state.tabs, tab] }));
+  return tab.id;
+}

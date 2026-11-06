@@ -168,6 +168,123 @@ try {
     "Native chat workspace titlebar drag region and file selector passed",
   );
 
+  // Context actions target an unselected file and an unloaded saved session.
+  const originalSelection = await main.evaluate(async () => {
+    const { useDocumentStore: doc } = await import(
+      "/src/renderer/stores/document-store.ts"
+    );
+    const { useAgentChatStore: chat } = await import(
+      "/src/renderer/stores/agent-chat-store.ts"
+    );
+    const file = doc.getState().files.find((item) => item.name === "other.md");
+    doc.setState({
+      files: doc
+        .getState()
+        .files.map((item) =>
+          item.id === file.id ? { ...item, content: undefined } : item,
+        ),
+    });
+    return {
+      file: doc.getState().activeFileId,
+      chat: chat.getState().activeTabId,
+      other: file.id,
+    };
+  });
+  const fileRow = main.locator(
+    `[data-sidebar-file-id="${originalSelection.other}"]`,
+  );
+  await fileRow.click({ button: "right" });
+  const fileOpened = app.waitForEvent("window");
+  await main
+    .getByRole("menuitem", { name: "Open in pop-out", exact: true })
+    .click();
+  const filePopup = await ready(await fileOpened);
+  await expect(filePopup.locator(".cm-content")).toContainText("Another file");
+  await expect(main.locator(".cm-content")).toContainText("Original text.");
+  const windowsBefore = app.windows().length;
+  await fileRow.click({ button: "right" });
+  await main
+    .getByRole("menuitem", { name: "Open in pop-out", exact: true })
+    .click();
+  const fileNative = await app.browserWindow(filePopup);
+  await expect
+    .poll(() => fileNative.evaluate((win) => win.isFocused()))
+    .toBe(true);
+  assert.equal(app.windows().length, windowsBefore);
+  await filePopup.evaluate(() => window.close());
+  await expect.poll(() => filePopup.isClosed()).toBe(true);
+  await main.evaluate(async (project) => {
+    const { invoke } = await import("/src/renderer/lib/desktop/core.ts");
+    await invoke("save_shared_session", {
+      projectPath: project,
+      sharedSessionId: "sidebar-saved",
+      providerSessionIds: {},
+      title: "Saved sidebar conversation",
+      lastProvider: "claude",
+      messages: [
+        {
+          type: "user",
+          message: {
+            content: [{ type: "text", text: "Native saved history." }],
+          },
+        },
+      ],
+    });
+  }, project);
+  await main.getByRole("button", { name: "Full", exact: true }).click();
+  const savedRow = main
+    .locator('[data-sidebar-section="sessions"]')
+    .getByRole("button", { name: /Saved sidebar conversation/ });
+  await savedRow.click({ button: "right" });
+  await main.screenshot({
+    path: path.join(artifacts, "session-popout-menu.png"),
+  });
+  const savedOpened = app.waitForEvent("window");
+  await main
+    .getByRole("menuitem", { name: "Open in pop-out", exact: true })
+    .click();
+  const savedPopup = await ready(await savedOpened);
+  await expect(
+    savedPopup.getByText("Native saved history.", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    savedPopup.getByText("Choose LLM for this resumed chat", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    savedPopup.getByRole("button", { name: /Current LLM/ }),
+  ).toContainText("Codex");
+  assert.deepEqual(
+    await main.evaluate(async () => {
+      const { useDocumentStore: doc } = await import(
+        "/src/renderer/stores/document-store.ts"
+      );
+      const { useAgentChatStore: chat } = await import(
+        "/src/renderer/stores/agent-chat-store.ts"
+      );
+      return {
+        file: doc.getState().activeFileId,
+        chat: chat.getState().activeTabId,
+      };
+    }),
+    { file: originalSelection.file, chat: originalSelection.chat },
+  );
+  const savedWindows = app.windows().length;
+  await savedRow.click({ button: "right" });
+  await main
+    .getByRole("menuitem", { name: "Open in pop-out", exact: true })
+    .click();
+  const savedNative = await app.browserWindow(savedPopup);
+  await expect
+    .poll(() => savedNative.evaluate((win) => win.isFocused()))
+    .toBe(true);
+  assert.equal(app.windows().length, savedWindows);
+  await savedPopup.evaluate(() => window.close());
+  await expect.poll(() => savedPopup.isClosed()).toBe(true);
+  await main.getByRole("button", { name: "Half", exact: true }).click();
+  console.log(
+    "Native sidebar file/session pop-outs, lazy loading, unchanged main selection, and duplicate focus passed",
+  );
+
   const opened = app.waitForEvent("window", { timeout: 15000 });
   await main
     .getByRole("button", { name: "More Editor view actions", exact: true })

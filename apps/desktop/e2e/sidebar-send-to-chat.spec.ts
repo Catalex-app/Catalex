@@ -225,3 +225,43 @@ test("chat choices replace the file menu on click, support back and keyboard, an
   await expect(page.getByRole("menu")).toHaveCount(0);
   await main.close();
 });
+
+test("file context opens the clicked file and reuses its window without changing the main selection", async ({
+  page,
+  context,
+}) => {
+  await setup(page);
+  const active = await page.evaluate(
+    () => (window as any).sidebarChatTest.doc.getState().activeFileId,
+  );
+  await fileMenu(page);
+  await page.getByRole("menu").evaluate(async (element) => {
+    await Promise.all(
+      element
+        .getAnimations({ subtree: true })
+        .map((animation) => animation.finished),
+    );
+  });
+  await page.screenshot({
+    path: test.info().outputPath("file-popout-menu.png"),
+  });
+  const opened = page.waitForEvent("popup");
+  await page
+    .getByRole("menuitem", { name: "Open in pop-out", exact: true })
+    .click();
+  const child = await opened;
+  await expect(child.locator(".cm-content")).toContainText(
+    "Unsaved reference text",
+  );
+  expect(
+    await page.evaluate(
+      () => (window as any).sidebarChatTest.doc.getState().activeFileId,
+    ),
+  ).toBe(active);
+  await fileMenu(page);
+  await page
+    .getByRole("menuitem", { name: "Open in pop-out", exact: true })
+    .click();
+  expect(context.pages()).toHaveLength(2);
+  await child.close();
+});

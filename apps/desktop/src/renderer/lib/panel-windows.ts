@@ -1,3 +1,4 @@
+import { LARGE_FILE_THRESHOLD } from "./project-files";
 import { browserHarness, hostInvoke } from "./desktop/bridge";
 import { compileWorkspace, stopCompilation } from "./workspace-compile";
 import { getPublishedCompilation } from "./latex-compiler";
@@ -27,17 +28,32 @@ import type {
 import { notifyPanelSessionsChanged } from "./panel-window-runtime";
 import type { WorkspaceMode } from "./ui-theme";
 
-export function openPanelWindow(kind: PanelWindowKind, mode: WorkspaceMode) {
+export function openPanelWindow(
+  kind: PanelWindowKind,
+  mode: WorkspaceMode,
+  target: { fileId?: string; chatId?: string } = {},
+) {
   const state = useDocumentStore.getState();
   if (!state.projectRoot) return;
   // A compiled preview belongs to its root document, regardless of which
   // included file opened it. Other panel kinds remain pinned to their file.
   const fileId =
     kind === "preview"
-      ? resolveTexRoot(state.activeFileId, state.files)
-      : state.activeFileId;
+      ? resolveTexRoot(target.fileId ?? state.activeFileId, state.files)
+      : (target.fileId ?? state.activeFileId);
   const chatId =
-    kind === "chat" ? useAgentChatStore.getState().activeTabId : undefined;
+    kind === "chat"
+      ? (target.chatId ?? useAgentChatStore.getState().activeTabId)
+      : undefined;
+  if (kind === "chat") {
+    const chat = useAgentChatStore.getState();
+    if (
+      chat.chatProjectRoot !== state.projectRoot ||
+      chat.isLeavingProject ||
+      !chat.tabs.some((tab) => tab.id === chatId && !tab.archived)
+    )
+      return;
+  } else if (!state.files.some((file) => file.id === fileId)) return;
   const sessions = (window.__catalexPanelSessions ??= new Map());
   for (const [token, session] of sessions) {
     if (
@@ -106,6 +122,17 @@ export function openPanelWindow(kind: PanelWindowKind, mode: WorkspaceMode) {
     return;
   }
   session.window = child;
+  const file = state.files.find((item) => item.id === fileId);
+  if (
+    kind === "editor" &&
+    file &&
+    file.content === undefined &&
+    file.type !== "image" &&
+    file.type !== "pdf" &&
+    !file.isBinary &&
+    (file.fileSize ?? 0) <= LARGE_FILE_THRESHOLD
+  )
+    void state.loadFileContent(file.id);
   notifyPanelSessionsChanged();
   const stop = useDocumentStore.subscribe((next) => {
     if (

@@ -4,6 +4,8 @@
 
 - Keep PDF comment creation in the floating selection toolbar and remove its duplicate right-click menu action.
 
+- Open files and saved chat sessions in pop-outs from their sidebar context menus, preserving the main selection and reusing existing windows.
+
 - Let the Files menu send a file directly to the main chat or an open chat pop-out, with shared status badges and an inline chat chooser. Preserve existing drafts and whole-file references.
 
 - Extend the document minimap to standalone PDFs and LaTeX previews, with page navigation, a draggable viewport, and human/agent comment markers using the existing styling and settings.

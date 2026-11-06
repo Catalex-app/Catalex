@@ -321,3 +321,5 @@ changed comment context or compilation discards pending marker results; hidden,
 historical, draft, or stale previews retain navigation without live comment
 markers. Marker activation uses the existing PDF comment interaction, including
 source synchronization when the editor is visible.
+
+Sidebar file and session context menus use explicit targets with `openPanelWindow`; they do not change the main file or chat selection. Small text files load on demand, and saved sessions restore through `loadChatInBackground` with project and duplicate checks before opening a window. Archived sessions must be restored first.

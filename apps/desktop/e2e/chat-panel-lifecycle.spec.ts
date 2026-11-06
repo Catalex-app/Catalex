@@ -4,19 +4,19 @@ async function setup(page: Page) {
   await page.goto("/?debug=comment-workspace&pdf");
   await expect(page.locator(".mupdf-text-layer").first()).toBeVisible();
   await page.evaluate(async () => {
-    const moduleUrl = (path: string) =>
-      performance
-        .getEntriesByType("resource")
-        .find((entry) => new URL(entry.name).pathname === path)!.name;
     const { useAgentChatStore: store } = await import(
-      /* @vite-ignore */ moduleUrl("/src/renderer/stores/agent-chat-store.ts")
+      /* @vite-ignore */ "/src/renderer/stores/agent-chat-store.ts"
+    );
+    const { useDocumentStore: doc } = await import(
+      /* @vite-ignore */ "/src/renderer/stores/document-store.ts"
     );
     const { openPanelWindow } = await import(
-      /* @vite-ignore */ moduleUrl("/src/renderer/lib/panel-windows.ts")
+      /* @vite-ignore */ "/src/renderer/lib/panel-windows.ts"
     );
+    store.setState({ chatProjectRoot: doc.getState().projectRoot });
     Object.assign(window, {
       chatStore: store,
-      openChatPanel: () => openPanelWindow("chat", "vibe"),
+      openChatPanel: () => openPanelWindow("chat", "duet"),
     });
   });
 }
@@ -187,7 +187,7 @@ test("a blocked popup does not leave a stale registration and can be retried", a
     page.getByText("Could not open the panel window.", { exact: true }),
   ).toBeVisible();
   const child = await openChat(page, id);
-  await expect(child.getByPlaceholder("Ask me anything")).toBeVisible();
+  await expect(child.locator("[data-chat-composer-input]")).toBeVisible();
   await child.close();
   await expect
     .poll(() =>

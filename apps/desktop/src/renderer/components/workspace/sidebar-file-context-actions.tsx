@@ -6,6 +6,7 @@ import {
   type ReactNode,
 } from "react";
 import {
+  AppWindowIcon,
   CopyIcon,
   FolderOpenIcon,
   MessagesSquareIcon,
@@ -27,6 +28,8 @@ import {
   ContextMenuItem,
   ContextMenuSeparator,
 } from "@/components/ui/context-menu";
+import { openPanelWindow } from "@/lib/panel-windows";
+import { browserHarness } from "@/lib/desktop/bridge";
 import { invoke } from "@/lib/desktop/core";
 import { useAgentChatStore } from "@/stores/agent-chat-store";
 import { useDocumentStore, type ProjectFile } from "@/stores/document-store";
@@ -171,6 +174,19 @@ export function SidebarFileContextActions({
           </ContextMenuItem>
           <ContextMenuSeparator />
         </>
+      )}
+      {(window.catalex || (import.meta.env.DEV && browserHarness())) && (
+        <ContextMenuItem
+          disabled={!projectRoot}
+          onSelect={() =>
+            openPanelWindow("editor", aiEnabled ? "duet" : "artisan", {
+              fileId: file.id,
+            })
+          }
+        >
+          <AppWindowIcon className="mr-2 size-4" />
+          Open in pop-out
+        </ContextMenuItem>
       )}
       <ContextMenuItem
         onClick={() => {

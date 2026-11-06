@@ -2,12 +2,24 @@ import { toast } from "sonner";
 import { Hint } from "@/components/ui/tooltip";
 import { useSessionHistoryRefresh } from "@/hooks/use-session-history-refresh";
 import { useCollapsedSidebarBody } from "@/hooks/use-collapsed-sidebar-body";
-import { updateArchivedChatTab } from "@/lib/project-chat-lifecycle";
+import {
+  ContextMenu,
+  ContextMenuTrigger,
+  ContextMenuContent,
+  ContextMenuItem,
+} from "@/components/ui/context-menu";
+import { openPanelWindow } from "@/lib/panel-windows";
+import { browserHarness } from "@/lib/desktop/bridge";
+import {
+  loadChatInBackground,
+  updateArchivedChatTab,
+} from "@/lib/project-chat-lifecycle";
 import { SidebarSectionHeader } from "@/components/workspace/sidebar-layout";
 import { SessionStatusIndicator, useSessionStatus } from "./session-status";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { invoke } from "@/lib/desktop/core";
 import {
+  AppWindowIcon,
   ArchiveIcon,
   CheckIcon,
   ChevronDownIcon,
@@ -178,7 +190,12 @@ export function SessionListPanel({
     async (
       sharedSessionId: string,
       options: Parameters<typeof resumeSession>[1] = {},
+      background = false,
     ) => {
+      if (background)
+        return projectRoot
+          ? loadChatInBackground(projectRoot, sharedSessionId)
+          : undefined;
       const existingTab = useAgentChatStore
         .getState()
         .tabs.find((tab) => tab.sharedSessionId === sharedSessionId);
@@ -191,19 +208,22 @@ export function SessionListPanel({
       setActiveTab(newTabId, true);
       return newTabId;
     },
-    [createTab, resumeSession, setActiveTab],
+    [createTab, resumeSession, setActiveTab, projectRoot],
   );
 
   const handleSelectSession = useCallback(
-    async (session: SharedSessionInfo) => {
+    async (session: SharedSessionInfo, popOut = false) => {
       if (isResolvingSession) return;
-      if (session.shared_session_id === activeSharedSessionId) return;
+      if (!popOut && session.shared_session_id === activeSharedSessionId)
+        return;
+      if (popOut && session.archived) return;
 
       const existingTab = tabs.find(
         (tab) => tab.sharedSessionId === session.shared_session_id,
       );
       if (existingTab) {
-        setActiveTab(existingTab.id);
+        if (popOut) openPanelWindow("chat", "duet", { chatId: existingTab.id });
+        else setActiveTab(existingTab.id);
         return;
       }
 
@@ -227,13 +247,17 @@ export function SessionListPanel({
                 selectedCodexModel !== sessionCodexModel;
 
         if (providerMismatch || modelMismatch) {
-          const tabId = await resumeSessionInNewTab(session.shared_session_id, {
-            sessionProvider,
-            sessionClaudeModel,
-            sessionCodexModel,
-            sessionPiModel,
-            useSessionLlm: false,
-          });
+          const tabId = await resumeSessionInNewTab(
+            session.shared_session_id,
+            {
+              sessionProvider,
+              sessionClaudeModel,
+              sessionCodexModel,
+              sessionPiModel,
+              useSessionLlm: false,
+            },
+            popOut,
+          );
           if (tabId) {
             setPendingResumeChoice(tabId, {
               sharedSessionId: session.shared_session_id,
@@ -242,17 +266,27 @@ export function SessionListPanel({
               sessionCodexModel,
               sessionPiModel,
             });
+            if (popOut) openPanelWindow("chat", "duet", { chatId: tabId });
           }
           return;
         }
 
-        await resumeSessionInNewTab(session.shared_session_id, {
-          sessionProvider,
-          sessionClaudeModel,
-          sessionCodexModel,
-          sessionPiModel,
-          useSessionLlm: false,
-        });
+        const tabId = await resumeSessionInNewTab(
+          session.shared_session_id,
+          {
+            sessionProvider,
+            sessionClaudeModel,
+            sessionCodexModel,
+            sessionPiModel,
+            useSessionLlm: false,
+          },
+          popOut,
+        );
+        if (popOut && tabId) openPanelWindow("chat", "duet", { chatId: tabId });
+      } catch (error) {
+        toast.error(
+          `Could not open chat: ${error instanceof Error ? error.message : String(error)}`,
+        );
       } finally {
         setIsResolvingSession(false);
       }
@@ -415,147 +449,169 @@ export function SessionListPanel({
                     archiveChoice?.sharedSessionId ===
                       session.shared_session_id && archiveChoice.nextArchived;
                   return (
-                    <div
-                      key={session.shared_session_id}
-                      className={cn(
-                        "group relative overflow-hidden rounded-lg transition-colors",
-                        isCurrentSession
-                          ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                          : "bg-transparent text-muted-foreground hover:bg-sidebar-accent/50 hover:text-foreground",
-                      )}
-                    >
-                      <button
-                        type="button"
-                        className="flex w-full min-w-0 items-center gap-2 py-2 pr-10 pl-2 text-left transition-transform duration-200"
-                        style={{
-                          transform: isArchiveConfirmOpen
-                            ? `translateX(-${SESSION_CONFIRM_SHIFT}px)`
-                            : undefined,
-                        }}
-                        onClick={() => void handleSelectSession(session)}
-                        disabled={isResolvingSession}
-                      >
-                        {status ? (
-                          <SessionStatusIndicator
-                            status={status}
-                            workingClassName={providerBubbleColor(
-                              liveTab?.provider ?? provider,
-                            )}
-                          />
-                        ) : (
-                          <MessagesSquareIcon
-                            className={cn(
-                              "size-3.5 shrink-0",
-                              providerBubbleColor(provider),
-                            )}
-                            aria-hidden="true"
-                          />
-                        )}
-                        <span
-                          className={cn(
-                            "min-w-0 flex-1 truncate text-sm",
-                            isCurrentSession
-                              ? "text-sidebar-accent-foreground"
-                              : "text-foreground",
-                          )}
-                        >
-                          {session.title}
-                        </span>
-                        <span className="shrink-0 text-muted-foreground text-xs">
-                          {formatRelativeTime(session.last_modified)}
-                        </span>
-                      </button>
-                      <Hint content="Archive chat">
-                        <button
-                          type="button"
-                          className="absolute top-1/2 right-2 z-10 flex size-6 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground transition-opacity duration-150 hover:bg-muted hover:text-foreground data-[hidden=true]:pointer-events-none data-[hidden=true]:opacity-0"
-                          data-hidden={isArchiveConfirmOpen}
-                          onMouseDown={(e) => e.stopPropagation()}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setArchiveChoice({
-                              sharedSessionId: session.shared_session_id,
-                              nextArchived: true,
-                            });
-                          }}
-                          aria-label="Archive chat"
-                        >
-                          <ArchiveIcon className="size-3.5" />
-                        </button>
-                      </Hint>
-                      <div
-                        className={cn(
-                          "absolute inset-y-0 right-0 z-10 w-[132px] overflow-hidden",
-                          isArchiveConfirmOpen
-                            ? "pointer-events-auto"
-                            : "pointer-events-none",
-                        )}
-                        style={{
-                          transform: isArchiveConfirmOpen
-                            ? "translateX(0)"
-                            : `translateX(${SESSION_CONFIRM_SHIFT}px)`,
-                          transition: "transform 200ms",
-                        }}
+                    <ContextMenu key={session.shared_session_id}>
+                      <ContextMenuTrigger
+                        asChild
+                        disabled={
+                          !(
+                            window.catalex ||
+                            (import.meta.env.DEV && browserHarness())
+                          )
+                        }
                       >
                         <div
                           className={cn(
-                            "absolute inset-y-0 right-0 flex w-[132px] items-center justify-end gap-2.5 px-2",
-                            isArchiveConfirmOpen
-                              ? "border-l bg-muted/30"
-                              : "border-l-0 bg-transparent",
+                            "group relative overflow-hidden rounded-lg transition-colors",
+                            isCurrentSession
+                              ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                              : "bg-transparent text-muted-foreground hover:bg-sidebar-accent/50 hover:text-foreground",
                           )}
                         >
-                          <span
-                            className={cn(
-                              "font-medium text-muted-foreground text-xs transition-opacity duration-150",
-                              isArchiveConfirmOpen
-                                ? "opacity-100"
-                                : "opacity-0",
-                            )}
+                          <button
+                            type="button"
+                            className="flex w-full min-w-0 items-center gap-2 py-2 pr-10 pl-2 text-left transition-transform duration-200"
+                            style={{
+                              transform: isArchiveConfirmOpen
+                                ? `translateX(-${SESSION_CONFIRM_SHIFT}px)`
+                                : undefined,
+                            }}
+                            onClick={() => void handleSelectSession(session)}
+                            disabled={isResolvingSession}
                           >
-                            Archive?
-                          </span>
+                            {status ? (
+                              <SessionStatusIndicator
+                                status={status}
+                                workingClassName={providerBubbleColor(
+                                  liveTab?.provider ?? provider,
+                                )}
+                              />
+                            ) : (
+                              <MessagesSquareIcon
+                                className={cn(
+                                  "size-3.5 shrink-0",
+                                  providerBubbleColor(provider),
+                                )}
+                                aria-hidden="true"
+                              />
+                            )}
+                            <span
+                              className={cn(
+                                "min-w-0 flex-1 truncate text-sm",
+                                isCurrentSession
+                                  ? "text-sidebar-accent-foreground"
+                                  : "text-foreground",
+                              )}
+                            >
+                              {session.title}
+                            </span>
+                            <span className="shrink-0 text-muted-foreground text-xs">
+                              {formatRelativeTime(session.last_modified)}
+                            </span>
+                          </button>
+                          <Hint content="Archive chat">
+                            <button
+                              type="button"
+                              className="absolute top-1/2 right-2 z-10 flex size-6 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground transition-opacity duration-150 hover:bg-muted hover:text-foreground data-[hidden=true]:pointer-events-none data-[hidden=true]:opacity-0"
+                              data-hidden={isArchiveConfirmOpen}
+                              onMouseDown={(e) => e.stopPropagation()}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setArchiveChoice({
+                                  sharedSessionId: session.shared_session_id,
+                                  nextArchived: true,
+                                });
+                              }}
+                              aria-label="Archive chat"
+                            >
+                              <ArchiveIcon className="size-3.5" />
+                            </button>
+                          </Hint>
                           <div
                             className={cn(
-                              "flex items-center gap-1 transition-opacity duration-150",
+                              "absolute inset-y-0 right-0 z-10 w-[132px] overflow-hidden",
                               isArchiveConfirmOpen
-                                ? "opacity-100"
-                                : "opacity-0",
+                                ? "pointer-events-auto"
+                                : "pointer-events-none",
                             )}
+                            style={{
+                              transform: isArchiveConfirmOpen
+                                ? "translateX(0)"
+                                : `translateX(${SESSION_CONFIRM_SHIFT}px)`,
+                              transition: "transform 200ms",
+                            }}
                           >
-                            <Hint content="Confirm archive">
-                              <Button
-                                size="sm"
-                                className="h-6 w-6 p-0"
-                                aria-label="Confirm archive"
-                                onMouseDown={(e) => e.stopPropagation()}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  void confirmArchiveToggle();
-                                }}
+                            <div
+                              className={cn(
+                                "absolute inset-y-0 right-0 flex w-[132px] items-center justify-end gap-2.5 px-2",
+                                isArchiveConfirmOpen
+                                  ? "border-l bg-muted/30"
+                                  : "border-l-0 bg-transparent",
+                              )}
+                            >
+                              <span
+                                className={cn(
+                                  "font-medium text-muted-foreground text-xs transition-opacity duration-150",
+                                  isArchiveConfirmOpen
+                                    ? "opacity-100"
+                                    : "opacity-0",
+                                )}
                               >
-                                <CheckIcon className="size-3.5 text-white dark:text-black" />
-                              </Button>
-                            </Hint>
-                            <Hint content="Cancel archive">
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="h-6 w-6 p-0"
-                                aria-label="Cancel archive"
-                                onMouseDown={(e) => e.stopPropagation()}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setArchiveChoice(null);
-                                }}
+                                Archive?
+                              </span>
+                              <div
+                                className={cn(
+                                  "flex items-center gap-1 transition-opacity duration-150",
+                                  isArchiveConfirmOpen
+                                    ? "opacity-100"
+                                    : "opacity-0",
+                                )}
                               >
-                                <XIcon className="size-3.5" />
-                              </Button>
-                            </Hint>
+                                <Hint content="Confirm archive">
+                                  <Button
+                                    size="sm"
+                                    className="h-6 w-6 p-0"
+                                    aria-label="Confirm archive"
+                                    onMouseDown={(e) => e.stopPropagation()}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      void confirmArchiveToggle();
+                                    }}
+                                  >
+                                    <CheckIcon className="size-3.5 text-white dark:text-black" />
+                                  </Button>
+                                </Hint>
+                                <Hint content="Cancel archive">
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="h-6 w-6 p-0"
+                                    aria-label="Cancel archive"
+                                    onMouseDown={(e) => e.stopPropagation()}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setArchiveChoice(null);
+                                    }}
+                                  >
+                                    <XIcon className="size-3.5" />
+                                  </Button>
+                                </Hint>
+                              </div>
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    </div>
+                      </ContextMenuTrigger>
+                      <ContextMenuContent aria-label="Chat session actions">
+                        <ContextMenuItem
+                          disabled={isResolvingSession}
+                          onSelect={() =>
+                            void handleSelectSession(session, true)
+                          }
+                        >
+                          <AppWindowIcon className="mr-2 size-4" />
+                          Open in pop-out
+                        </ContextMenuItem>
+                      </ContextMenuContent>
+                    </ContextMenu>
                   );
                 })}
 
