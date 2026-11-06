@@ -1,4 +1,4 @@
-import { create } from "zustand";
+import { createPanelStore } from "@/lib/panel-window-runtime";
 import { useAgentChatStore } from "./agent-chat-store";
 import { useDocumentStore } from "./document-store";
 
@@ -30,6 +30,7 @@ function isActive(question: AgentQuestion): boolean {
   );
 }
 
+const create = createPanelStore("questions");
 export const useAgentQuestionStore = create<{
   questions: AgentQuestion[];
   receive: (question: AgentQuestion) => void;

@@ -1,3 +1,4 @@
+import { browserHarness } from "@/lib/desktop/bridge";
 import { ARTISAN_MODE_REQUEST_EVENT } from "@/lib/workspace-events";
 import { AgentFileReview } from "./editor/agent-file-review";
 import {
@@ -52,9 +53,6 @@ import {
   type ImperativePanelGroupHandle,
 } from "react-resizable-panels";
 import {
-  Maximize2Icon,
-  Minimize2Icon,
-  BotIcon,
   CodeXmlIcon,
   FileCodeIcon,
   FileIcon,
@@ -68,7 +66,7 @@ import {
 } from "lucide-react";
 import { Sidebar } from "./sidebar";
 import { LatexEditor } from "./editor/latex-editor";
-import { PdfPreview } from "./preview/pdf-preview";
+import { PdfPreview, type PdfLayoutTarget } from "./preview/pdf-preview";
 import { MarkdownPreview } from "./preview/markdown-preview";
 import { CsvTable } from "./preview/csv-table";
 import { ExternalAppSelector } from "./external-app-selector";
@@ -86,9 +84,13 @@ import {
 } from "@/components/ui/select";
 import { APP_VISIBILITY_RESTORED } from "@/lib/debug/log-store";
 import { isMarkdownFile, isMarkdownPath } from "@/lib/markdown";
+import { openPanelWindow } from "@/lib/panel-windows";
 import { shouldMuteLatexScrollSync } from "@/lib/latex-project";
 import { cn } from "@/lib/utils";
-import { useAgentChatStore } from "@/stores/agent-chat-store";
+import {
+  useAgentChatStore,
+  lastCommunicationProvider,
+} from "@/stores/agent-chat-store";
 import { useDocumentStore } from "@/stores/document-store";
 import { useProposedChangesStore } from "@/stores/proposed-changes-store";
 import type {
@@ -425,10 +427,9 @@ function ProjectWorkspaceLayout() {
     const activeTab = s.tabs.find((tab) => tab.id === s.activeTabId);
     return activeTab?.title ?? "New Chat";
   });
-  const activeChatProvider = useAgentChatStore((s) => {
-    const activeTab = s.tabs.find((tab) => tab.id === s.activeTabId);
-    return activeTab?.provider ?? "claude";
-  });
+  const lastChatProvider = useAgentChatStore((s) =>
+    lastCommunicationProvider(s.tabs.find((tab) => tab.id === s.activeTabId)),
+  );
   const [viewMode, setViewMode] = useState<WorkspaceViewMode>("split");
   // Preserve drawer size while its workspace presentation is active.
   const [chatDrawerOpen, setChatDrawerOpen] = useState(false);
@@ -604,12 +605,8 @@ function ProjectWorkspaceLayout() {
     from: DrawerHostAnchor;
     progress: number;
   } | null>(null);
-  const [pdfLayoutTarget, setPdfLayoutTarget] = useState<{
-    from: number;
-    to: number;
-    width: number;
-    currentWidth: number;
-  }>();
+  const [pdfLayoutTargets, setPdfLayoutTargets] =
+    useState<Record<"editor" | "pdf", PdfLayoutTarget>>();
   const handlePanelAnimationStart = useCallback(
     (from: number[], to: number[]) => {
       const group = pdfPanelRef.current?.closest("[data-panel-group]");
@@ -618,14 +615,23 @@ function ProjectWorkspaceLayout() {
         (sum, panel) => sum + panel.getBoundingClientRect().width,
         0,
       );
-      setPdfLayoutTarget({
-        currentWidth: pdfPanelRef.current?.clientWidth ?? 0,
-        from: from[getColumnIndex("pdf")],
-        to: to[getColumnIndex("pdf")],
+      // Standalone PDFs live in the editor column; both viewers consume the
+      // same frame policy, using the dimensions of their own column.
+      const target = (
+        column: "editor" | "pdf",
+        element: HTMLElement | null,
+      ) => ({
+        currentWidth: element?.clientWidth ?? 0,
+        from: from[getColumnIndex(column)],
+        to: to[getColumnIndex(column)],
         width: Math.max(
           0,
-          (availableWidth * to[getColumnIndex("pdf")]) / 100 - 2,
+          (availableWidth * to[getColumnIndex(column)]) / 100 - 2,
         ),
+      });
+      setPdfLayoutTargets({
+        editor: target("editor", editorPanelRef.current),
+        pdf: target("pdf", pdfPanelRef.current),
       });
       // A replacement conflict can mount into an already-open Incoming column.
       if (to[getColumnIndex("incoming")] > 0.5 && incomingPanelRef.current) {
@@ -649,19 +655,18 @@ function ProjectWorkspaceLayout() {
         (sum, panel) => sum + panel.getBoundingClientRect().width,
         0,
       );
-      const currentWidth = Math.max(
-        0,
-        (availableWidth * layout[getColumnIndex("pdf")]) / 100 - 2,
-      );
-      setPdfLayoutTarget((current) =>
-        current
-          ? {
-              ...current,
-              currentWidth,
-              width: Math.max(0, (availableWidth * current.to) / 100 - 2),
-            }
-          : current,
-      );
+      setPdfLayoutTargets((current) => {
+        if (!current) return current;
+        const frame = (column: "editor" | "pdf") => ({
+          ...current[column],
+          currentWidth: Math.max(
+            0,
+            (availableWidth * layout[getColumnIndex(column)]) / 100 - 2,
+          ),
+          width: Math.max(0, (availableWidth * current[column].to) / 100 - 2),
+        });
+        return { editor: frame("editor"), pdf: frame("pdf") };
+      });
     },
     [],
   );
@@ -738,12 +743,35 @@ function ProjectWorkspaceLayout() {
     isPreviewableFile && activeFileId
       ? (workspaceChatRenderableFileModes[activeFileId] ?? "pdf")
       : "editor";
-  const [workspaceChatExpanded, setWorkspaceChatExpanded] = useState(false);
-  const isWorkspaceChatExpanded =
-    isWorkspaceChat && workspaceChatExpanded && !hasWholeFileComparison;
+  const [expandedPanel, setExpandedPanel] = useState<WorkspaceColumnId | null>(
+    null,
+  );
   useEffect(() => {
-    setWorkspaceChatExpanded(false);
-  }, [workspacePreferences, projectRoot]);
+    setExpandedPanel(null);
+  }, [workspacePreferences, projectRoot, hasWholeFileComparison]);
+  const panelExpansion = (column: WorkspaceColumnId, label: string) => ({
+    label,
+    expanded: expandedPanel === column,
+    onExpandedChange: (expanded: boolean) =>
+      setExpandedPanel(expanded ? column : null),
+    disabled: modeTransitionPhase !== "idle" || isColumnLayoutAnimating,
+    onPopOut:
+      (window.catalex || (import.meta.env.DEV && browserHarness())) &&
+      column !== "incoming" &&
+      !hasWholeFileComparison
+        ? () => {
+            openPanelWindow(
+              column === "pdf"
+                ? "preview"
+                : column === "chat"
+                  ? "chat"
+                  : "editor",
+              workspaceMode,
+            );
+            setExpandedPanel(null);
+          }
+        : undefined,
+  });
   const effectiveViewMode: WorkspaceViewMode = isWorkspaceChat
     ? isPreviewableFile
       ? workspaceChatRightPanelMode
@@ -819,6 +847,10 @@ function ProjectWorkspaceLayout() {
   const isPdfVisible = openColumns.includes("pdf");
   const isPreviewOnly = isPdfVisible && !isEditorVisible;
   const isIncomingVisible = openColumns.includes("incoming");
+  useEffect(() => {
+    if (expandedPanel && !openColumns.includes(expandedPanel))
+      setExpandedPanel(null);
+  }, [expandedPanel, openColumns]);
   const chatPanelMinSize =
     !isColumnLayoutAnimating && visibleColumnCount === 2 && isChatVisible
       ? OPEN_COLUMN_MIN_PERCENT
@@ -895,13 +927,8 @@ function ProjectWorkspaceLayout() {
   const resolveDirectOpenColumns = useCallback((): WorkspaceColumnId[] => {
     if (hasWholeFileComparison) return ["editor", "incoming"];
     const content = isPreviewableFile ? workspaceChatRightPanelMode : "editor";
-    return workspaceChatExpanded ? [content] : ["chat", content];
-  }, [
-    hasWholeFileComparison,
-    workspaceChatRightPanelMode,
-    isPreviewableFile,
-    workspaceChatExpanded,
-  ]);
+    return ["chat", content];
+  }, [hasWholeFileComparison, workspaceChatRightPanelMode, isPreviewableFile]);
 
   const getWorkspaceChatDrawerAnchor =
     useCallback((): DrawerHostAnchor | null => {
@@ -1129,7 +1156,13 @@ function ProjectWorkspaceLayout() {
   }, [isPreviewableFile, viewMode]);
 
   const updateDrawerAnchor = useCallback(() => {
-    if (drawerAnchorLockRef.current) return;
+    // The drawer belongs to the normal workspace slot, not the floating panel.
+    // Keep that geometry through expansion and restoration so its fade is stable.
+    if (
+      drawerAnchorLockRef.current ||
+      document.querySelector("[data-expanded-workspace-panel]")
+    )
+      return;
     const next = getDrawerAnchorSnapshot();
     if (!next) return;
 
@@ -2532,6 +2565,10 @@ function ProjectWorkspaceLayout() {
           <div className="flex h-full min-h-0 flex-col">
             <div
               ref={headerRowRef}
+              data-workspace-titlebar=""
+              // Chat workspace hides the file-tab toolbar that normally supplies
+              // the drag region. Its replacement row needs the same native behavior.
+              data-window-drag-region={isWorkspaceChat ? "" : undefined}
               className={cn(
                 "relative flex h-10 shrink-0 items-center gap-2 overflow-hidden",
                 isSidebarCollapsed && !isWorkspaceChat && "pl-2",
@@ -2583,41 +2620,48 @@ function ProjectWorkspaceLayout() {
                 data-workspace-header="true"
                 className="grid h-full min-w-0 flex-1 items-center overflow-hidden"
                 style={{
-                  gridTemplateColumns:
-                    isWorkspaceChat && !isWorkspaceChatExpanded
-                      ? `${workspaceChatHeaderLayout[0]}fr ${workspaceChatHeaderLayout[1]}fr`
-                      : "0fr 1fr",
-                  columnGap:
-                    isWorkspaceChat && !isWorkspaceChatExpanded ? 8 : 0,
+                  gridTemplateColumns: isWorkspaceChat
+                    ? `${workspaceChatHeaderLayout[0]}fr ${workspaceChatHeaderLayout[1]}fr`
+                    : "0fr 1fr",
+                  columnGap: isWorkspaceChat ? 8 : 0,
                 }}
               >
                 <div
                   className="flex h-full min-w-0 items-center overflow-hidden"
-                  inert={!isWorkspaceChat || isWorkspaceChatExpanded}
+                  inert={!isWorkspaceChat}
                   style={{
                     paddingLeft:
                       isWorkspaceChat &&
-                      !isWorkspaceChatExpanded &&
                       isSidebarCollapsed &&
                       collapsedHeaderControlsWidth > 0
                         ? Math.round(collapsedHeaderControlsWidth + 8)
                         : 0,
                   }}
                 >
-                  <MessagesSquareIcon
-                    className={cn(
-                      "mr-2 size-3.5 shrink-0",
-                      activeChatProvider === "codex"
-                        ? "text-blue-500"
-                        : "text-amber-500",
-                    )}
-                    aria-hidden="true"
-                  />
-                  <Hint content={activeChatTitle}>
-                    <div className="truncate font-semibold text-foreground text-sm">
-                      {formatWorkspaceChatTitle(activeChatTitle)}
-                    </div>
-                  </Hint>
+                  {isWorkspaceChat && (
+                    <span
+                      data-workspace-chat-title=""
+                      className="flex min-w-0 items-center gap-2 px-2 font-medium text-sm"
+                      title={activeChatTitle}
+                    >
+                      <MessagesSquareIcon
+                        aria-hidden="true"
+                        className={cn(
+                          "size-3.5 shrink-0",
+                          lastChatProvider === "codex"
+                            ? "text-blue-500"
+                            : lastChatProvider === "claude"
+                              ? "text-amber-500"
+                              : lastChatProvider === "pi"
+                                ? "text-emerald-500"
+                                : "text-muted-foreground",
+                        )}
+                      />
+                      <span className="truncate">
+                        {formatWorkspaceChatTitle(activeChatTitle)}
+                      </span>
+                    </span>
+                  )}
                 </div>
                 <div
                   data-git-actions-compact-root
@@ -2625,14 +2669,6 @@ function ProjectWorkspaceLayout() {
                     isWorkspaceChat ? "760" : "620"
                   }
                   className="flex h-full min-w-0 items-center gap-2"
-                  style={{
-                    paddingLeft:
-                      isWorkspaceChat &&
-                      isWorkspaceChatExpanded &&
-                      isSidebarCollapsed
-                        ? collapsedHeaderControlsWidth + 8
-                        : undefined,
-                  }}
                 >
                   {pendingReviewFiles.length > 0 &&
                     (isReviewNavigation ? (
@@ -2719,103 +2755,60 @@ function ProjectWorkspaceLayout() {
                       data-comment-layout-control
                       className="flex h-8 shrink-0 items-center p-0"
                     >
-                      <Hint
-                        content={
-                          isWorkspaceChatExpanded
-                            ? "Restore split layout"
-                            : "Expand content panel"
-                        }
-                      >
-                        <button
-                          type="button"
-                          aria-label={
-                            isWorkspaceChatExpanded
-                              ? "Restore split layout"
-                              : "Expand content panel"
-                          }
-                          aria-pressed={isWorkspaceChatExpanded}
-                          disabled={
-                            hasWholeFileComparison ||
-                            modeTransitionPhase !== "idle"
-                          }
-                          className={cn(
-                            "flex h-8 w-7 shrink-0 items-center justify-center rounded-l-lg outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset disabled:opacity-50",
-                            !isPreviewableFile && "rounded-r-lg",
-                            isWorkspaceChatExpanded
-                              ? "bg-black text-white dark:bg-white dark:text-black"
-                              : "text-muted-foreground hover:bg-muted hover:text-foreground",
-                          )}
-                          onClick={() =>
-                            setWorkspaceChatExpanded((value) => !value)
-                          }
-                        >
-                          {isWorkspaceChatExpanded ? (
-                            <Minimize2Icon className="size-3 translate-x-px" />
-                          ) : (
-                            <Maximize2Icon className="size-3 translate-x-px" />
-                          )}
-                        </button>
-                      </Hint>
                       {isPreviewableFile ? (
-                        <>
-                          <span
-                            aria-hidden="true"
-                            className="button-group-separator"
-                          />
-                          <div
-                            role="tablist"
-                            aria-label="Chat workspace content"
-                            className="flex items-center p-1"
-                          >
-                            {(["editor", "pdf"] as const).map((option) => (
-                              <Hint
-                                content={
+                        <div
+                          role="tablist"
+                          aria-label="Chat workspace content"
+                          className="flex items-center p-1"
+                        >
+                          {(["editor", "pdf"] as const).map((option) => (
+                            <Hint
+                              content={
+                                option === "editor"
+                                  ? editorPanelLabel
+                                  : previewPanelLabel
+                              }
+                              key={option}
+                            >
+                              <button
+                                type="button"
+                                role="tab"
+                                aria-selected={
+                                  workspaceChatRightPanelMode === option
+                                }
+                                aria-label={
                                   option === "editor"
                                     ? editorPanelLabel
                                     : previewPanelLabel
                                 }
-                                key={option}
+                                className={cn(
+                                  "flex h-6 w-7 items-center justify-center rounded-md transition-colors",
+                                  workspaceChatRightPanelMode === option
+                                    ? "bg-background text-foreground shadow-sm"
+                                    : "text-muted-foreground hover:bg-background/70 hover:text-foreground",
+                                )}
+                                onClick={() =>
+                                  updateWorkspaceContentMode(option)
+                                }
                               >
-                                <button
-                                  type="button"
-                                  role="tab"
-                                  aria-selected={
-                                    workspaceChatRightPanelMode === option
-                                  }
-                                  aria-label={
-                                    option === "editor"
-                                      ? editorPanelLabel
-                                      : previewPanelLabel
-                                  }
-                                  className={cn(
-                                    "flex h-6 w-7 items-center justify-center rounded-md transition-colors",
-                                    workspaceChatRightPanelMode === option
-                                      ? "bg-background text-foreground shadow-sm"
-                                      : "text-muted-foreground hover:bg-background/70 hover:text-foreground",
-                                  )}
-                                  onClick={() =>
-                                    updateWorkspaceContentMode(option)
-                                  }
-                                >
-                                  {option === "editor" ? (
-                                    <CodeXmlIcon className="size-4" />
-                                  ) : isCsvDocument ? (
-                                    <FileSpreadsheetIcon className="size-4" />
-                                  ) : isMarkdownDocument ? (
-                                    <FileTextIcon className="size-4" />
-                                  ) : (
-                                    <PdfFileIcon className="size-4" />
-                                  )}
-                                  <span className="sr-only">
-                                    {option === "editor"
-                                      ? editorPanelLabel
-                                      : previewPanelLabel}
-                                  </span>
-                                </button>
-                              </Hint>
-                            ))}
-                          </div>
-                        </>
+                                {option === "editor" ? (
+                                  <CodeXmlIcon className="size-4" />
+                                ) : isCsvDocument ? (
+                                  <FileSpreadsheetIcon className="size-4" />
+                                ) : isMarkdownDocument ? (
+                                  <FileTextIcon className="size-4" />
+                                ) : (
+                                  <PdfFileIcon className="size-4" />
+                                )}
+                                <span className="sr-only">
+                                  {option === "editor"
+                                    ? editorPanelLabel
+                                    : previewPanelLabel}
+                                </span>
+                              </button>
+                            </Hint>
+                          ))}
+                        </div>
                       ) : null}
                     </ButtonGroup>
                   ) : (
@@ -2944,12 +2937,12 @@ function ProjectWorkspaceLayout() {
                                 )}
                               >
                                 <ChatWorkspacePane
+                                  expansion={panelExpansion("chat", "Chat")}
                                   displayControl={
                                     isWorkspaceChat
                                       ? chatDisplayControl
                                       : undefined
                                   }
-                                  showTabBar={false}
                                   composerTransferPhase={
                                     panelComposerTransferPhase
                                   }
@@ -2982,6 +2975,12 @@ function ProjectWorkspaceLayout() {
                                 className="h-full min-h-0"
                               >
                                 <LatexEditor
+                                  layoutAnimating={isColumnLayoutAnimating}
+                                  layoutTarget={pdfLayoutTargets?.editor}
+                                  expansion={panelExpansion(
+                                    "editor",
+                                    editorPanelLabel,
+                                  )}
                                   reviewToolbarTarget={
                                     !isEditorVisible ? previewReviewHost : null
                                   }
@@ -3179,6 +3178,10 @@ function ProjectWorkspaceLayout() {
                             >
                               <WorkspacePanel
                                 ref={incomingPanelRef}
+                                expansion={panelExpansion(
+                                  "incoming",
+                                  "Incoming",
+                                )}
                                 data-workspace-column="incoming"
                                 data-workspace-panel-screen="true"
                                 className="h-full"
@@ -3201,6 +3204,10 @@ function ProjectWorkspaceLayout() {
                             >
                               <WorkspacePanel
                                 ref={pdfPanelRef}
+                                expansion={panelExpansion(
+                                  "pdf",
+                                  previewPanelLabel,
+                                )}
                                 data-workspace-column="preview"
                                 data-workspace-panel-screen="true"
                                 className="h-full"
@@ -3215,7 +3222,10 @@ function ProjectWorkspaceLayout() {
                                       <CsvTable />
                                     ) : isMarkdownDocument ? (
                                       <MarkdownPreview
-                                        editorVisible={isEditorVisible}
+                                        editorVisible={
+                                          isEditorVisible &&
+                                          expandedPanel !== "pdf"
+                                        }
                                         layoutAnimating={
                                           isColumnLayoutAnimating
                                         }
@@ -3266,7 +3276,7 @@ function ProjectWorkspaceLayout() {
                                       />
                                     ) : (
                                       <PdfPreview
-                                        layoutTarget={pdfLayoutTarget}
+                                        layoutTarget={pdfLayoutTargets?.pdf}
                                         aiEnabled={workspaceMode !== "artisan"}
                                         onRevealSource={() => {
                                           if (isWorkspaceChat)
@@ -3275,7 +3285,10 @@ function ProjectWorkspaceLayout() {
                                             );
                                           else setViewMode("split");
                                         }}
-                                        editorVisible={isEditorVisible}
+                                        editorVisible={
+                                          isEditorVisible &&
+                                          expandedPanel !== "pdf"
+                                        }
                                         layoutAnimating={
                                           isColumnLayoutAnimating
                                         }

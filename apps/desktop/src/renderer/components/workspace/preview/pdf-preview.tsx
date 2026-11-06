@@ -1,8 +1,15 @@
+import {
+  pdfFileCommentTargets,
+  validPdfCommentRegions,
+  emptyPdfCommentLookup,
+} from "./pdf-file-comments";
+import { PROJECT_COMMENTS_REFRESH_EVENT } from "@/lib/workspace-events";
 import { exportPdfSource, type PdfSource } from "@/lib/mupdf/pdf-source";
+import { pdfSelectionKey } from "@/lib/chat-context";
 import { CoalescedScrollTask } from "@/lib/coalesced-scroll-task";
 import { createSourceLineIndex } from "@/lib/source-line-index";
 import { createCompiledPdfMap } from "./pdf-source-map";
-import { clampPdfScale } from "./pdf-zoom";
+import { clampPdfScale, MIN_PDF_SCALE, MAX_PDF_SCALE } from "./pdf-zoom";
 import {
   captureCompileContext,
   captureAutomaticCompileContext,
@@ -11,12 +18,15 @@ import {
   compileWorkspace,
 } from "@/lib/workspace-compile";
 import { isComposingKey } from "@/lib/keyboard-events";
-import { PdfZoomControl } from "./pdf-zoom-control";
+import { DocumentZoomControl } from "../document-zoom-control";
 import { setCommentDraft } from "../editor/comment-draft-history";
 import { attachCommentToChat } from "@/lib/comment-chat-context";
-import { registerSelectionContextActions } from "@/lib/context-menu";
+import { isReferencePanelWindow } from "@/lib/panel-window-runtime";
 import { Hint } from "@/components/ui/tooltip";
-import { WorkspacePanelHeader } from "../workspace-panel";
+import {
+  WorkspacePanelHeader,
+  useWorkspacePanelMotion,
+} from "../workspace-panel";
 import { CommentsPanel, CommentsSummaryButton } from "../editor/comments-panel";
 import { ProblemsMotion } from "../editor/problems-motion";
 import { pickPdfCommentRange } from "./pdf-comment-selection";
@@ -37,7 +47,6 @@ import {
   FileTextIcon,
   CheckIcon,
   MessageSquareTextIcon,
-  SpellCheckIcon,
   AlertCircleIcon,
   LoaderIcon,
   RefreshCwIcon,
@@ -109,12 +118,15 @@ import {
 } from "./pdf-comments";
 import { PDF_COMMENT_NAVIGATE_EVENT } from "@/lib/workspace-events";
 
-function pdfSelectionFallbackLabel(selection: PdfTextSelection) {
+function pdfSelectionFallbackLabel(
+  selection: PdfTextSelection,
+  documentPath: string,
+) {
   const text = selection.text.replace(/\s+/g, " ").trim();
   const characters = Array.from(text);
   const excerpt =
     characters.length > 32 ? `${characters.slice(0, 32).join("")}…` : text;
-  return `PDF p.${selection.pageNumber} · “${excerpt}”`;
+  return `PDF p.${selection.pageNumber} · @${documentPath} · “${excerpt}”`;
 }
 
 type FitMode = "fit-width" | "fit-height" | null;
@@ -137,10 +149,17 @@ export function clearZoomCache(): void {
   zoomCache.clear();
 }
 
+export interface PdfLayoutTarget {
+  from: number;
+  to: number;
+  width: number;
+  currentWidth: number;
+}
+
 export function PdfPreview({
   aiEnabled: requestedAiEnabled = false,
   editorVisible = false,
-  layoutAnimating = false,
+  layoutAnimating: columnLayoutAnimating = false,
   layoutTarget,
   standalonePdfData = null,
   standaloneRootFileId,
@@ -159,12 +178,7 @@ export function PdfPreview({
   onRevealSource?: () => void;
   editorVisible?: boolean;
   layoutAnimating?: boolean;
-  layoutTarget?: {
-    from: number;
-    to: number;
-    width: number;
-    currentWidth: number;
-  };
+  layoutTarget?: PdfLayoutTarget;
   standalonePdfData?: PdfSource | null;
   standaloneRootFileId?: string;
   /** Historical bytes only; never navigate or write to the current workspace. */
@@ -181,7 +195,10 @@ export function PdfPreview({
   scrollSyncSourceTarget?: { id: number; position: number } | null;
   onScrollSyncToEditor?: (position: number) => void;
 }) {
-  const aiEnabled = requestedAiEnabled && !isolatedSnapshot;
+  const panelMotion = useWorkspacePanelMotion();
+  const layoutAnimating = columnLayoutAnimating || !!panelMotion?.animating;
+  const aiEnabled =
+    requestedAiEnabled && !isolatedSnapshot && !isReferencePanelWindow();
   const scrollSyncEnabled = requestedScrollSyncEnabled && !isolatedSnapshot;
   const scrollSyncSourceTarget = isolatedSnapshot
     ? null
@@ -192,6 +209,7 @@ export function PdfPreview({
   const globalCompilerBackend = useSettingsStore((s) => s.compilerBackend);
   const globalCompilerEngine = useSettingsStore((s) => s.compilerEngine);
   const pdfRevision = useDocumentStore((s) => s.pdfRevision);
+  const pdfSelectionContext = useDocumentStore((s) => s.pdfSelectionContext);
   const compileError = useDocumentStore((s) => s.compileError);
   const isCompiling = useDocumentStore((s) => s.isCompiling);
   const isStoppingCompilation = useDocumentStore(
@@ -221,6 +239,7 @@ export function PdfPreview({
   const [pageInputValue, setPageInputValue] = useState<string>("1");
   const [isEditingPage, setIsEditingPage] = useState(false);
   const pageInputRef = useRef<HTMLInputElement>(null);
+  const cancelledPageInputRef = useRef(false);
   useLayoutEffect(() => {
     if (!isEditingPage) return;
     pageInputRef.current?.focus();
@@ -240,12 +259,17 @@ export function PdfPreview({
     ((page: number, pdfY?: number) => void) | null
   >(null);
   const [scale, setScale] = useState<number>(1.0);
-  const [toolbarCompactLevel, setToolbarCompactLevel] = useState<0 | 2 | 3>(0);
-  const hidePageStepButtons = toolbarCompactLevel >= 2;
-  const hideRecompileLabel = toolbarCompactLevel === 3;
+  const [toolbarCompactLevel, setToolbarCompactLevel] = useState(0);
+  // Shrink Recompile first, then overflow page navigation, fits, and export.
+  const hideRecompileLabel = toolbarCompactLevel >= 1;
+  const hidePageNavigation = toolbarCompactLevel >= 2;
+  const hideFitHeight = toolbarCompactLevel >= 3;
+  const hideFitWidth = toolbarCompactLevel >= 4;
+  const hideExport = toolbarCompactLevel >= 5;
+  const [actionsOpen, setActionsOpen] = useState(false);
   const [fitMode, setFitMode] = useState<FitMode>(DEFAULT_FIT_MODE);
   const fitViewportRef = useRef<HTMLDivElement | null>(null);
-  const viewportScrollbarWidth = useRef(0);
+  const viewportWidthInset = useRef(0);
   const [containerSize, setContainerSize] = useState<{
     width: number;
     height: number;
@@ -253,10 +277,18 @@ export function PdfPreview({
   const handleContainerResize = useCallback(
     (_width: number, _height: number, viewport: HTMLDivElement) => {
       fitViewportRef.current = viewport;
+      const minimapInset =
+        Number.parseFloat(
+          getComputedStyle(viewport).getPropertyValue("--pdf-minimap-inset"),
+        ) || 0;
       if (viewport.offsetWidth > 1)
-        viewportScrollbarWidth.current =
-          viewport.offsetWidth - viewport.clientWidth;
-      const width = viewport.clientWidth;
+        viewportWidthInset.current = Math.max(
+          0,
+          (viewport.parentElement?.clientWidth ?? viewport.offsetWidth) -
+            viewport.clientWidth +
+            minimapInset,
+        );
+      const width = viewport.clientWidth - minimapInset;
       const height = viewport.clientHeight;
       const update = () =>
         setContainerSize((previous) =>
@@ -268,6 +300,11 @@ export function PdfPreview({
     },
     [],
   );
+  // Read this frame's viewport before paint so PDF geometry shares the panel's clock.
+  useLayoutEffect(() => {
+    const viewport = fitViewportRef.current;
+    if (viewport && panelMotion) handleContainerResize(0, 0, viewport);
+  }, [panelMotion, handleContainerResize]);
   const [firstPageSize, setFirstPageSize] = useState<{
     width: number;
     height: number;
@@ -290,8 +327,7 @@ export function PdfPreview({
   const toolbarRowRef = useRef<HTMLDivElement>(null);
   const toolbarLeftControlsRef = useRef<HTMLDivElement>(null);
   const toolbarRightControlsRef = useRef<HTMLDivElement>(null);
-  const toolbarProbeLevel0Ref = useRef<HTMLDivElement>(null);
-  const toolbarProbeLevel2Ref = useRef<HTMLDivElement>(null);
+  const toolbarProbeRefs = useRef<(HTMLDivElement | null)[]>([]);
   const recompileButtonRef = useRef<HTMLButtonElement>(null);
   const hasInitialCompile = useRef(false);
   const autoCompileTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
@@ -304,6 +340,42 @@ export function PdfPreview({
   // Isolation remains active during loading/error states, even with no bytes.
   const isStandalonePdf = isolatedSnapshot || standalonePdfData != null;
   const effectiveCompileError = isStandalonePdf ? null : compileError;
+  const [pdfFingerprintState, setPdfFingerprintState] = useState<{
+    source: PdfSource;
+    value: string;
+  } | null>(null);
+  const pdfFingerprint =
+    standalonePdfData && !ArrayBuffer.isView(standalonePdfData)
+      ? (standalonePdfData.fingerprint ?? null)
+      : pdfFingerprintState?.source === standalonePdfData
+        ? (pdfFingerprintState?.value ?? null)
+        : null;
+  useEffect(() => {
+    if (!standalonePdfData || !ArrayBuffer.isView(standalonePdfData)) return;
+    let cancelled = false;
+    void crypto.subtle
+      .digest("SHA-1", standalonePdfData.slice().buffer as ArrayBuffer)
+      .then((hash) => {
+        if (!cancelled)
+          setPdfFingerprintState({
+            source: standalonePdfData,
+            value: Array.from(new Uint8Array(hash), (byte) =>
+              byte.toString(16).padStart(2, "0"),
+            ).join(""),
+          });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [standalonePdfData]);
+  useEffect(() => {
+    if (pdfFingerprint && projectRoot && !isolatedSnapshot)
+      window.dispatchEvent(
+        new CustomEvent(PROJECT_COMMENTS_REFRESH_EVENT, {
+          detail: { projectRoot },
+        }),
+      );
+  }, [pdfFingerprint, projectRoot, isolatedSnapshot]);
 
   useEffect(() => {
     if (isolatedSnapshot) setPdfError(null);
@@ -378,13 +450,15 @@ export function PdfPreview({
     [isolatedSnapshot, standaloneRootFileId, activeFile?.id, files],
   );
   const currentRootFile = files.find((file) => file.id === currentRootFileId);
+  const pdfDocumentPath = currentRootFile?.relativePath ?? currentRootFileId;
+  const pdfDocumentKind = isStandalonePdf ? "file" : "compiled";
   const agentWorkspaceRoot = useDocumentStore((s) => s.agentWorkspaceRoot);
   const compiledGeneration = useDocumentStore((s) =>
     s.lastCompiledGenerations.get(currentRootFileId),
   );
   const [projectComments, setProjectComments, , commentsLoaded] =
     useProjectComments(
-      isStandalonePdf || agentWorkspaceRoot ? null : projectRoot,
+      isolatedSnapshot || agentWorkspaceRoot ? null : projectRoot,
     );
   const pdfCommentsVisible = useSettingsStore(
     (s) => s.displayComments && s.showPdfComments,
@@ -410,13 +484,15 @@ export function PdfPreview({
   const saveCommentFilter = useSettingsStore((s) => s.setEditorCommentFilter);
   const activeFileComments = activeFile
     ? (projectComments[activeFile.relativePath] ?? []).filter(
-        (comment) => !comment.resolved,
+        (comment) =>
+          !comment.resolved &&
+          (!isStandalonePdf || comment.pdf?.fingerprint === pdfFingerprint),
       )
     : [];
   const showPdfCommentControls =
     pdfCommentsVisible &&
     !editorVisible &&
-    !isStandalonePdf &&
+    !isolatedSnapshot &&
     !agentWorkspaceRoot &&
     activeFileComments.length > 0;
   const selectedChatCommentsJson = useAgentChatStore((state) =>
@@ -522,8 +598,15 @@ export function PdfPreview({
     ],
   );
   const commentTargets = useMemo(
-    () => pdfCommentTargets(files, projectComments),
-    [files, projectComments],
+    () =>
+      isStandalonePdf
+        ? pdfFileCommentTargets(
+            pdfDocumentPath,
+            pdfFingerprint,
+            projectComments[pdfDocumentPath] ?? [],
+          )
+        : pdfCommentTargets(files, projectComments),
+    [files, projectComments, isStandalonePdf, pdfDocumentPath, pdfFingerprint],
   );
   const compiledMap = useMemo(
     () =>
@@ -543,10 +626,12 @@ export function PdfPreview({
   sourceLinesRef.current = sourceLines;
   const commentLookup = useMemo(
     () =>
-      projectRoot && compiledMap
-        ? createPdfCommentLookup(projectRoot, compiledMap.load)
-        : null,
-    [projectRoot, compiledMap],
+      isStandalonePdf
+        ? emptyPdfCommentLookup
+        : projectRoot && compiledMap
+          ? createPdfCommentLookup(projectRoot, compiledMap.load)
+          : null,
+    [projectRoot, compiledMap, isStandalonePdf],
   );
   useEffect(() => {
     if (
@@ -572,6 +657,14 @@ export function PdfPreview({
           target.filePath === activeFile?.relativePath,
       );
       if (!target || !commentLookup) return;
+      if (target.comment.pdf) {
+        const region = target.comment.pdf.regions[0];
+        scrollToPageRef.current?.(region.page, region.y);
+        setCenterRequestedComment(true);
+        setNewCommentId(commentId);
+        setCommentRequestRevision((revision) => revision + 1);
+        return;
+      }
       const controller = new AbortController();
       for (let page = 1; page <= numPages; page++) {
         const boxes = await commentLookup(page, controller.signal);
@@ -620,6 +713,10 @@ export function PdfPreview({
   const navigateComment = useCallback(
     (target: PdfCommentTarget) => {
       setPdfSelection(null);
+      if (isStandalonePdf) {
+        void navigateCommentInPdf(target.comment.id);
+        return;
+      }
       window.dispatchEvent(
         new CustomEvent(PDF_COMMENT_NAVIGATE_EVENT, {
           detail: {
@@ -630,15 +727,16 @@ export function PdfPreview({
         }),
       );
     },
-    [projectRoot],
+    [projectRoot, isStandalonePdf, navigateCommentInPdf],
   );
   const pdfComments = useMemo(
     () =>
       pdfCommentsVisible &&
-      !isStandalonePdf &&
+      !isolatedSnapshot &&
       !agentWorkspaceRoot &&
-      !isCompiling &&
-      compiledGeneration === contentGeneration &&
+      (isStandalonePdf
+        ? !!pdfFingerprint
+        : !isCompiling && compiledGeneration === contentGeneration) &&
       commentLookup
         ? {
             targets: commentTargets,
@@ -654,6 +752,8 @@ export function PdfPreview({
         : null,
     [
       isStandalonePdf,
+      isolatedSnapshot,
+      pdfFingerprint,
       agentWorkspaceRoot,
       isCompiling,
       compiledGeneration,
@@ -723,42 +823,59 @@ export function PdfPreview({
   const measureToolbarOverflow = useCallback(() => {
     const row = toolbarRowRef.current;
     const left = toolbarLeftControlsRef.current;
-    const probe0 = toolbarProbeLevel0Ref.current;
-    const probe2 = toolbarProbeLevel2Ref.current;
-    if (!row || !left || !probe0 || !probe2) return;
+    if (!row || !left || actionsOpen || isEditingPage) return;
 
-    // Always measure the labeled button's width, even while it is collapsed.
-    // Otherwise collapsing it would create room and immediately expand it again.
+    // Measure the full left group, even when export or the compile label is hidden.
     const compileButton = recompileButtonRef.current;
-    const leftWidth =
+    const labelWidth = compileButton
+      ? RECOMPILE_BUTTON_WIDTH - RECOMPILE_ICON_BUTTON_WIDTH
+      : 0;
+    const exportWidth = hasCurrentPdfData ? 32 : 0;
+    const fullLeftWidth =
       left.getBoundingClientRect().width +
       (compileButton
         ? RECOMPILE_BUTTON_WIDTH - compileButton.getBoundingClientRect().width
-        : 0);
+        : 0) +
+      (hideExport ? exportWidth : 0);
     const commentWidth =
       toolbarRightControlsRef.current
         ?.querySelector<HTMLElement>("[data-pdf-comments-summary]")
         ?.closest<HTMLElement>("[data-problems-motion]")
         ?.getBoundingClientRect().width ?? 0;
     const rowStyle = getComputedStyle(row);
-    const availableForRight =
+    // Reserve a 56px gesture area and the menu (24px plus its 17px separator).
+    // Keep this budget stable when the menu enters/leaves during expansion.
+    const available =
       row.clientWidth -
       Number.parseFloat(rowStyle.paddingLeft) -
       Number.parseFloat(rowStyle.paddingRight) -
-      leftWidth -
-      commentWidth;
-    const widthLevel0 = hasCurrentPdfData ? probe0.scrollWidth : 0;
-    const widthLevel2 = hasCurrentPdfData ? probe2.scrollWidth : 0;
-
-    setToolbarCompactLevel((prev) => {
-      // Deterministic fit with hysteresis to prevent flapping near boundaries.
-      if (availableForRight >= widthLevel0 + (prev === 0 ? 0 : 16)) {
-        return 0;
+      commentWidth -
+      56 -
+      41;
+    setToolbarCompactLevel((previous) => {
+      for (let level = 0; level <= 5; level++) {
+        const rightWidth = hasCurrentPdfData
+          ? (toolbarProbeRefs.current[Math.max(0, Math.min(level - 1, 3))]
+              ?.scrollWidth ?? 0)
+          : 0;
+        const required =
+          fullLeftWidth +
+          rightWidth -
+          (level >= 5 ? exportWidth : 0) -
+          (level >= 1 ? labelWidth : 0);
+        // Collapse as needed during a morph, but only reveal controls after it settles.
+        if (level < previous && layoutAnimating) continue;
+        if (required + (level < previous ? 16 : 0) <= available) return level;
       }
-      if (availableForRight >= widthLevel2 || !compileButton) return 2;
-      return 3;
+      return 5;
     });
-  }, [hasCurrentPdfData]);
+  }, [
+    hasCurrentPdfData,
+    hideExport,
+    actionsOpen,
+    isEditingPage,
+    layoutAnimating,
+  ]);
 
   useLayoutEffect(() => {
     const raf = requestAnimationFrame(() => measureToolbarOverflow());
@@ -911,20 +1028,37 @@ export function PdfPreview({
       setPdfSelection(selection);
       setResolvedSource(null);
       if (selection) {
+        const pdf = {
+          documentPath: pdfDocumentPath,
+          kind: pdfDocumentKind,
+          page: selection.pageNumber,
+        } as const;
         useDocumentStore.getState().setPdfSelectionContext({
-          selectionKey: `pdf:${selection.pageNumber}:${selection.pdfX}:${selection.pdfY}:${selection.text}`,
-          label: pdfSelectionFallbackLabel(selection),
-          filePath: "document.pdf",
+          selectionKey: pdfSelectionKey(
+            pdf,
+            selection.pdfX,
+            selection.pdfY,
+            selection.text,
+          ),
+          pdf,
+          label: pdfSelectionFallbackLabel(selection, pdfDocumentPath),
+          filePath: pdfDocumentPath,
           selectedText: selection.text,
         });
       } else {
         useDocumentStore.getState().setPdfSelectionContext(null);
       }
     },
-    [isolatedSnapshot],
+    [isolatedSnapshot, pdfDocumentPath, pdfDocumentKind],
   );
 
   const canMapPdfComment = Boolean(pdfComments && projectRoot);
+  const canCommentOnPdfFile =
+    isStandalonePdf &&
+    canMapPdfComment &&
+    !!pdfFingerprint &&
+    pdfSelection?.source === standalonePdfData &&
+    validPdfCommentRegions(pdfSelection?.regions);
   const [commentCheck, setCommentCheck] = useState<{
     selection: PdfTextSelection;
     files: typeof files;
@@ -943,25 +1077,34 @@ export function PdfPreview({
     commentCheck?.compiledGeneration === compiledGeneration
       ? commentCheck
       : null;
-  const commentStatus = !canMapPdfComment
-    ? "unavailable"
-    : !checkedSelection
-      ? "checking"
-      : checkedSelection.choice
-        ? "ready"
-        : "unavailable";
-  const commentReason = !canMapPdfComment
-    ? "Recompile to enable comments."
-    : commentStatus === "checking"
-      ? "Finding source…"
-      : commentStatus === "ready"
-        ? "Add comment"
-        : "Couldn’t locate the source. Select more surrounding text.";
+  const commentStatus = isStandalonePdf
+    ? canCommentOnPdfFile
+      ? "ready"
+      : "unavailable"
+    : !canMapPdfComment
+      ? "unavailable"
+      : !checkedSelection
+        ? "checking"
+        : checkedSelection.choice
+          ? "ready"
+          : "unavailable";
+  const commentReason = isStandalonePdf
+    ? canCommentOnPdfFile
+      ? "Add comment"
+      : "Select text in the current PDF to comment."
+    : !canMapPdfComment
+      ? "Recompile to enable comments."
+      : commentStatus === "checking"
+        ? "Finding source…"
+        : commentStatus === "ready"
+          ? "Add comment"
+          : "Couldn’t locate the source. Select more surrounding text.";
 
   // Selection detection is already debounced. Resolve once when its toolbar
   // opens, and discard results for an old selection or document snapshot.
   useEffect(() => {
-    if (isolatedSnapshot || !pdfSelection || !projectRoot) return;
+    if (isStandalonePdf || isolatedSnapshot || !pdfSelection || !projectRoot)
+      return;
     let cancelled = false;
     setCommentCheck(null);
     setResolvedSource(null);
@@ -1004,7 +1147,8 @@ export function PdfPreview({
       const chatContext = useDocumentStore.getState().pdfSelectionContext;
       if (
         choice &&
-        chatContext?.label === pdfSelectionFallbackLabel(pdfSelection) &&
+        chatContext?.label ===
+          pdfSelectionFallbackLabel(pdfSelection, pdfDocumentPath) &&
         chatContext.selectedText === pdfSelection.text
       ) {
         const content = files.find(
@@ -1034,6 +1178,7 @@ export function PdfPreview({
       cancelled = true;
     };
   }, [
+    isStandalonePdf,
     isolatedSnapshot,
     pdfSelection,
     projectRoot,
@@ -1042,6 +1187,7 @@ export function PdfPreview({
     contentGeneration,
     compiledGeneration,
     canMapPdfComment,
+    pdfDocumentPath,
   ]);
 
   const pdfContextLabel = resolvedSource
@@ -1050,28 +1196,10 @@ export function PdfPreview({
       ? `~@PDF page ${pdfSelection.pageNumber}`
       : "";
 
-  const buildPdfContext = useCallback(
-    (text: string) => {
-      const locationNote = resolvedSource
-        ? `near ${resolvedSource.file}:${resolvedSource.line}`
-        : pdfSelection
-          ? `PDF page ${pdfSelection.pageNumber}`
-          : "PDF";
-      return `[Selected from PDF output, approximate source location: ${locationNote}]\n${text}`;
-    },
-    [resolvedSource, pdfSelection],
-  );
-
   const pdfToolbarActions: ToolbarAction[] = useMemo(
     () => [
-      {
-        id: "proofread",
-        isAI: true,
-        label: "Proofread",
-        icon: <SpellCheckIcon className="size-4" />,
-      },
       ...(pdfCommentsVisible &&
-      !isStandalonePdf &&
+      !isolatedSnapshot &&
       !agentWorkspaceRoot &&
       projectRoot
         ? [
@@ -1093,7 +1221,7 @@ export function PdfPreview({
         : []),
     ],
     [
-      isStandalonePdf,
+      isolatedSnapshot,
       agentWorkspaceRoot,
       projectRoot,
       pdfCommentsVisible,
@@ -1105,126 +1233,104 @@ export function PdfPreview({
 
   const handlePdfToolbarAction = useCallback(
     async (actionId: string) => {
-      if (!pdfSelection) return;
-      if (actionId === "comment") {
-        if (!commentsLoaded) return;
-        const choice =
-          commentStatus === "ready" ? checkedSelection?.choice : null;
-        const document = useDocumentStore.getState();
-        if (
-          !choice ||
-          !checkedSelection ||
-          document.projectRoot !== projectRoot ||
-          document.agentWorkspaceRoot ||
-          document.files !== checkedSelection.files ||
-          document.contentGeneration !== checkedSelection.generation ||
-          document.lastCompiledGenerations.get(currentRootFileId) !==
-            checkedSelection.compiledGeneration
-        )
-          return;
-        const filePath = choice.filePath;
-        const range = choice.range;
-        const id = crypto.randomUUID();
-        const draftComment = {
-          id,
-          ...range,
-          text: "",
-          createdAt: new Date().toISOString(),
+      if (!pdfSelection || actionId !== "comment") return;
+      if (!commentsLoaded) return;
+      const fileComment =
+        canCommentOnPdfFile && pdfSelection.regions && pdfFingerprint
+          ? {
+              fingerprint: pdfFingerprint,
+              text: pdfSelection.text,
+              regions: pdfSelection.regions,
+            }
+          : undefined;
+      const choice = fileComment
+        ? {
+            filePath: pdfDocumentPath,
+            range: { from: 0, to: 0, line: pdfSelection.pageNumber },
+            approximate: false,
+          }
+        : commentStatus === "ready"
+          ? checkedSelection?.choice
+          : null;
+      const document = useDocumentStore.getState();
+      if (
+        !choice ||
+        (!fileComment && !checkedSelection) ||
+        document.projectRoot !== projectRoot ||
+        document.agentWorkspaceRoot ||
+        (!fileComment &&
+          (document.files !== checkedSelection?.files ||
+            document.contentGeneration !== checkedSelection?.generation ||
+            document.lastCompiledGenerations.get(currentRootFileId) !==
+              checkedSelection?.compiledGeneration))
+      )
+        return;
+      const filePath = choice.filePath;
+      const range = choice.range;
+      const id = crypto.randomUUID();
+      const draftComment = {
+        id,
+        pdf: fileComment,
+        ...range,
+        text: "",
+        createdAt: new Date().toISOString(),
 
-          isEditing: true,
-        };
-        setProjectComments((current) => ({
-          ...current,
-          [filePath]: [
-            ...(current[filePath] ?? []).filter(
-              (comment) => comment.text.trim() || !comment.isEditing,
-            ),
-            draftComment,
-          ],
-        }));
-        if (projectRoot)
-          setCommentDraft({ root: projectRoot, filePath }, id, {
-            comment: draftComment,
-            text: "",
-          });
-        setCenterRequestedComment(false);
-        setNewCommentId(id);
-        setCommentRequestRevision((revision) => revision + 1);
-        if (choice.approximate) {
-          toast.info("Matched approximately—check the highlighted source.", {
-            duration: 10000,
-            action: {
-              label: "Show source",
-              onClick: () => {
-                if (useDocumentStore.getState().projectRoot !== projectRoot)
-                  return;
-                onRevealSource?.();
-                window.dispatchEvent(
-                  new CustomEvent(PDF_COMMENT_NAVIGATE_EVENT, {
-                    detail: { projectRoot, filePath, commentId: id },
-                  }),
-                );
-              },
+        isEditing: true,
+      };
+      setProjectComments((current) => ({
+        ...current,
+        [filePath]: [
+          ...(current[filePath] ?? []).filter(
+            (comment) => comment.text.trim() || !comment.isEditing,
+          ),
+          draftComment,
+        ],
+      }));
+      if (projectRoot)
+        setCommentDraft({ root: projectRoot, filePath }, id, {
+          comment: draftComment,
+          text: "",
+        });
+      setCenterRequestedComment(false);
+      setNewCommentId(id);
+      setCommentRequestRevision((revision) => revision + 1);
+      if (choice.approximate) {
+        toast.info("Matched approximately—check the highlighted source.", {
+          duration: 10000,
+          action: {
+            label: "Show source",
+            onClick: () => {
+              if (useDocumentStore.getState().projectRoot !== projectRoot)
+                return;
+              onRevealSource?.();
+              window.dispatchEvent(
+                new CustomEvent(PDF_COMMENT_NAVIGATE_EVENT, {
+                  detail: { projectRoot, filePath, commentId: id },
+                }),
+              );
             },
-          });
-        }
+          },
+        });
       }
-      const label = pdfContextLabel;
       const sel = pdfSelection;
       setPdfSelection(null);
       sel.clear();
-      if (actionId === "proofread") {
-        useAgentChatStore
-          .getState()
-          .sendPrompt("Proofread and fix any errors in this text", {
-            label,
-            filePath: resolvedSource?.file ?? "document.pdf",
-            selectedText: buildPdfContext(sel.text),
-          });
-      }
     },
     [
       pdfSelection,
+      canCommentOnPdfFile,
+      pdfFingerprint,
+      pdfDocumentPath,
       commentStatus,
       checkedSelection,
       currentRootFileId,
       setProjectComments,
       commentsLoaded,
-      pdfContextLabel,
-      resolvedSource,
-      buildPdfContext,
       activeFile?.relativePath,
       projectRoot,
       onRevealSource,
     ],
   );
-
-  useEffect(() => {
-    if (
-      isolatedSnapshot ||
-      !pdfSelection ||
-      !pdfToolbarActions.some((action) => action.id === "comment")
-    )
-      return;
-    return registerSelectionContextActions(pdfSelection.viewport, () => {
-      if (window.getSelection()?.toString().trim() !== pdfSelection.text)
-        return [];
-      return [
-        {
-          label: "Add Comment",
-          disabled: commentStatus !== "ready" || !commentsLoaded,
-          run: () => handlePdfToolbarAction("comment"),
-        },
-      ];
-    });
-  }, [
-    isolatedSnapshot,
-    pdfSelection,
-    pdfToolbarActions,
-    commentStatus,
-    handlePdfToolbarAction,
-    commentsLoaded,
-  ]);
 
   const handlePdfToolbarDismiss = useCallback(
     (reason?: "outside" | "escape") => {
@@ -1301,20 +1407,21 @@ export function PdfPreview({
     [fitMode, firstPageSize, scale],
   );
   const openingPdf =
-    layoutAnimating &&
+    columnLayoutAnimating &&
     layoutTarget &&
     layoutTarget.from <= 0.5 &&
     layoutTarget.to > 0.5;
-  const closingPdf = layoutAnimating && layoutTarget && layoutTarget.to <= 0.5;
+  const closingPdf =
+    columnLayoutAnimating && layoutTarget && layoutTarget.to <= 0.5;
   const motionScale =
     fitMode &&
     containerSize &&
     (openingPdf || containerSize.width > 1) &&
     !closingPdf
       ? fittedScale(
-          layoutAnimating && layoutTarget
+          columnLayoutAnimating && layoutTarget
             ? (openingPdf ? layoutTarget.width : layoutTarget.currentWidth) -
-                viewportScrollbarWidth.current
+                viewportWidthInset.current
             : containerSize.width,
           containerSize.height,
         )
@@ -1328,7 +1435,14 @@ export function PdfPreview({
     if (viewport && viewport.clientWidth <= 1) return;
     setScale(
       fittedScale(
-        viewport?.clientWidth ?? containerSize.width,
+        viewport
+          ? viewport.clientWidth -
+              (Number.parseFloat(
+                getComputedStyle(viewport).getPropertyValue(
+                  "--pdf-minimap-inset",
+                ),
+              ) || 0)
+          : containerSize.width,
         viewport?.clientHeight ?? containerSize.height,
       ),
     );
@@ -1791,6 +1905,7 @@ export function PdfPreview({
 
   const handlePageInputCommit = useCallback(() => {
     setIsEditingPage(false);
+    if (cancelledPageInputRef.current) return;
     const parsed = parseInt(pageInputValue, 10);
     if (!Number.isNaN(parsed) && parsed >= 1 && parsed <= numPages) {
       goToPage(parsed);
@@ -2139,6 +2254,7 @@ export function PdfPreview({
       ];
 
       const handleFixWithChat = () => {
+        if (isReferencePanelWindow()) return;
         const errorList = errors.map((e) => `- ${e}`).join("\n");
         useAgentChatStore
           .getState()
@@ -2170,13 +2286,15 @@ export function PdfPreview({
             <div className="mt-3 flex items-center gap-2">
               {!isStandalonePdf ? (
                 <>
-                  <button
-                    onClick={handleFixWithChat}
-                    className="flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 font-medium text-primary-foreground text-xs shadow-sm transition-colors hover:bg-primary/90"
-                  >
-                    <MousePointerClickIcon className="size-3.5" />
-                    Fix with Chat
-                  </button>
+                  {!isReferencePanelWindow() && (
+                    <button
+                      onClick={handleFixWithChat}
+                      className="flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 font-medium text-primary-foreground text-xs shadow-sm transition-colors hover:bg-primary/90"
+                    >
+                      <MousePointerClickIcon className="size-3.5" />
+                      Fix with Chat
+                    </button>
+                  )}
                   <button
                     onClick={() => handleCompile(true)}
                     className="flex items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-1.5 font-medium text-foreground text-xs transition-colors hover:bg-muted"
@@ -2384,7 +2502,7 @@ export function PdfPreview({
               variant="ghost"
               size="sm"
               className={cn(
-                "group/compile h-7 shrink-0 gap-1 rounded-md text-xs transition-colors duration-150 ease-out motion-reduce:transition-none",
+                "group/compile h-7 shrink-0 gap-1 rounded-md rounded-r-none text-xs transition-colors duration-150 ease-out motion-reduce:transition-none",
                 showCompileStop &&
                   "text-red-600 hover:text-red-600 dark:text-red-400 dark:hover:text-red-400",
                 hideRecompileLabel
@@ -2458,15 +2576,19 @@ export function PdfPreview({
               </span>
             </Button>
           </Hint>
+          <span
+            aria-hidden="true"
+            className="button-group-separator [--button-group-separator-inset:6px]"
+          />
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
                 variant="ghost"
                 size="icon"
-                className="-ml-0.5 h-7 w-6 rounded-md"
+                className="h-7 w-5 rounded-l-none"
                 aria-label="Compilation options"
               >
-                <ChevronDownIcon className="size-3.5" />
+                <ChevronDownIcon className="size-3" />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
@@ -2591,109 +2713,95 @@ export function PdfPreview({
     () =>
       hasCurrentPdfData && (
         <>
-          <div
-            role="group"
-            aria-label="PDF pages"
-            className="flex shrink-0 items-center"
-          >
-            {!hidePageStepButtons ? (
-              <Hint content="Page Up">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className={PAGE_STEP_CLASS}
-                  onClick={() => goToPage(currentPage - 1)}
-                  disabled={currentPage <= 1}
-                  aria-label="Page Up"
-                >
-                  <ChevronUpIcon className="size-3.5" />
-                </Button>
-              </Hint>
-            ) : null}
-            <div data-pdf-page-indicator className="relative flex shrink-0">
-              <Hint content="Click to jump to page">
-                <button
-                  type="button"
-                  className={`${PAGE_COUNTER_CLASS} rounded-md text-muted-foreground hover:bg-muted ${isEditingPage ? "invisible" : ""}`}
-                  onClick={() => {
-                    setIsEditingPage(true);
-                    setPageInputValue(String(currentPage));
-                  }}
-                  aria-label="Click to jump to page"
-                >
-                  {pageCounterLabel}
-                </button>
-              </Hint>
-              {isEditingPage && (
-                <input
-                  ref={pageInputRef}
-                  type="text"
-                  inputMode="numeric"
-                  aria-label="Page number"
-                  className="absolute inset-0 h-7 w-full min-w-0 rounded-md border border-input bg-background px-1 text-center text-foreground text-xs tabular-nums outline-none focus:border-ring"
-                  value={pageInputValue}
-                  onChange={(e) => setPageInputValue(e.target.value)}
-                  onBlur={handlePageInputCommit}
-                  onKeyDown={(e) => {
-                    if (isComposingKey(e) || e.defaultPrevented) return;
-                    if (e.key === "Enter" || e.key === "Escape") {
-                      e.preventDefault();
-                      e.stopPropagation();
-                    }
-                    if (e.key === "Enter") handlePageInputCommit();
-                    if (e.key === "Escape") {
-                      setIsEditingPage(false);
-                      setPageInputValue(String(currentPage));
-                    }
-                  }}
-                />
-              )}
-            </div>
-            {!hidePageStepButtons ? (
-              <Hint content="Page Down">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className={PAGE_STEP_CLASS}
-                  onClick={() => goToPage(currentPage + 1)}
-                  disabled={currentPage >= numPages}
-                  aria-label="Page Down"
-                >
-                  <ChevronDownIcon className="size-3.5" />
-                </Button>
-              </Hint>
-            ) : null}
-          </div>
-          <div
-            data-pdf-page-separator
-            aria-hidden="true"
-            className="h-4 w-px shrink-0 bg-border"
-          />
-          <Hint content="Fit width">
-            <Button
-              variant="ghost"
-              size="icon"
-              className={`size-7 shrink-0 border ${fitMode === "fit-width" ? "border-input bg-background text-foreground hover:bg-background" : "border-transparent"}`}
-              onClick={() => selectFitMode("fit-width")}
-              aria-label="Fit width"
-              aria-pressed={fitMode === "fit-width"}
-            >
-              <MoveHorizontalIcon className="size-3.5" />
-            </Button>
-          </Hint>
-          <Hint content="Fit height">
-            <Button
-              variant="ghost"
-              size="icon"
-              className={`size-7 shrink-0 border ${fitMode === "fit-height" ? "border-input bg-background text-foreground hover:bg-background" : "border-transparent"}`}
-              onClick={() => selectFitMode("fit-height")}
-              aria-label="Fit height"
-              aria-pressed={fitMode === "fit-height"}
-            >
-              <MoveVerticalIcon className="size-3.5" />
-            </Button>
-          </Hint>
-          <PdfZoomControl
+          {!hidePageNavigation && (
+            <>
+              <div
+                role="group"
+                aria-label="PDF pages"
+                className="flex shrink-0 items-center"
+              >
+                <Hint content="Page Up">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className={PAGE_STEP_CLASS}
+                    onClick={() => goToPage(currentPage - 1)}
+                    disabled={currentPage <= 1}
+                    aria-label="Page Up"
+                  >
+                    <ChevronUpIcon className="size-3.5" />
+                  </Button>
+                </Hint>
+
+                <div data-pdf-page-indicator className="relative flex shrink-0">
+                  <Hint content="Click to jump to page">
+                    <button
+                      type="button"
+                      className={`${PAGE_COUNTER_CLASS} rounded-md text-muted-foreground hover:bg-muted ${isEditingPage ? "invisible" : ""}`}
+                      onClick={() => {
+                        cancelledPageInputRef.current = false;
+                        setIsEditingPage(true);
+                        setPageInputValue(String(currentPage));
+                      }}
+                      aria-label="Click to jump to page"
+                    >
+                      {pageCounterLabel}
+                    </button>
+                  </Hint>
+                  {isEditingPage && (
+                    <input
+                      ref={pageInputRef}
+                      type="text"
+                      inputMode="numeric"
+                      aria-label="Page number"
+                      className="absolute inset-0 h-7 w-full min-w-0 rounded-md border border-input bg-background px-1 text-center text-foreground text-xs tabular-nums outline-none focus:border-ring"
+                      value={pageInputValue}
+                      onChange={(e) => setPageInputValue(e.target.value)}
+                      onBlur={handlePageInputCommit}
+                      onKeyDown={(e) => {
+                        if (isComposingKey(e) || e.defaultPrevented) return;
+                        if (e.key === "Enter" || e.key === "Escape") {
+                          e.preventDefault();
+                          e.stopPropagation();
+                        }
+                        if (e.key === "Enter") handlePageInputCommit();
+                        if (e.key === "Escape") {
+                          setIsEditingPage(false);
+                          setPageInputValue(String(currentPage));
+                        }
+                      }}
+                    />
+                  )}
+                </div>
+
+                <Hint content="Page Down">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className={PAGE_STEP_CLASS}
+                    onClick={() => goToPage(currentPage + 1)}
+                    disabled={currentPage >= numPages}
+                    aria-label="Page Down"
+                  >
+                    <ChevronDownIcon className="size-3.5" />
+                  </Button>
+                </Hint>
+              </div>
+              <div
+                data-pdf-page-separator
+                aria-hidden="true"
+                className="mx-1 h-4 w-px shrink-0 bg-border"
+              />
+            </>
+          )}
+          <DocumentZoomControl
+            label="PDF zoom"
+            minScale={MIN_PDF_SCALE}
+            maxScale={MAX_PDF_SCALE}
+            fitMode={fitMode}
+            onFitModeChange={selectFitMode}
+            hideFitWidth={hideFitWidth}
+            hideFitHeight={hideFitHeight}
             scale={scale}
             onChange={(value) => {
               setFitMode(null);
@@ -2702,25 +2810,13 @@ export function PdfPreview({
             zoomIn={zoomIn}
             zoomOut={zoomOut}
           />
-          {!hidePageStepButtons && (
-            <div className="h-4 w-px shrink-0 bg-border" />
-          )}
-          <Hint content="Export PDF">
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-7"
-              onClick={handleExport}
-              aria-label="Export PDF"
-            >
-              <DownloadIcon className="size-3.5" />
-            </Button>
-          </Hint>
         </>
       ),
     [
       hasCurrentPdfData,
-      hidePageStepButtons,
+      hidePageNavigation,
+      hideFitHeight,
+      hideFitWidth,
       currentPage,
       numPages,
       pageCounterLabel,
@@ -2732,58 +2828,204 @@ export function PdfPreview({
       zoomIn,
       scale,
       fitMode,
-      handleExport,
     ],
   );
 
-  // Probes share the counter label and sizing with the visible controls.
-  // Reuse their element tree
-  // during source edits; browser layout still measures them on toolbar resize.
+  // Stable intrinsic widths for each overflow stage; never measure the shrunken layout.
   const toolbarWidthProbes = useMemo(
     () => (
       <div
         aria-hidden="true"
         className="pointer-events-none absolute -z-10 h-0 overflow-hidden opacity-0"
       >
-        <div
-          ref={toolbarProbeLevel0Ref}
-          className="flex w-max shrink-0 items-center gap-1"
-        >
-          <div className="flex shrink-0 items-center">
-            <div className={PAGE_STEP_CLASS} />
-            <div className={PAGE_COUNTER_CLASS}>{pageCounterLabel}</div>
-            <div className={PAGE_STEP_CLASS} />
+        {[0, 1, 2, 3].map((level) => (
+          <div
+            key={level}
+            ref={(element) => {
+              toolbarProbeRefs.current[level] = element;
+            }}
+            className="flex w-max shrink-0 items-center gap-1"
+          >
+            {level === 0 && (
+              <>
+                <div className="flex shrink-0 items-center">
+                  <div className={PAGE_STEP_CLASS} />
+                  <div className={PAGE_COUNTER_CLASS}>{pageCounterLabel}</div>
+                  <div className={PAGE_STEP_CLASS} />
+                </div>
+                <div className="mx-1 h-4 w-px shrink-0" />
+              </>
+            )}
+            {level < 3 && <div className="size-7 shrink-0" />}
+            {level < 2 && <div className="size-7 shrink-0" />}
+            <div className="h-7 w-[98px] shrink-0" />
           </div>
-          <div className="h-4 w-px shrink-0" />
-          <div className="h-7 w-[98px] shrink-0" />
-          <div className="size-7 shrink-0" />
-          <div className="size-7 shrink-0" />
-          <div className="h-4 w-px shrink-0" />
-          <div className="size-7 shrink-0" />
-        </div>
-        <div
-          ref={toolbarProbeLevel2Ref}
-          className="flex w-max shrink-0 items-center gap-1"
-        >
-          <div className={PAGE_COUNTER_CLASS}>{pageCounterLabel}</div>
-          <div className="h-4 w-px shrink-0" />
-          <div className="size-7 shrink-0" />
-          <div className="size-7 shrink-0" />
-          <div className="h-7 w-[98px] shrink-0" />
-          <div className="size-7 shrink-0" />
-        </div>
+        ))}
       </div>
     ),
     [pageCounterLabel],
   );
 
+  const overflowContent =
+    hasCurrentPdfData && hidePageNavigation ? (
+      <>
+        <DropdownMenuItem
+          aria-label={`Page ${currentPage} / ${numPages}`}
+          onSelect={(event) => {
+            event.preventDefault();
+            cancelledPageInputRef.current = false;
+            setPageInputValue(String(currentPage));
+            setIsEditingPage(true);
+          }}
+        >
+          <FileTextIcon className="size-3.5" />
+          Page
+          <span
+            data-pdf-menu-page-count
+            className="relative ml-auto inline-flex h-5 min-w-12 shrink-0 items-center justify-end text-muted-foreground text-xs tabular-nums"
+          >
+            <span className={cn("px-1", isEditingPage && "invisible")}>
+              {currentPage} / {numPages}
+            </span>
+            {isEditingPage && (
+              <input
+                ref={pageInputRef}
+                aria-label="Page number"
+                inputMode="numeric"
+                className="absolute inset-0 h-full w-full min-w-0 rounded border border-input bg-background px-1 text-right text-foreground text-xs tabular-nums outline-none focus:border-ring"
+                value={pageInputValue}
+                onChange={(event) => setPageInputValue(event.target.value)}
+                onBlur={handlePageInputCommit}
+                onPointerMove={(event) => event.stopPropagation()}
+                onClick={(event) => event.stopPropagation()}
+                onKeyDown={(event) => {
+                  event.stopPropagation();
+                  if (isComposingKey(event)) return;
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    handlePageInputCommit();
+                    const item =
+                      event.currentTarget.closest<HTMLElement>(
+                        '[role="menuitem"]',
+                      );
+                    // Let the input unmount before restoring focus, so blur cannot
+                    // commit a cancelled edit from this render's value.
+                    requestAnimationFrame(() => item?.focus());
+                  }
+                  if (event.key === "Escape") {
+                    event.preventDefault();
+                    setIsEditingPage(false);
+                    setPageInputValue(String(currentPage));
+                    const item =
+                      event.currentTarget.closest<HTMLElement>(
+                        '[role="menuitem"]',
+                      );
+                    // Let the input unmount before restoring focus, so blur cannot
+                    // commit a cancelled edit from this render's value.
+                    requestAnimationFrame(() => item?.focus());
+                  }
+                }}
+              />
+            )}
+          </span>
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          disabled={currentPage <= 1}
+          onSelect={(event) => {
+            event.preventDefault();
+            goToPage(currentPage - 1);
+          }}
+        >
+          <ChevronUpIcon className="size-3.5" />
+          Previous page
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          disabled={currentPage >= numPages}
+          onSelect={(event) => {
+            event.preventDefault();
+            goToPage(currentPage + 1);
+          }}
+        >
+          <ChevronDownIcon className="size-3.5" />
+          Next page
+        </DropdownMenuItem>
+        {(hideFitHeight || hideFitWidth || hideExport) && (
+          <DropdownMenuSeparator />
+        )}
+        {hideFitHeight && (
+          <DropdownMenuItem onSelect={() => selectFitMode("fit-height")}>
+            <MoveVerticalIcon className="size-3.5" />
+            Fit height
+          </DropdownMenuItem>
+        )}
+        {hideFitWidth && (
+          <DropdownMenuItem onSelect={() => selectFitMode("fit-width")}>
+            <MoveHorizontalIcon className="size-3.5" />
+            Fit width
+          </DropdownMenuItem>
+        )}
+        {hideExport && (
+          <DropdownMenuItem onSelect={handleExport}>
+            <DownloadIcon className="size-3.5" />
+            Export PDF
+          </DropdownMenuItem>
+        )}
+      </>
+    ) : undefined;
+
   return (
     <div
       ref={previewContainerRef}
       data-preview-pane
-      className="@container/pv relative flex h-full flex-col bg-muted/50"
+      className="@container/pv pdf-panel-surface relative flex h-full flex-col"
     >
       <WorkspacePanelHeader
+        actionsLabel="PDF"
+        overflowContent={overflowContent}
+        onActionsEscapeKeyDown={(event) => {
+          if (!isEditingPage) return;
+          // Radix handles Escape at document capture, before the input handler.
+          event.preventDefault();
+          cancelledPageInputRef.current = true;
+          const item =
+            pageInputRef.current?.closest<HTMLElement>('[role="menuitem"]');
+          setIsEditingPage(false);
+          setPageInputValue(String(currentPage));
+          requestAnimationFrame(() => item?.focus());
+        }}
+        onActionsOpenChange={(open) => {
+          if (!open && isEditingPage) handlePageInputCommit();
+          setActionsOpen(open);
+        }}
+        trailingContent={
+          <div
+            ref={toolbarRightControlsRef}
+            className="flex shrink-0 items-center"
+          >
+            <div className="flex items-center gap-1">{pageControls}</div>
+            <ProblemsMotion
+              kind="button"
+              open={showPdfCommentControls && !commentsPanelOpen}
+            >
+              <div
+                data-pdf-comments-summary
+                className="flex shrink-0 items-center"
+              >
+                <div
+                  aria-hidden="true"
+                  className="mx-2 h-4 w-px shrink-0 bg-border"
+                />
+                <CommentsSummaryButton
+                  comments={activeFileComments}
+                  onOpen={() => saveCommentsPanelOpen(panelsProjectKey, true)}
+                />
+              </div>
+            </ProblemsMotion>
+          </div>
+        }
+        hasTrailingContent={
+          hasCurrentPdfData || (showPdfCommentControls && !commentsPanelOpen)
+        }
         ref={toolbarRowRef}
         data-pdf-toolbar
         className={
@@ -2801,34 +3043,23 @@ export function PdfPreview({
           }
         >
           {compilerControls}
+          {hasCurrentPdfData && !hideExport && (
+            <Hint content="Export PDF">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-7 shrink-0"
+                onClick={handleExport}
+                aria-label="Export PDF"
+              >
+                <DownloadIcon className="size-3.5" />
+              </Button>
+            </Hint>
+          )}
         </div>
         {!toolbarContent && (
           <div data-window-drag-region className="flex-1 self-stretch" />
         )}
-        <div
-          ref={toolbarRightControlsRef}
-          className="ml-auto flex shrink-0 items-center gap-1"
-        >
-          {pageControls}
-          <ProblemsMotion
-            kind="button"
-            open={showPdfCommentControls && !commentsPanelOpen}
-          >
-            <div
-              data-pdf-comments-summary
-              className="flex shrink-0 items-center"
-            >
-              <div
-                aria-hidden="true"
-                className="mx-1 h-4 w-px shrink-0 bg-border"
-              />
-              <CommentsSummaryButton
-                comments={activeFileComments}
-                onOpen={() => saveCommentsPanelOpen(panelsProjectKey, true)}
-              />
-            </div>
-          </ProblemsMotion>
-        </div>
       </WorkspacePanelHeader>
       <ProblemsMotion
         kind="bar"
@@ -2850,8 +3081,8 @@ export function PdfPreview({
           position={pdfSelection.position}
           getAnchor={getPdfToolbarAnchor}
           contextLabel={pdfContextLabel}
+          selectionContext={pdfSelectionContext}
           actions={pdfToolbarActions}
-          aiEnabled={aiEnabled}
           onAction={handlePdfToolbarAction}
           onDismiss={handlePdfToolbarDismiss}
         />

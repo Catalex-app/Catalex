@@ -116,9 +116,11 @@ function providerLabel(provider: ChatProvider): {
 export function SessionSelector({
   triggerMode = "icon",
   titleLabel,
+  className,
 }: {
   triggerMode?: "icon" | "title";
   titleLabel?: string;
+  className?: string;
 }) {
   const [sessions, setSessions] = useState<SharedSessionInfo[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -354,11 +356,12 @@ export function SessionSelector({
         <DropdownMenuTrigger asChild>
           <button
             type="button"
-            className={
+            className={cn(
               triggerMode === "title"
                 ? "flex max-w-[190px] items-center gap-1 rounded-md border border-border/70 bg-background px-2.5 py-1.5 font-medium text-foreground text-xs shadow-sm transition-colors hover:bg-background/90"
-                : "flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-            }
+                : "flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground",
+              className,
+            )}
             aria-label="Session history"
             onMouseDown={(e) => e.stopPropagation()}
             onClick={(e) => e.stopPropagation()}

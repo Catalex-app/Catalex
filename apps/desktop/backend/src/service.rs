@@ -851,6 +851,9 @@ async fn dispatch(
             )
             .await,
         ),
+        "resolve_agent_pdf_request" => result(
+            comments::pdf::resolve(window, argument(&args, "requestId")?, argument(&args, "result")?).await,
+        ),
         "git_panel_conflicts" => tokio::task::block_in_place(|| {
             result(git_conflicts::git_panel_conflicts(argument(
                 &args,

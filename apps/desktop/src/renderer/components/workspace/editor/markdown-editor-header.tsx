@@ -1,3 +1,5 @@
+import { useEditorStatisticsOverflow } from "./use-editor-statistics-overflow";
+import { WorkspacePanelHeader } from "../workspace-panel";
 import { Hint } from "@/components/ui/tooltip";
 import { memo, type ReactNode } from "react";
 import { ResponsiveFormattingTools } from "./responsive-formatting-tools";
@@ -19,6 +21,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
@@ -117,51 +120,94 @@ export function MarkdownEditorHeader({
   onInlineFormat,
   onBlockFormat,
 }: MarkdownEditorHeaderProps) {
+  const {
+    headerRef,
+    statisticsRef,
+    otherControlsRef,
+    overflow,
+    otherControlsVisible,
+    setActionsOpen,
+  } = useEditorStatisticsOverflow();
+  const words = `${selectedCharacters > 0 ? `${selectedWords.toLocaleString()}/` : ""}${wordCount.toLocaleString()}`;
+  const characters = `${selectedCharacters > 0 ? `${selectedCharacters.toLocaleString()}/` : ""}${characterCount.toLocaleString()}`;
   return (
-    <div
+    <WorkspacePanelHeader
+      ref={headerRef}
+      actionsLabel="Editor"
+      data-editor-statistics-overflow={overflow}
+      hasTrailingContent={!overflow || otherControlsVisible}
+      onActionsOpenChange={setActionsOpen}
+      overflowContent={
+        overflow ? (
+          <div data-editor-statistics-menu>
+            <DropdownMenuLabel className="flex items-center justify-between gap-6 font-normal">
+              <span className="text-muted-foreground">Words</span>
+              <span className="tabular-nums">{words}</span>
+            </DropdownMenuLabel>
+            <DropdownMenuLabel className="flex items-center justify-between gap-6 font-normal">
+              <span className="text-muted-foreground">Characters</span>
+              <span className="tabular-nums">{characters}</span>
+            </DropdownMenuLabel>
+          </div>
+        ) : undefined
+      }
+      trailingContent={
+        <>
+          <div
+            ref={statisticsRef}
+            aria-hidden={overflow || undefined}
+            style={
+              overflow
+                ? {
+                    position: "absolute",
+                    visibility: "hidden",
+                    pointerEvents: "none",
+                  }
+                : undefined
+            }
+            data-testid="markdown-editor-statistics"
+            className="flex w-max shrink-0 items-center gap-1.5 whitespace-nowrap text-[11px] text-muted-foreground tabular-nums"
+            role="group"
+            aria-label={
+              selectedCharacters > 0
+                ? `${selectedWords} of ${wordCount} words, ${selectedCharacters} of ${characterCount} characters selected`
+                : `${wordCount} words, ${characterCount} characters`
+            }
+          >
+            <span data-testid="markdown-word-count">{words} words</span>
+            <span aria-hidden="true" className="text-muted-foreground/60">
+              ·
+            </span>
+            <span data-testid="markdown-character-count">
+              {characters} chars
+            </span>
+          </div>
+          <div ref={otherControlsRef} className="flex shrink-0 items-center">
+            {trailingContent}
+          </div>
+        </>
+      }
       data-testid="markdown-editor-toolbar"
       className="flex h-12 shrink-0 items-center gap-2 border-border border-b bg-background px-2"
     >
       <FormattingControls
+        statisticsOverflow={overflow}
         onInlineFormat={onInlineFormat}
         onBlockFormat={onBlockFormat}
       />
-
-      <div
-        data-testid="markdown-editor-statistics"
-        className="flex shrink-0 items-center gap-1.5 whitespace-nowrap text-[11px] text-muted-foreground tabular-nums"
-        role="group"
-        aria-label={
-          selectedCharacters > 0
-            ? `${selectedWords} of ${wordCount} words, ${selectedCharacters} of ${characterCount} characters selected`
-            : `${wordCount} words, ${characterCount} characters`
-        }
-      >
-        <span data-testid="markdown-word-count">
-          {selectedCharacters > 0 ? `${selectedWords.toLocaleString()}/` : ""}
-          {wordCount.toLocaleString()} words
-        </span>
-        <span aria-hidden="true" className="text-muted-foreground/60">
-          ·
-        </span>
-        <span data-testid="markdown-character-count">
-          {selectedCharacters > 0
-            ? `${selectedCharacters.toLocaleString()}/`
-            : ""}
-          {characterCount.toLocaleString()} chars
-        </span>
-      </div>
-      {trailingContent}
-    </div>
+    </WorkspacePanelHeader>
   );
 }
 
 const FormattingControls = memo(function FormattingControls({
+  statisticsOverflow,
   onInlineFormat,
   onBlockFormat,
-}: Pick<MarkdownEditorHeaderProps, "onInlineFormat" | "onBlockFormat">) {
+}: Pick<MarkdownEditorHeaderProps, "onInlineFormat" | "onBlockFormat"> & {
+  statisticsOverflow: boolean;
+}) {
   return (
-    <ResponsiveFormattingTools>
+    <ResponsiveFormattingTools forceCollapsed={statisticsOverflow}>
       <div className="flex min-w-max items-center gap-0.5">
         <DropdownMenu>
           <Hint content="Heading style">

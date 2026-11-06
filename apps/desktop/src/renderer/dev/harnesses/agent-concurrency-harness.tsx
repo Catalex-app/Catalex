@@ -265,7 +265,7 @@ export function AgentConcurrencyHarness() {
           </p>
           {new URLSearchParams(location.search).has("vibe") && (
             <div data-testid="vibe-pane" className="h-[480px]">
-              <ChatWorkspacePane showTabBar={false} />
+              <ChatWorkspacePane />
             </div>
           )}
           <div

@@ -1,4 +1,5 @@
 import { freezeRound } from "@/lib/agent-round-timing";
+import { flushPanelWindows, isChatPanelOpen } from "./panel-window-runtime";
 import {
   flushWorkspaceState,
   readLegacyProjectChats,
@@ -7,6 +8,8 @@ import {
 import { invoke } from "@/lib/desktop/core";
 import {
   tabFromSharedSession,
+  lastCommunicationProvider,
+  lastCommunicationDetails,
   type SharedSessionPayload,
   useAgentChatStore,
   type TabState,
@@ -82,6 +85,8 @@ async function writeProjectChats(chat: ChatState) {
       tabs: snapshot.tabs.map((savedTab) => {
         const tab = {
           ...savedTab,
+          lastCommunicationProvider: lastCommunicationProvider(savedTab),
+          lastCommunication: lastCommunicationDetails(savedTab),
           providerStatus: undefined,
           roundTiming: savedTab.roundTiming
             ? freezeRound(savedTab.roundTiming)
@@ -168,6 +173,7 @@ async function writeProjectChats(chat: ChatState) {
     const tabs = current.tabs.map((tab) => {
       if (
         tab.id === current.activeTabId ||
+        isChatPanelOpen(tab.id) ||
         tab.isStreaming ||
         tab.isSettling ||
         tab.turnPhase ||
@@ -183,6 +189,8 @@ async function writeProjectChats(chat: ChatState) {
         : (tab.history?.total ?? tab.messages.length);
       return {
         ...tab,
+        lastCommunicationProvider: lastCommunicationProvider(tab),
+        lastCommunication: lastCommunicationDetails(tab),
         messages: [],
         history: { total, start: total },
       };
@@ -404,6 +412,7 @@ async function pauseAndSave(options: {
       try {
         const root = doc.projectRoot;
         const saving = (async () => {
+          await flushPanelWindows();
           await flushProjectCommentWrites(root);
           if (!doc.agentWorkspaceRoot)
             await synchronizeProjectCommentAnchors(root);
@@ -448,4 +457,41 @@ export async function updateArchivedChatTab(
   useAgentChatStore
     .getState()
     .updateSessionArchive(sharedSessionId, archived, restored);
+}
+
+/** Load a saved chat without switching the main chat, file, or composer. */
+export async function loadChatInBackground(
+  projectRoot: string,
+  sharedSessionId: string,
+) {
+  const isCurrentProject = () =>
+    useDocumentStore.getState().projectRoot === projectRoot &&
+    useAgentChatStore.getState().chatProjectRoot === projectRoot &&
+    !useAgentChatStore.getState().isLeavingProject;
+  if (!isCurrentProject()) return;
+  const existing = useAgentChatStore
+    .getState()
+    .tabs.find((tab) => tab.sharedSessionId === sharedSessionId);
+  if (existing) return existing.archived ? undefined : existing.id;
+  const session = await invoke<SharedSessionPayload>("load_shared_session", {
+    projectPath: projectRoot,
+    sharedSessionId,
+  });
+  if (!isCurrentProject()) return;
+  // A normal open or another request may have restored it while we loaded.
+  const current = useAgentChatStore
+    .getState()
+    .tabs.find((tab) => tab.sharedSessionId === sharedSessionId);
+  if (current) return current.archived ? undefined : current.id;
+  const restored = tabFromSharedSession(session);
+  // Match normal resume: keep the current provider until the user chooses
+  // whether to use this session's previous LLM.
+  const provider = useAgentChatStore.getState().selectedProvider;
+  const tab = {
+    ...restored,
+    provider,
+    sessionId: restored.providerSessionIds[provider] ?? null,
+  };
+  useAgentChatStore.setState((state) => ({ tabs: [...state.tabs, tab] }));
+  return tab.id;
 }

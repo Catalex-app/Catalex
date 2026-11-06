@@ -2,6 +2,22 @@
 
 ## [Unreleased]
 
+## [0.2.0]
+
+- Open editor, preview, and chat panels in synchronized native pop-out windows. Keep file windows pinned to their documents and reuse existing windows, including one LaTeX preview per root document.
+- Expand panels across the workspace, with shared controls, discoverable header gestures, and smooth restore transitions.
+- Send selected text, PDF passages, or whole files to the main chat or an open chat pop-out without submitting a prompt or replacing its draft. Identify PDF selections by document and page, including PDFs with the same name.
+- Open files and saved chat sessions in pop-outs directly from sidebar context menus, preserving the main selection.
+- Keep editor pop-outs synchronized through agent review, edits, decisions, project changes, and application restarts.
+- Add comments to standalone PDF selections, with highlights, editing, resolution, pop-out synchronization, and restart persistence. Store comments separately without modifying PDF files, and disconnect them when the PDF bytes change.
+- Let agents read standalone PDF pages and create, edit, resolve, reopen, or delete anchored comments using verified text and document fingerprints.
+- Add floating document minimaps to standalone PDFs and LaTeX previews, with page navigation, draggable viewports, and comment markers. Share styling and the existing editor minimap setting.
+- Give standalone PDFs the same panel-resize scaling as LaTeX previews, preserving reading position and manual zoom. Share PDF-style fit and percentage zoom controls with images, and remove image cropping.
+- Add four built-in prompt suggestions: Improve writing, Fix issues, Review & comment, and Tighten layout. Support enable/disable controls and ordering in settings while retaining existing custom prompt data for future customization support.
+- Collapse prompt suggestions automatically for standalone PDFs, images, and binary files. Pinning keeps them open; manual expansion choices last until the active file or chat changes.
+- Keep PDF comment creation in the floating selection toolbar and remove its duplicate right-click action. Align shared navigation controls and panel header buttons.
+- Find installed Homebrew ICU libraries reliably when building the macOS native helper.
+
 ## [0.1.1]
 
 - Prioritize exact conference matches in the deadline picker, with highlighted search text and separate exact and fuzzy result sections.

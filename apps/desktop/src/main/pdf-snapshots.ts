@@ -1,8 +1,8 @@
 import { ASSET_PROTOCOL } from "../branding";
 import fs from "node:fs/promises";
-import { constants } from "node:fs";
+import { constants, createReadStream } from "node:fs";
 import path from "node:path";
-import { randomUUID } from "node:crypto";
+import { randomUUID, createHash } from "node:crypto";
 
 interface Snapshot {
   owner: string;
@@ -48,6 +48,12 @@ export class PdfSnapshots {
       }
       if ((this.epochs.get(owner) ?? 0) !== epoch)
         throw new Error("PDF owner closed");
+      const hash = createHash("sha1");
+      for await (const chunk of createReadStream(destination))
+        hash.update(chunk);
+      const fingerprint = hash.digest("hex");
+      if ((this.epochs.get(owner) ?? 0) !== epoch)
+        throw new Error("PDF owner closed");
       this.entries.set(id, {
         owner,
         path: destination,
@@ -59,6 +65,7 @@ export class PdfSnapshots {
         kind: "file" as const,
         id,
         byteLength: size,
+        fingerprint,
         url: `${ASSET_PROTOCOL}://pdf/${id}`,
       };
     } catch (error) {

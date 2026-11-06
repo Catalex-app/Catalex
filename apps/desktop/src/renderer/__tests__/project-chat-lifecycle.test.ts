@@ -7,6 +7,7 @@ import { useDocumentStore } from "@/stores/document-store";
 import { useAgentReviewQueueStore } from "@/stores/agent-review-queue-store";
 import { useProposedChangesStore } from "@/stores/proposed-changes-store";
 import {
+  loadChatInBackground,
   prepareProjectExit,
   restoreProjectChats,
   saveProjectChats,
@@ -917,5 +918,112 @@ it("releases inactive full and paged histories only after the save succeeds", as
   expect(tabs[2]).toMatchObject({
     messages: [],
     history: { total: 1000, start: 1000 },
+  });
+});
+
+it("keeps open pop-out history loaded and releases it after the window closes", async () => {
+  runningTabs();
+  useAgentChatStore.setState((state) => ({
+    isStreaming: false,
+    tabs: state.tabs.map((tab) => ({
+      ...tab,
+      isStreaming: false,
+      turnPhase: null,
+    })),
+  }));
+  const child = { closed: false };
+  const original = window.__catalexPanelSessions;
+  window.__catalexPanelSessions = new Map([
+    [
+      "test",
+      {
+        kind: "chat",
+        chatId: "claude",
+        window: child,
+      } as unknown as import("@/lib/panel-window-runtime").PanelWindowSession,
+    ],
+  ]);
+  try {
+    await saveProjectChats();
+    expect(
+      useAgentChatStore.getState().tabs.find((tab) => tab.id === "claude")
+        ?.messages,
+    ).toHaveLength(1);
+    child.closed = true;
+    await saveProjectChats();
+    expect(
+      useAgentChatStore.getState().tabs.find((tab) => tab.id === "claude")
+        ?.messages,
+    ).toEqual([]);
+    expect(
+      useAgentChatStore.getState().tabs.find((tab) => tab.id === "codex")
+        ?.messages,
+    ).toHaveLength(1);
+  } finally {
+    window.__catalexPanelSessions = original;
+  }
+});
+
+describe("background chat loading", () => {
+  const saved = {
+    shared_session_id: "saved",
+    title: "Saved conversation",
+    last_modified: 1,
+    last_provider: "claude",
+    messages: [
+      {
+        type: "user",
+        message: { content: [{ type: "text", text: "Earlier message" }] },
+      },
+    ],
+  };
+
+  it("deduplicates concurrent loads without switching the current chat or draft", async () => {
+    const before = useAgentChatStore.getState();
+    vi.mocked(invoke).mockResolvedValue(saved);
+    const [one, two] = await Promise.all([
+      loadChatInBackground("/one", "saved"),
+      loadChatInBackground("/one", "saved"),
+    ]);
+    expect(one).toBe(two);
+    const after = useAgentChatStore.getState();
+    expect(after.tabs).toHaveLength(before.tabs.length + 1);
+    expect(after.activeTabId).toBe(before.activeTabId);
+    expect(after.tabs[0]).toBe(before.tabs[0]);
+    expect(after.messages).toBe(before.messages);
+    expect(after.tabs[after.tabs.length - 1]?.messages).toEqual(saved.messages);
+    await loadChatInBackground("/one", "saved");
+    expect(invoke).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not restore a chat after the project changes during loading", async () => {
+    let finish!: (value: typeof saved) => void;
+    vi.mocked(invoke).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const pending = loadChatInBackground("/one", "saved");
+    useDocumentStore.setState({ projectRoot: "/two" });
+    useAgentChatStore.getState().restoreProjectTabs("/two");
+    const tabs = useAgentChatStore.getState().tabs;
+    finish(saved);
+    expect(await pending).toBeUndefined();
+    expect(useAgentChatStore.getState().tabs).toBe(tabs);
+  });
+
+  it("leaves the workspace intact when loading fails or the chat is archived", async () => {
+    const before = useAgentChatStore.getState();
+    vi.mocked(invoke).mockRejectedValue(new Error("Unavailable"));
+    await expect(loadChatInBackground("/one", "saved")).rejects.toThrow(
+      "Unavailable",
+    );
+    expect(useAgentChatStore.getState()).toBe(before);
+    useAgentChatStore.setState({
+      tabs: [{ ...before.tabs[0], sharedSessionId: "saved", archived: true }],
+    });
+    expect(await loadChatInBackground("/one", "saved")).toBeUndefined();
+    expect(invoke).toHaveBeenCalledTimes(1);
   });
 });

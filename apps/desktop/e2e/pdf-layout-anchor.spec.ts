@@ -4,11 +4,18 @@ function recordMotion(scroller: Locator) {
   return scroller.evaluate(
     (el) =>
       new Promise<
-        { width: number; viewport: number; moving: boolean; fade: boolean }[]
+        {
+          width: number;
+          viewport: number;
+          gutter: number;
+          moving: boolean;
+          fade: boolean;
+        }[]
       >((resolve) => {
         const samples: {
           width: number;
           viewport: number;
+          gutter: number;
           moving: boolean;
           fade: boolean;
         }[] = [];
@@ -16,6 +23,15 @@ function recordMotion(scroller: Locator) {
         const sample = () => {
           samples.push({
             viewport: el.clientWidth,
+            gutter:
+              Number.parseFloat(
+                getComputedStyle(el.querySelector("[data-pdf-scroll-content]")!)
+                  .paddingLeft,
+              ) +
+              Number.parseFloat(
+                getComputedStyle(el.querySelector("[data-pdf-scroll-content]")!)
+                  .paddingRight,
+              ),
             moving:
               document
                 .querySelector("[data-workspace-layout-animating]")
@@ -174,7 +190,9 @@ test("a closing PDF keeps its zoom and reopening starts at the destination zoom"
       Math.min(...visibleOpening.map((frame) => frame.width)),
   ).toBeLessThan(1);
   const final = opened.at(-1)!;
-  expect(Math.abs(final.width - (final.viewport - 32))).toBeLessThan(1);
+  expect(Math.abs(final.width - (final.viewport - final.gutter))).toBeLessThan(
+    1,
+  );
   expect(final.width).toBeLessThan(initial - 50);
   await page.getByRole("button", { name: "Half", exact: true }).click();
   await expect(
@@ -232,10 +250,16 @@ test("reduced motion still fits the final panel without visual effects", async (
     .click();
   expect((await motion).some(({ fade }) => fade)).toBe(false);
   await expect(page.locator("[data-pdf-fit-concealed]")).toHaveCount(0);
-  const gap = await scroller.evaluate(
-    (el) =>
+  const fitError = await scroller.evaluate((el) => {
+    const content = getComputedStyle(
+      el.querySelector("[data-pdf-scroll-content]")!,
+    );
+    return (
       el.clientWidth -
-      el.querySelector(".mupdf-page")!.getBoundingClientRect().width,
-  );
-  expect(Math.abs(gap - 32)).toBeLessThan(1);
+      el.querySelector(".mupdf-page")!.getBoundingClientRect().width -
+      Number.parseFloat(content.paddingLeft) -
+      Number.parseFloat(content.paddingRight)
+    );
+  });
+  expect(Math.abs(fitError)).toBeLessThan(1);
 });

@@ -1,12 +1,20 @@
 import { canHandleEscape, consumeKey } from "@/lib/keyboard-events";
-import { setActiveComment } from "../editor/active-comment";
+import { getActiveComment, setActiveComment } from "../editor/active-comment";
 import type { CommentRange } from "../editor/comment-range";
 import { attachCommentToChat } from "@/lib/comment-chat-context";
+import { isReferencePanelWindow } from "@/lib/panel-window-runtime";
 import { registerSelectionContextActions } from "@/lib/context-menu";
 import { createPortal } from "react-dom";
 import { CommentsPanel, CommentsSummaryButton } from "../editor/comments-panel";
 import { ProblemsMotion } from "../editor/problems-motion";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { MessageSquareTextIcon } from "lucide-react";
 import { useDocumentStore } from "@/stores/document-store";
 import { useSettingsStore } from "@/stores/settings-store";
@@ -42,6 +50,7 @@ export function MarkdownComments({
   layoutAnimating,
   toolbarHost,
   panelHost,
+  onToolbarVisibilityChange,
 }: {
   frameDocument: Document;
   source: string;
@@ -50,6 +59,7 @@ export function MarkdownComments({
   layoutAnimating: boolean;
   toolbarHost: HTMLDivElement | null;
   panelHost: HTMLDivElement | null;
+  onToolbarVisibilityChange?: (visible: boolean) => void;
 }) {
   const projectRoot = useDocumentStore((s) => s.projectRoot);
   const selectedCommentIdsJson = useAgentChatStore((state) =>
@@ -78,6 +88,8 @@ export function MarkdownComments({
     range: Range;
     sourceRange: ReturnType<typeof markdownSelectionRange>;
   } | null>(null);
+  const selectionRef = useRef(selection);
+  selectionRef.current = selection;
   const [requestedCommentId, setRequestedCommentId] = useState<string | null>(
     null,
   );
@@ -95,6 +107,11 @@ export function MarkdownComments({
     (comment) => !comment.resolved,
   );
   const showControls = !editorVisible && activeComments.length > 0;
+  const toolbarVisible = showControls && !panelOpen;
+  useLayoutEffect(() => {
+    onToolbarVisibilityChange?.(toolbarVisible);
+    return () => onToolbarVisibilityChange?.(false);
+  }, [onToolbarVisibilityChange, toolbarVisible]);
   const pageElement = useRef<HTMLDivElement>(null);
   const [geometry, setGeometry] = useState<{
     width: number;
@@ -230,8 +247,13 @@ export function MarkdownComments({
           event.stopPropagation();
         }
       }
-      if (canHandleEscape(event)) {
+      if (
+        canHandleEscape(event) &&
+        (selectionRef.current || getActiveComment())
+      ) {
         consumeKey(event);
+        if (selectionRef.current)
+          frameDocument.getSelection()?.removeAllRanges();
         setSelection(null);
         setActiveComment(null);
       }
@@ -386,8 +408,9 @@ export function MarkdownComments({
       return {
         historyScope: projectRoot ? { root: projectRoot, filePath } : undefined,
         selectedCommentIds,
-        onAttach: (comment) =>
-          attachCommentToChat(projectRoot, filePath, comment),
+        onAttach: isReferencePanelWindow()
+          ? undefined
+          : (comment) => attachCommentToChat(projectRoot, filePath, comment),
         onResize: (id, range) =>
           setFiles(
             (current) => ({
@@ -489,14 +512,14 @@ export function MarkdownComments({
     <>
       {toolbarHost &&
         createPortal(
-          <ProblemsMotion kind="button" open={showControls && !panelOpen}>
+          <ProblemsMotion kind="button" open={toolbarVisible}>
             <div
               data-pdf-comments-summary
               className="flex shrink-0 items-center"
             >
               <div
                 aria-hidden="true"
-                className="mx-1 h-4 w-px shrink-0 bg-border"
+                className="mx-2 h-4 w-px shrink-0 bg-border"
               />
               <CommentsSummaryButton
                 comments={activeComments}

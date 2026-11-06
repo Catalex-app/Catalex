@@ -1,3 +1,4 @@
+import { WorkspacePanelHeader } from "../workspace-panel";
 import { useCallback, useMemo } from "react";
 import { Columns3Icon, PlusIcon, Rows3Icon } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -113,7 +114,39 @@ export function CsvTable() {
       aria-label={`${activeFile.name} table`}
       data-testid="csv-table"
     >
-      <header className="flex h-10 shrink-0 items-center gap-2 border-border/70 border-b px-3">
+      <WorkspacePanelHeader
+        hasTrailingContent
+        trailingContent={
+          <div className="flex items-center gap-1">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 gap-1.5 px-2 text-xs"
+              onClick={addRow}
+              disabled={isReadOnly}
+              aria-label="Add CSV row"
+            >
+              <Rows3Icon className="size-3.5" />
+              <PlusIcon className="-ml-1 size-3" />
+              Row
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 gap-1.5 px-2 text-xs"
+              onClick={addColumn}
+              disabled={isReadOnly}
+              aria-label="Add CSV column"
+            >
+              <Columns3Icon className="size-3.5" />
+              <PlusIcon className="-ml-1 size-3" />
+              Column
+            </Button>
+          </div>
+        }
+        as="header"
+        className="flex h-10 shrink-0 items-center gap-2 border-border/70 border-b px-3"
+      >
         <div className="min-w-0 flex-1 truncate text-muted-foreground text-xs">
           <span data-testid="csv-table-size">
             {csv.rows.length.toLocaleString()} rows · {columnCount} columns
@@ -121,31 +154,7 @@ export function CsvTable() {
           <span className="mx-2 text-border">|</span>
           <span>{delimiterLabel(csv.delimiter)}</span>
         </div>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-7 gap-1.5 px-2 text-xs"
-          onClick={addRow}
-          disabled={isReadOnly}
-          aria-label="Add CSV row"
-        >
-          <Rows3Icon className="size-3.5" />
-          <PlusIcon className="-ml-1 size-3" />
-          Row
-        </Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-7 gap-1.5 px-2 text-xs"
-          onClick={addColumn}
-          disabled={isReadOnly}
-          aria-label="Add CSV column"
-        >
-          <Columns3Icon className="size-3.5" />
-          <PlusIcon className="-ml-1 size-3" />
-          Column
-        </Button>
-      </header>
+      </WorkspacePanelHeader>
 
       <div className="min-h-0 flex-1 overflow-auto" data-testid="csv-grid">
         <table className="min-w-full table-fixed border-separate border-spacing-0 text-sm">

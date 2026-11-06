@@ -190,6 +190,20 @@ export function HistorySnapshotContent({
           }
         >
           <WorkspacePanelHeader
+            trailingContent={
+              hasComparison &&
+              !loading && (
+                <div
+                  className="history-snapshot-legend"
+                  role="group"
+                  aria-label="Diff legend"
+                >
+                  <span data-change="removed">− Latest</span>
+                  <span data-change="added">+ Selected</span>
+                </div>
+              )
+            }
+            hasTrailingContent={hasComparison && !loading}
             role="toolbar"
             aria-label={
               previewLabel ??
@@ -218,16 +232,6 @@ export function HistorySnapshotContent({
                 </div>
               </Hint>
             </div>
-            {hasComparison && !loading && (
-              <div
-                className="history-snapshot-legend"
-                role="group"
-                aria-label="Diff legend"
-              >
-                <span data-change="removed">− Latest</span>
-                <span data-change="added">+ Selected</span>
-              </div>
-            )}
           </WorkspacePanelHeader>
           {largeDiff && !loading && (
             <p className="history-snapshot-large-notice">

@@ -14,6 +14,7 @@ interface ProposedChangesPanelProps {
   onKeep: () => void;
   onUndo: () => void;
   settlementError?: string | null;
+  disabled?: boolean;
 }
 
 export const ProposedChangesPanel: FC<ProposedChangesPanelProps> = ({
@@ -27,6 +28,7 @@ export const ProposedChangesPanel: FC<ProposedChangesPanelProps> = ({
   onKeep,
   onUndo,
   settlementError,
+  disabled = false,
 }) => {
   const oldLines = change.oldContent.split("\n").length;
   const newLines = change.newContent.split("\n").length;
@@ -101,6 +103,7 @@ export const ProposedChangesPanel: FC<ProposedChangesPanelProps> = ({
         {threeWay && onUseStarting && (
           <button
             type="button"
+            disabled={disabled}
             onClick={onUseStarting}
             className="flex h-7 items-center gap-1 rounded-md bg-[#64748b] px-2.5 font-medium text-white text-xs transition-colors hover:bg-[#475569]"
           >
@@ -109,6 +112,7 @@ export const ProposedChangesPanel: FC<ProposedChangesPanelProps> = ({
         )}
         <button
           type="button"
+          disabled={disabled}
           onClick={onUndo}
           aria-label="Reject All"
           className="flex h-7 items-center gap-1 rounded-md bg-[#ef4444] px-2.5 font-medium text-white text-xs transition-colors hover:bg-[#dc3e3e]"
@@ -120,6 +124,7 @@ export const ProposedChangesPanel: FC<ProposedChangesPanelProps> = ({
         </button>
         <button
           type="button"
+          disabled={disabled}
           onClick={onKeep}
           aria-label="Accept All"
           className="flex h-7 items-center gap-1 rounded-md bg-[#36ad5e] px-2.5 font-medium text-white text-xs transition-colors hover:bg-[#2f9852]"

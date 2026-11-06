@@ -132,7 +132,13 @@ export function CommentsPanel({
       (comment) =>
         filter === "all" || (filter === "agent") === !!comment.origin,
     )
-    .sort((a, b) => a.from - b.from || a.to - b.to);
+    .sort((a, b) => {
+      const first = a.pdf?.regions[0],
+        second = b.pdf?.regions[0];
+      return first && second
+        ? first.page - second.page || first.y - second.y || first.x - second.x
+        : a.from - b.from || a.to - b.to;
+    });
   const focusedId = visible.some((comment) => comment.id === activeId)
     ? activeId
     : null;
@@ -154,7 +160,7 @@ export function CommentsPanel({
   return (
     <div
       data-comments-panel="true"
-      className="@container/comments flex h-12 shrink-0 items-center gap-2 border-border border-b bg-background px-3 text-xs"
+      className="@container/comments flex h-12 shrink-0 items-center gap-2 border-border border-b bg-background pr-2 pl-3 text-xs"
     >
       <span className="shrink-0 font-medium text-foreground">Comments</span>
       <CommentAuthorFilter
@@ -224,7 +230,7 @@ export function CommentsPanel({
             type="button"
             onClick={onClose}
             aria-label="Hide comments"
-            className="ml-1 flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="ml-1 flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <XIcon className="size-3.5" />
           </button>

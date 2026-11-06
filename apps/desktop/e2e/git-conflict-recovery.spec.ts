@@ -891,7 +891,7 @@ test("Duet merge tabs reuse the Artisan drawer exit and entry animations", async
   await video?.saveAs("test-results/duet-merge-drawer-animation.webm");
 });
 
-test("image headers contain independent zoom and size, with crop local to the resolved image", async ({
+test("image headers share PDF zoom controls without cropping", async ({
   page,
 }) => {
   const view = await openImage(page);
@@ -930,14 +930,13 @@ test("image headers contain independent zoom and size, with crop local to the re
   }
   const image = current.getByRole("img");
   for (const pane of [current, incoming]) {
-    await expect(pane.getByRole("combobox", { name: "Image zoom" })).toHaveText(
-      "Width",
-    );
+    await expect(
+      pane.getByRole("button", { name: "Fit width", exact: true }),
+    ).toHaveAttribute("aria-pressed", "true");
   }
   const checkFit = async (pane: typeof current, mode: "width" | "height") => {
-    await pane.getByRole("combobox", { name: "Image zoom" }).click();
-    await page
-      .getByRole("option", { name: `Fit to ${mode}`, exact: true })
+    await pane
+      .getByRole("button", { name: `Fit ${mode}`, exact: true })
       .click();
     await expect
       .poll(() =>
@@ -959,12 +958,32 @@ test("image headers contain independent zoom and size, with crop local to the re
   };
   await checkFit(current, "height");
   await expect(
-    incoming.getByRole("combobox", { name: "Image zoom" }),
-  ).toHaveText("Width");
+    incoming.getByRole("button", { name: "Fit width", exact: true }),
+  ).toHaveAttribute("aria-pressed", "true");
   await page.setViewportSize({ width: 1100, height: 850 });
   await checkFit(current, "height");
+  for (const pane of [current, incoming]) {
+    expect(
+      await pane
+        .getByRole("toolbar", { name: "Image controls" })
+        .evaluate((header) => {
+          const bounds = header.getBoundingClientRect();
+          return [...header.querySelectorAll("button, input")].every(
+            (control) => {
+              const rect = control.getBoundingClientRect();
+              return (
+                rect.left >= bounds.left &&
+                rect.right <= bounds.right &&
+                rect.top >= bounds.top &&
+                rect.bottom <= bounds.bottom
+              );
+            },
+          );
+        }),
+    ).toBe(true);
+  }
   await page.screenshot({
-    path: "test-results/image-fit-height-merge.png",
+    path: test.info().outputPath("image-fit-height-merge.png"),
     animations: "disabled",
   });
   await page.setViewportSize({ width: 1280, height: 720 });
@@ -972,14 +991,14 @@ test("image headers contain independent zoom and size, with crop local to the re
   const before = await image.boundingBox();
   await current.getByRole("button", { name: "Zoom in", exact: true }).click();
   await expect(
-    current.getByRole("combobox", { name: "Image zoom" }),
-  ).toHaveText("125%");
+    current.getByRole("textbox", { name: "Zoom percentage" }),
+  ).toHaveValue("125%");
   await expect(
-    incoming.getByRole("combobox", { name: "Image zoom" }),
-  ).toHaveText("Width");
+    incoming.getByRole("button", { name: "Fit width", exact: true }),
+  ).toHaveAttribute("aria-pressed", "true");
   expect((await image.boundingBox())!.width).toBeGreaterThan(before!.width);
   await page.screenshot({
-    path: "test-results/image-merge-headers.png",
+    path: test.info().outputPath("image-merge-headers.png"),
     animations: "disabled",
   });
   await current.getByRole("button", { name: "Accept current" }).click();
@@ -1000,13 +1019,17 @@ test("image headers contain independent zoom and size, with crop local to the re
       reader.onload = () => resolve(String(reader.result));
       reader.readAsDataURL(blob);
     });
-    useDocumentStore.getState().updateImageDataUrl("figure.png", dataUrl);
+    useDocumentStore.setState((state) => ({
+      files: state.files.map((file) =>
+        file.id === "figure.png" ? { ...file, dataUrl } : file,
+      ),
+    }));
   });
   const header = page.getByRole("toolbar", { name: "Image controls" });
   await expect(header).toHaveCount(1);
   await expect(
     header.getByRole("button", { name: "Crop", exact: true }),
-  ).toBeVisible();
+  ).toHaveCount(0);
   const normalImage = page.getByRole("img", {
     name: "figure.png",
     exact: true,
@@ -1014,22 +1037,24 @@ test("image headers contain independent zoom and size, with crop local to the re
   await expect
     .poll(() => normalImage.evaluate((el: HTMLImageElement) => el.naturalWidth))
     .toBeGreaterThan(0);
-  await expect(header.getByRole("combobox", { name: "Image zoom" })).toHaveText(
-    "Width",
-  );
+  await expect(
+    header.getByRole("button", { name: "Fit width", exact: true }),
+  ).toHaveAttribute("aria-pressed", "true");
   const fullSize = await normalImage.boundingBox();
-  await header.getByRole("combobox", { name: "Image zoom" }).click();
-  await page.getByRole("option", { name: "50%", exact: true }).click();
+  const percentage = header.getByRole("textbox", { name: "Zoom percentage" });
+  await percentage.fill("50%");
+  await percentage.press("Enter");
+  await expect(percentage).toHaveValue("50%");
+  await expect(
+    header.getByRole("button", { name: "Fit width", exact: true }),
+  ).toHaveAttribute("aria-pressed", "false");
   await expect
     .poll(
       async () => (await normalImage.boundingBox())!.width / fullSize!.width,
     )
     .toBeCloseTo(0.5, 1);
   await expect(header).not.toContainText("Size unavailable");
-  await header.getByRole("combobox", { name: "Image zoom" }).click();
-  await page
-    .getByRole("option", { name: "Fit to height", exact: true })
-    .click();
+  await header.getByRole("button", { name: "Fit height", exact: true }).click();
   await expect
     .poll(() =>
       normalImage.evaluate((el) => {
@@ -1041,25 +1066,110 @@ test("image headers contain independent zoom and size, with crop local to the re
     )
     .toBeLessThan(2);
   await page.screenshot({
-    path: "test-results/image-fit-height-normal.png",
+    path: test.info().outputPath("image-fit-height-normal.png"),
     animations: "disabled",
   });
 
-  await header.getByRole("button", { name: "Crop", exact: true }).click();
+  const sourceBefore = await normalImage.getAttribute("src");
+  const sizeBefore = await normalImage.evaluate((el: HTMLImageElement) => [
+    el.naturalWidth,
+    el.naturalHeight,
+  ]);
+  const inputChecks = [
+    ["175", "Enter", "175%"],
+    ["not a number", "Enter", "175%"],
+    ["225", "Escape", "175%"],
+    ["9999", "Enter", "400%"],
+    ["0", "Enter", "25%"],
+  ];
+  for (const [value, key, expected] of inputChecks) {
+    await percentage.fill(value);
+    await percentage.press(key);
+    await expect(percentage).toHaveValue(expected);
+  }
   await expect(
-    page.getByText("Drag to select crop area. Press ESC to cancel."),
-  ).toBeVisible();
+    header.getByRole("button", { name: "Zoom out", exact: true }),
+  ).toBeDisabled();
+  await percentage.fill("400");
+  await percentage.press("Tab");
+  await expect(percentage).toHaveValue("400%");
   await expect(
     header.getByRole("button", { name: "Zoom in", exact: true }),
   ).toBeDisabled();
-  await page.keyboard.press("Escape");
+  await normalImage.click({ position: { x: 10, y: 10 } });
+  await page.keyboard.press("Control+0");
+  await expect(percentage).toHaveValue("100%");
+  await page.keyboard.press("Control+-");
+  await expect(percentage).toHaveValue("75%");
+  await normalImage.dispatchEvent("wheel", { ctrlKey: true, deltaY: -100 });
+  await expect(percentage).toHaveValue("85%");
+  await header.getByRole("button", { name: "Fit width", exact: true }).click();
+  await page.setViewportSize({ width: 900, height: 700 });
+  await expect
+    .poll(() =>
+      normalImage.evaluate((el) => {
+        const viewport = el.closest(".app-scrollbar")!;
+        return Math.abs(
+          el.getBoundingClientRect().width - (viewport.clientWidth - 32),
+        );
+      }),
+    )
+    .toBeLessThan(2);
+  await expect(normalImage).toHaveAttribute("src", sourceBefore!);
+  expect(
+    await normalImage.evaluate((el: HTMLImageElement) => [
+      el.naturalWidth,
+      el.naturalHeight,
+    ]),
+  ).toEqual(sizeBefore);
   await expect(
-    header.getByRole("button", { name: "Crop", exact: true }),
-  ).toHaveAttribute("aria-pressed", "false");
+    page.getByRole("button", { name: "Crop", exact: true }),
+  ).toHaveCount(0);
   await page.screenshot({
-    path: "test-results/image-normal-header.png",
+    path: test.info().outputPath("image-normal-header.png"),
     animations: "disabled",
   });
+  const opened = page.waitForEvent("popup");
+  await page.evaluate(async () => {
+    const { openPanelWindow } = await import(
+      /* @vite-ignore */ "/src/renderer/lib/panel-windows.ts"
+    );
+    await openPanelWindow("editor", "duet", { fileId: "figure.png" });
+  });
+  const child = await opened;
+  await child.setViewportSize({ width: 380, height: 620 });
+  const childHeader = child.getByRole("toolbar", { name: "Image controls" });
+  const childPercentage = childHeader.getByRole("textbox", {
+    name: "Zoom percentage",
+  });
+  await expect(childPercentage).toBeVisible();
+  await childHeader
+    .getByRole("button", { name: "Fit height", exact: true })
+    .click();
+  await expect(
+    childHeader.getByRole("button", { name: "Fit height", exact: true }),
+  ).toHaveAttribute("aria-pressed", "true");
+  await childPercentage.fill("150");
+  await childPercentage.press("Enter");
+  await expect(childPercentage).toHaveValue("150%");
+  await expect(
+    childHeader.getByRole("button", { name: "Fit height", exact: true }),
+  ).toHaveAttribute("aria-pressed", "false");
+  await expect(
+    childHeader.getByRole("button", { name: "Fit width", exact: true }),
+  ).toHaveAttribute("aria-pressed", "false");
+  await child.mouse.move(10, 10);
+  await expect(percentage).toHaveValue("100%");
+  await expect(
+    child.getByRole("button", { name: "Crop", exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    child.getByRole("img", { name: "figure.png", exact: true }),
+  ).toHaveAttribute("src", sourceBefore!);
+  await child.screenshot({
+    path: test.info().outputPath("image-popout-narrow.png"),
+  });
+  await child.close();
 });
 
 for (const [file, choice, key, hint] of [

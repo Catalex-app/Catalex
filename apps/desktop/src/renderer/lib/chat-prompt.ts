@@ -8,14 +8,16 @@ import {
 function formatAttachment(context: ChatContextBadge): string {
   const comment = context.comment;
   if (comment) {
-    const location = [
-      comment.line === undefined ? null : `line ${comment.line}`,
-      comment.from === undefined || comment.to === undefined
-        ? null
-        : `offsets ${comment.from}–${comment.to}`,
-    ]
-      .filter(Boolean)
-      .join(", ");
+    const location = context.pdf
+      ? `PDF page ${context.pdf.page}`
+      : [
+          comment.line === undefined ? null : `line ${comment.line}`,
+          comment.from === undefined || comment.to === undefined
+            ? null
+            : `offsets ${comment.from}–${comment.to}`,
+        ]
+          .filter(Boolean)
+          .join(", ");
     return [
       "[Attached comment — snapshot]",
       `Label: ${comment.label ?? context.label.split(" · ")[0]}`,
@@ -26,6 +28,7 @@ function formatAttachment(context: ChatContextBadge): string {
         ? []
         : [`Status: ${comment.resolved ? "resolved" : "open"}`]),
       ...(location ? [`Location: ${location}`] : []),
+      ...(context.pdf ? [`Selected PDF text:\n${context.selectedText}`] : []),
       `Comment:\n${comment.text}`,
     ].join("\n");
   }
@@ -35,10 +38,16 @@ function formatAttachment(context: ChatContextBadge): string {
   return [
     context.imageDataUrl
       ? "[Attached image]"
-      : isSelectionRangeContextLabel(context.label)
+      : context.pdf || isSelectionRangeContextLabel(context.label)
         ? "[Selected text]"
         : "[Attached file]",
     `File: ${context.filePath}`,
+    ...(context.pdf
+      ? [
+          `${context.pdf.kind === "compiled" ? "PDF compiled from" : "PDF document"}: ${context.pdf.documentPath}`,
+          `PDF page: ${context.pdf.page}`,
+        ]
+      : []),
     ...(context.proposedDraft
       ? [
           "Source: Agent proposed draft (captured snapshot; locations may have changed).",
@@ -54,6 +63,16 @@ function formatAttachment(context: ChatContextBadge): string {
         ]
       : [`Label: ${context.label}`]),
     `Text:\n${context.selectedText}`,
+    ...(context.diagnostics?.length
+      ? [
+          `Detected issues:\n${context.diagnostics
+            .map(
+              (issue) =>
+                `- ${context.filePath}${issue.line === null ? "" : `:${issue.line}`} — [${issue.severity}] ${issue.message}`,
+            )
+            .join("\n")}`,
+        ]
+      : []),
   ].join("\n");
 }
 

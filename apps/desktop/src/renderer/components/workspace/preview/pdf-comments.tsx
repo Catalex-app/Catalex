@@ -1,3 +1,4 @@
+import { pdfFileCommentRegions } from "./pdf-file-comments";
 import { canHandleEscape, consumeKey } from "@/lib/keyboard-events";
 import { COMMENT_SEARCH_NAVIGATE_EVENT } from "@/lib/workspace-events";
 import {
@@ -92,6 +93,7 @@ export function pdfCommentTargets(
     let lineAt: ReturnType<typeof sourceLineLookup> | undefined;
     return (comments[file.relativePath] ?? []).flatMap((comment) => {
       if (
+        comment.pdf ||
         comment.resolved ||
         (!comment.text.trim() && !comment.isEditing) ||
         comment.from < 0 ||
@@ -279,10 +281,15 @@ const FocusContext = createContext<{
   registerMapper: (page: number, mapper: PointMapper) => () => void;
   mapPoint: PointMapper;
   selected: PdfCommentTarget | null;
+  reveal: (target: PdfCommentTarget) => void;
   isSelected?: (target: PdfCommentTarget) => boolean;
   select: (target: PdfCommentTarget, anchor: HTMLElement) => void;
   resize?: (target: PdfCommentTarget, range: CommentRange) => void;
 } | null>(null);
+
+export function useRevealPdfComment() {
+  return useContext(FocusContext)?.reveal;
+}
 
 export function PdfCommentInteraction({
   context,
@@ -684,6 +691,14 @@ export function PdfCommentInteraction({
       <FocusContext.Provider
         value={{
           selected,
+          reveal: (target) => {
+            setSearchRequest((previous) => ({
+              id: target.comment.id,
+              revision: (previous?.revision ?? 0) + 1,
+            }));
+            if (!target.comment.isEditing)
+              actionsFor(target).onAttach?.(target.comment);
+          },
           preview,
           setPreview,
           registerMapper,
@@ -834,6 +849,8 @@ export function PdfCommentLayer({
       mapped.textData !== textData
     )
       return [];
+    if (context.targets.some((target) => target.comment.pdf))
+      return pdfFileCommentRegions(context.targets, pageNumber);
     const displayTargets = context.targets.map((target) => {
       if (
         !preview ||
@@ -901,7 +918,15 @@ export function PdfCommentLayer({
           ),
       };
     });
-  }, [context?.targets, context?.lookup, mapped, textData, lines, preview]);
+  }, [
+    context?.targets,
+    context?.lookup,
+    mapped,
+    textData,
+    lines,
+    preview,
+    pageNumber,
+  ]);
   if (
     !context ||
     mapped?.context.lookup !== context.lookup ||

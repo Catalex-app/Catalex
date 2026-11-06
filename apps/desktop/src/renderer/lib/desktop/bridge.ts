@@ -1,3 +1,4 @@
+import { getPanelWindowSession } from "../panel-window-runtime";
 import { PRODUCT_NAME } from "../../../branding";
 export interface DesktopBridge {
   invoke<T>(
@@ -19,7 +20,7 @@ declare global {
 
 // Existing browser harnesses implement this in memory. Production Electron
 // always uses the preload bridge and never accesses these test internals.
-interface BrowserHarness {
+export interface BrowserHarness {
   invoke(
     command: string,
     args?: unknown,
@@ -31,8 +32,11 @@ interface BrowserHarness {
 }
 
 export function browserHarness(): BrowserHarness | undefined {
-  return (window as Window & { __TAURI_INTERNALS__?: BrowserHarness })
-    .__TAURI_INTERNALS__;
+  return (
+    (window as Window & { __TAURI_INTERNALS__?: BrowserHarness })
+      .__TAURI_INTERNALS__ ??
+    (import.meta.env.DEV ? getPanelWindowSession()?.browserHarness : undefined)
+  );
 }
 
 export function isDesktop(): boolean {

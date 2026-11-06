@@ -1,5 +1,5 @@
+import { createPanelStore } from "@/lib/panel-window-runtime";
 import { useSettingsStore } from "./settings-store";
-import { create } from "zustand";
 import { invoke } from "@/lib/desktop/core";
 
 interface CodexStatus {
@@ -91,6 +91,7 @@ function advanceSteps(steps: StepInfo[], targetId: string): StepInfo[] {
   });
 }
 
+const create = createPanelStore("codex");
 export const useCodexSetupStore = create<CodexSetupState>((set, get) => ({
   status: "checking",
   isLoggingIn: false,

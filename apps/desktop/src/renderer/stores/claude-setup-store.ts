@@ -1,5 +1,5 @@
+import { createPanelStore } from "@/lib/panel-window-runtime";
 import { useSettingsStore } from "./settings-store";
-import { create } from "zustand";
 import { invoke } from "@/lib/desktop/core";
 import { sortClaudeModels, type ClaudeModelInfo } from "@/lib/claude-models";
 
@@ -123,6 +123,7 @@ function discoverModels(): Promise<ClaudeModelInfo[]> {
   return modelDiscoveryRequest;
 }
 
+const create = createPanelStore("claude");
 export const useClaudeSetupStore = create<ClaudeSetupState>((set, get) => ({
   status: "checking",
   isInstalling: false,

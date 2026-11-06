@@ -3153,6 +3153,7 @@ function FileTreeNode({
   const isExpanded = expandedFolders.has(node.relativePath);
   const [folderAddMenuOpen, setFolderAddMenuOpen] = useState(false);
   const [confirmTrash, setConfirmTrash] = useState(false);
+  const [chatMenuOpen, setChatMenuOpen] = useState(false);
 
   if (node.type === "folder") {
     const isIgnored = isIgnoredFolderPath(node, gitIgnoredPaths);
@@ -3332,7 +3333,12 @@ function FileTreeNode({
   );
   return (
     <DraggableItem id={file.relativePath} type="file" name={node.name}>
-      <ContextMenu onOpenChange={() => setConfirmTrash(false)}>
+      <ContextMenu
+        onOpenChange={() => {
+          setConfirmTrash(false);
+          setChatMenuOpen(false);
+        }}
+      >
         <Hint
           content={
             isConflicted
@@ -3421,31 +3427,55 @@ function FileTreeNode({
             </SidebarRow>
           </ContextMenuTrigger>
         </Hint>
-        <ContextMenuContent>
-          <SidebarFileContextActions file={file} aiEnabled={aiEnabled} />
-          <ContextMenuItem onClick={() => onRename(file.id, file.name, "file")}>
-            <PencilIcon className="mr-2 size-4" />
-            Rename
-          </ContextMenuItem>
-          <ContextMenuItem
-            variant="destructive"
-            className="trash-context-menu-item"
-            data-confirming={confirmTrash}
-            aria-label={confirmTrash ? "Confirm" : "Move to Trash"}
-            textValue={confirmTrash ? "Confirm" : "Move to Trash"}
-            onSelect={(event) => {
-              if (!confirmTrash) {
-                event.preventDefault();
-                setConfirmTrash(true);
-                return;
-              }
-              setConfirmTrash(false);
-              onDelete(file.id);
-            }}
-            disabled={fileCount <= 1}
+        <ContextMenuContent
+          className={chatMenuOpen ? "w-64" : undefined}
+          aria-label={chatMenuOpen ? "Send file to chat" : "File actions"}
+          onEscapeKeyDown={(event) => {
+            if (chatMenuOpen) {
+              event.preventDefault();
+              setChatMenuOpen(false);
+            }
+          }}
+          onKeyDown={(event) => {
+            if (chatMenuOpen && event.key === "ArrowLeft") {
+              event.preventDefault();
+              event.stopPropagation();
+              setChatMenuOpen(false);
+            }
+          }}
+        >
+          <SidebarFileContextActions
+            file={file}
+            aiEnabled={aiEnabled}
+            chatMenuOpen={chatMenuOpen}
+            onChatMenuOpenChange={setChatMenuOpen}
           >
-            <TrashMenuLabel />
-          </ContextMenuItem>
+            <ContextMenuItem
+              onClick={() => onRename(file.id, file.name, "file")}
+            >
+              <PencilIcon className="mr-2 size-4" />
+              Rename
+            </ContextMenuItem>
+            <ContextMenuItem
+              variant="destructive"
+              className="trash-context-menu-item"
+              data-confirming={confirmTrash}
+              aria-label={confirmTrash ? "Confirm" : "Move to Trash"}
+              textValue={confirmTrash ? "Confirm" : "Move to Trash"}
+              onSelect={(event) => {
+                if (!confirmTrash) {
+                  event.preventDefault();
+                  setConfirmTrash(true);
+                  return;
+                }
+                setConfirmTrash(false);
+                onDelete(file.id);
+              }}
+              disabled={fileCount <= 1}
+            >
+              <TrashMenuLabel />
+            </ContextMenuItem>
+          </SidebarFileContextActions>
         </ContextMenuContent>
       </ContextMenu>
     </DraggableItem>

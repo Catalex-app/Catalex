@@ -296,6 +296,61 @@ describe("useProposedChangesStore", () => {
       expect(discardAgentWorkspace).not.toHaveBeenCalled();
     });
 
+    it("reserves a review transaction before another window can remove a second decision", async () => {
+      startReview();
+      const state = useProposedChangesStore.getState();
+      const first = state.changes[0];
+      const second = { ...first, id: "second", filePath: "second.tex" };
+      useProposedChangesStore.setState({
+        changes: [first, second],
+        workspaceReview: {
+          ...state.workspaceReview!,
+          originalChanges: [first, second],
+        },
+      });
+      let release!: (
+        result: Awaited<ReturnType<typeof applyAgentWorkspace>>,
+      ) => void;
+      vi.mocked(applyAgentWorkspace).mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            release = resolve;
+          }),
+      );
+      const accepting = state.keepChange(first.id);
+      // This arrives before the first transaction resumes its dynamic imports.
+      await state.undoChange(second.id);
+      await vi.waitFor(() =>
+        expect(applyAgentWorkspace).toHaveBeenCalledTimes(1),
+      );
+      expect(
+        useProposedChangesStore.getState().changes.map((change) => change.id),
+      ).toEqual(["second"]);
+      expect(vi.mocked(applyAgentWorkspace).mock.calls[0][2]).toEqual([
+        expect.objectContaining({ changeId: first.id, accept: true }),
+      ]);
+      release({
+        applied: false,
+        changedPaths: [],
+        conflicts: [
+          {
+            changeId: first.id,
+            filePath: first.filePath,
+            reason: "Test conflict",
+          },
+        ],
+      });
+      await accepting;
+      expect(useProposedChangesStore.getState().changes).toHaveLength(2);
+      vi.mocked(applyAgentWorkspace).mockResolvedValue({
+        applied: false,
+        changedPaths: [],
+        conflicts: [],
+      });
+      await useProposedChangesStore.getState().undoChange(second.id);
+      expect(applyAgentWorkspace).toHaveBeenCalledTimes(2);
+    });
+
     it.each([
       "keepChange",
       "keepAll",

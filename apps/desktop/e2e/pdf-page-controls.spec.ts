@@ -30,7 +30,7 @@ function fixture(count: number) {
 }
 
 for (const theme of ["light", "dark"] as const) {
-  test(`${theme} page navigation stays grouped and fits across toolbar widths`, async ({
+  test(`${theme} PDF controls overflow in priority order and retain navigation`, async ({
     page,
   }, testInfo) => {
     await page.emulateMedia({ colorScheme: theme });
@@ -49,12 +49,9 @@ for (const theme of ["light", "dark"] as const) {
       name: "PDF pages",
       exact: true,
     });
-    const indicator = toolbar.locator("[data-pdf-page-indicator]");
-    const current = navigation.getByRole("button", {
+    const counter = navigation.getByRole("button", {
       name: "Click to jump to page",
     });
-    const pageValue = navigation.locator("[data-pdf-page-current]");
-    const separator = toolbar.locator("[data-pdf-page-separator]");
     const previous = navigation.getByRole("button", {
       name: "Page Up",
       exact: true,
@@ -63,167 +60,121 @@ for (const theme of ["light", "dark"] as const) {
       name: "Page Down",
       exact: true,
     });
-    const fit = toolbar.getByRole("button", { name: "Fit width", exact: true });
-    await expect(indicator).toContainText("/123");
+    await expect(counter).toHaveText("1/123");
     await expect(previous).toBeDisabled();
     await next.click();
-    await expect(pageValue).toHaveText("2");
-
-    const readingWidth = (await indicator.boundingBox())!.width;
-    await current.click();
-    const input = navigation.getByRole("textbox", { name: "Page number" });
-    await input.fill("123");
-    expect((await indicator.boundingBox())!.width).toBeCloseTo(readingWidth, 1);
-    // Every digit should fit inside the input, including its padding/borders.
+    await expect(counter).toHaveText("2/123");
+    const before = (await counter.boundingBox())!.width;
+    await counter.click();
+    const inlineInput = navigation.getByRole("textbox", {
+      name: "Page number",
+    });
+    await inlineInput.fill("123");
+    expect((await inlineInput.boundingBox())!.width).toBeCloseTo(before, 1);
     expect(
-      await input.evaluate(
-        (element) => element.scrollWidth - element.clientWidth,
-      ),
+      await inlineInput.evaluate((el) => el.scrollWidth - el.clientWidth),
     ).toBeLessThanOrEqual(1);
-    await input.press("Enter");
-    await expect(pageValue).toHaveText("123");
+    await inlineInput.press("Enter");
+    await expect(counter).toHaveText("123/123");
     await expect(next).toBeDisabled();
     await previous.click();
-    await expect(pageValue).toHaveText("122");
+    await expect(counter).toHaveText("122/123");
 
-    let expanded = false;
-    let compact = false;
-    for (const width of [1600, 1200, 1000, 850, 700, 1600]) {
+    const stages = new Set<number>();
+    let compactBeforeOverflow = false;
+    for (let width = 1200; width >= 560; width -= 20) {
       await page.setViewportSize({ width, height: 900 });
-      await page
-        .getByTestId("pdf-scroll-container")
-        .evaluate(async (element) => {
-          await Promise.allSettled(
-            element
-              .getAnimations({ subtree: true })
-              .map((animation) => animation.finished),
-          );
-        });
-      await expect
-        .poll(async () => {
-          const row = await toolbar.boundingBox();
-          const group = await navigation.boundingBox();
-          const end = await toolbar
-            .getByRole("button", { name: "Export PDF", exact: true })
-            .boundingBox();
-          const fitBounds = await fit.boundingBox();
-          const left = await toolbar
-            .locator(":scope > div")
-            .first()
-            .boundingBox();
-          return (
-            group!.x >= left!.x + left!.width - 1 &&
-            fitBounds!.x - (group!.x + group!.width) >= 3 &&
-            end!.x + end!.width <= row!.x + row!.width - 1
-          );
-        })
-        .toBe(true);
-      expanded ||= await next.isVisible();
-      compact ||= !(await next.isVisible());
-      await expect(separator).toBeVisible();
-      const rule = (await separator.boundingBox())!;
-      const groupBounds = (await navigation.boundingBox())!;
-      const fitBounds = (await fit.boundingBox())!;
-      expect(rule.x).toBeGreaterThan(groupBounds.x + groupBounds.width);
-      expect(rule.x + rule.width).toBeLessThan(fitBounds.x);
-      await current.click();
-      const editor = navigation.getByRole("textbox", { name: "Page number" });
-      await expect(editor).toBeFocused();
-      const fitHeight = toolbar.getByRole("button", {
-        name: "Fit height",
-        exact: true,
-      });
-      expect((await editor.boundingBox())!.height).toBe(
-        (await fitHeight.boundingBox())!.height,
-      );
-      const focusStyle = await editor.evaluate((element) => {
-        const style = getComputedStyle(element);
-        return {
-          radius: style.borderRadius,
-          outlineStyle: style.outlineStyle,
-          borderColor: style.borderColor,
-          focusColor: getComputedStyle(document.documentElement)
-            .getPropertyValue("--ring")
-            .trim(),
-          boxShadow: style.boxShadow,
-        };
-      });
-      expect(focusStyle.radius).toBe(
-        await fitHeight.evaluate(
-          (element) => getComputedStyle(element).borderRadius,
-        ),
-      );
-      expect(focusStyle.outlineStyle).toBe("none");
-      expect(focusStyle.borderColor).toBe(focusStyle.focusColor);
-      expect(focusStyle.boxShadow).toBe("none");
-      if (width === 1600 || width === 700) {
-        await toolbar.screenshot({
-          path: testInfo.outputPath(`page-focus-${theme}-${width}.png`),
-        });
-      }
-      const beforeEdit = await editor.inputValue();
-      const editWidth = (await indicator.boundingBox())!.width;
-      await editor.fill("1");
-      await editor.press("Escape");
-      await expect(pageValue).toHaveText(beforeEdit);
-      expect((await indicator.boundingBox())!.width).toBeCloseTo(editWidth, 1);
-      if (width === 1600 || width === 700) {
-        await page.mouse.move(0, 0);
-        await toolbar.screenshot({
-          path: testInfo.outputPath(`pages-${theme}-${width}.png`),
-        });
-      }
+      await page.waitForTimeout(90);
+      const hidden = await Promise.all([
+        counter.isVisible(),
+        toolbar
+          .getByRole("button", { name: "Fit height", exact: true })
+          .isVisible(),
+        toolbar
+          .getByRole("button", { name: "Fit width", exact: true })
+          .isVisible(),
+        toolbar
+          .getByRole("button", { name: "Export PDF", exact: true })
+          .isVisible(),
+      ]).then((visible) => visible.map((value) => !value));
+      const stage = hidden.filter(Boolean).length;
+      const compileWidth = (await toolbar
+        .getByRole("button", { name: "Recompile", exact: true })
+        .boundingBox())!.width;
+      if (stage === 0 && compileWidth === 28) compactBeforeOverflow = true;
+      if (stage > 0) expect(compileWidth).toBe(28);
+      stages.add(stage);
+      expect(hidden).toEqual([0, 1, 2, 3].map((index) => index < stage));
+      expect(
+        await toolbar
+          .locator("[data-panel-header-space]")
+          .evaluate((el) => el.getBoundingClientRect().width),
+      ).toBe(56);
+      expect(
+        await toolbar.evaluate((el) => el.scrollWidth - el.clientWidth),
+      ).toBeLessThanOrEqual(1);
+      await expect(
+        toolbar.getByRole("button", { name: "Recompile", exact: true }),
+      ).toBeVisible();
+      await expect(
+        toolbar.getByRole("group", { name: "PDF zoom", exact: true }),
+      ).toBeVisible();
     }
-    expect(expanded).toBe(true);
-    expect(compact).toBe(true);
-    await current.click();
-    const inputAgain = navigation.getByRole("textbox", { name: "Page number" });
-    await inputAgain.fill("1");
-    await inputAgain.press("Enter");
-    await expect(pageValue).toHaveText("1");
-    await expect(previous).toBeDisabled();
+    expect(compactBeforeOverflow).toBe(true);
+    expect([...stages].sort()).toEqual([0, 1, 2, 3, 4]);
+    await expect(navigation).toHaveCount(0);
+    await expect(toolbar.locator("[data-pdf-page-separator]")).toHaveCount(0);
+    await toolbar
+      .getByRole("button", { name: "More PDF view actions" })
+      .click();
+    await expect(page.getByRole("menu")).toBeVisible();
+    const pageItem = page.getByRole("menuitem", {
+      name: /^Page \d+ \/ 123$/,
+      exact: true,
+    });
+    const currentLabel = (await pageItem.getAttribute("aria-label"))!;
+    const countBounds = (await pageItem
+      .locator("[data-pdf-menu-page-count]")
+      .boundingBox())!;
+    const rowHeight = (await pageItem.boundingBox())!.height;
+    await pageItem.click();
+    const input = page.getByRole("textbox", { name: "Page number" });
+    await expect(input).toBeFocused();
+    const inputBounds = (await input.boundingBox())!;
+    expect(inputBounds.x).toBeCloseTo(countBounds.x, 1);
+    expect(inputBounds.width).toBeCloseTo(countBounds.width, 1);
+    expect((await pageItem.boundingBox())!.height).toBe(rowHeight);
+    await page.getByRole("menu").screenshot({
+      path: testInfo.outputPath(`pdf-page-input-${theme}.png`),
+      animations: "disabled",
+    });
+    await input.fill("1");
+    await input.press("Escape");
+    await expect(pageItem).toHaveAttribute("aria-label", currentLabel);
+    await pageItem.click();
+    await input.fill("1");
+    await input.press("Enter");
+    await expect(
+      page.getByRole("menuitem", { name: "Previous page", exact: true }),
+    ).toBeDisabled();
+    await page
+      .getByRole("menuitem", { name: "Next page", exact: true })
+      .click();
+    await expect(
+      page.getByRole("menuitem", { name: "Page 2 / 123", exact: true }),
+    ).toBeVisible();
+    await page.screenshot({
+      path: testInfo.outputPath(`pdf-overflow-${theme}.png`),
+      animations: "disabled",
+    });
+    await page.keyboard.press("Escape");
+    await page.setViewportSize({ width: 1600, height: 900 });
+    await expect(counter).toHaveText("2/123");
+    await expect(
+      toolbar.getByRole("button", { name: "Fit height", exact: true }),
+    ).toBeVisible();
+    await expect(
+      toolbar.getByRole("button", { name: "Export PDF", exact: true }),
+    ).toBeVisible();
   });
 }
-
-test("single-digit tight navigation stays compact and keeps its separator when arrows collapse", async ({
-  page,
-}, testInfo) => {
-  await page.setViewportSize({ width: 1400, height: 900 });
-  await page.goto("/?debug=pdf-comments&multipage");
-  const toolbar = page.locator("[data-pdf-toolbar]");
-  const navigation = toolbar.getByRole("group", {
-    name: "PDF pages",
-    exact: true,
-  });
-  const current = navigation.getByRole("button", {
-    name: "Click to jump to page",
-  });
-  const next = navigation.getByRole("button", {
-    name: "Page Down",
-    exact: true,
-  });
-  const separator = toolbar.locator("[data-pdf-page-separator]");
-  await expect(current).toHaveText("1/3");
-  await expect(next).toBeVisible();
-  expect((await navigation.boundingBox())!.width).toBeLessThanOrEqual(76);
-  const step = (await next.boundingBox())!;
-  expect(step.width).toBe(20);
-  expect(step.height).toBe(28);
-  await current.click();
-  const input = navigation.getByRole("textbox", { name: "Page number" });
-  await expect(input).toBeFocused();
-  await input.fill("2");
-  await input.press("Enter");
-  await expect(current).toHaveText("2/3");
-  await page.mouse.move(0, 0);
-  await toolbar.screenshot({
-    path: testInfo.outputPath("tight-inline-wide.png"),
-  });
-  await page.setViewportSize({ width: 700, height: 900 });
-  await expect(next).toHaveCount(0);
-  await expect(separator).toBeVisible();
-  expect((await navigation.boundingBox())!.width).toBeLessThanOrEqual(36);
-  await toolbar.screenshot({
-    path: testInfo.outputPath("tight-inline-compact.png"),
-  });
-});

@@ -92,7 +92,16 @@ function configureDependencies() {
           encoding: "utf8",
           env: environment,
         });
-        if (result.status === 0) prefixes.push(result.stdout.trim());
+        const reportedPrefix = result.status === 0 ? result.stdout.trim() : "";
+        // An updated formula alias can point at a newer, uninstalled keg.
+        const installedPrefix =
+          reportedPrefix &&
+          existsSync(path.join(reportedPrefix, "lib/pkgconfig"))
+            ? reportedPrefix
+            : path.join(prefix, "opt", formula);
+        if (existsSync(path.join(installedPrefix, "lib/pkgconfig"))) {
+          prefixes.push(installedPrefix);
+        }
       }
       prependPaths(
         "PKG_CONFIG_PATH",

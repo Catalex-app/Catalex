@@ -1,3 +1,4 @@
+import { FilePanelHeader } from "./file-panel-header";
 import { spellCheckExtension } from "@/lib/spelling/extension";
 import {
   normalizeDocumentText,
@@ -46,6 +47,8 @@ import {
 } from "./comment-draft-history";
 import { getActiveComment } from "./active-comment";
 import { attachCommentToChat } from "@/lib/comment-chat-context";
+import { captureProposedDraft } from "@/lib/chat-context";
+import { isReferencePanelWindow } from "@/lib/panel-window-runtime";
 import {
   commentChangeTransaction,
   commentHistoryEffect,
@@ -53,7 +56,10 @@ import {
   commentHistory,
   recordCommentChange,
 } from "./comment-history";
-import { WorkspacePanel } from "../workspace-panel";
+import {
+  WorkspacePanel,
+  type WorkspacePanelExpansion,
+} from "../workspace-panel";
 import { SELECTION_OWNER_EVENT } from "@/lib/workspace-events";
 import { PDF_COMMENT_NAVIGATE_EVENT } from "@/lib/workspace-events";
 import {
@@ -74,6 +80,7 @@ import {
   type CommentFilter,
 } from "./comments-panel";
 import { useFileCompileDiagnostics } from "@/hooks/use-file-compile-diagnostics";
+import type { PromptDiagnostic } from "@/lib/prompt-library";
 import { FilePreview } from "./file-preview";
 import {
   type ConflictFile,
@@ -136,7 +143,12 @@ import {
   replaceNext,
   replaceAll,
 } from "@codemirror/search";
-import { unifiedMergeView, getChunks, getOriginalDoc } from "@codemirror/merge";
+import {
+  unifiedMergeView,
+  getChunks,
+  getOriginalDoc,
+  originalDocChangeEffect,
+} from "@codemirror/merge";
 import { latexLinter } from "codemirror-lang-latex";
 import { forEachDiagnostic, type Diagnostic } from "@codemirror/lint";
 import { useDocumentStore, type ProjectFile } from "@/stores/document-store";
@@ -172,8 +184,6 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import {
-  SpellCheckIcon,
-  MousePointerClickIcon,
   MessageSquareTextIcon,
   RotateCcwIcon,
   TagIcon,
@@ -198,7 +208,10 @@ import {
   replaceCompileDiagnostics,
 } from "./compile-diagnostics";
 import { documentLinter } from "./document-linter";
-import { PdfPreview } from "@/components/workspace/preview/pdf-preview";
+import {
+  PdfPreview,
+  type PdfLayoutTarget,
+} from "@/components/workspace/preview/pdf-preview";
 import { openPdfSource, type PdfSource } from "@/lib/mupdf/pdf-source";
 import { createLogger } from "@/lib/debug/logger";
 import { isMarkdownFile } from "@/lib/markdown";
@@ -1205,6 +1218,9 @@ export function clearEditorStateCache(): void {
 }
 
 interface LatexEditorProps {
+  layoutAnimating?: boolean;
+  layoutTarget?: PdfLayoutTarget;
+  expansion?: WorkspacePanelExpansion;
   fileConflict?: ConflictFile | null;
   currentConflictContent?: ReactNode;
   agentFileReviewContent?: ReactNode;
@@ -1224,6 +1240,7 @@ interface LatexEditorProps {
 }
 
 function sendDiagnosticToChat(view: EditorView, issues: DiagnosticChatIssue[]) {
+  if (isReferencePanelWindow()) return;
   const state = useDocumentStore.getState();
   const file = state.files.find((file) => file.id === state.activeFileId);
   const fileName = file?.relativePath ?? "main.tex";
@@ -1248,6 +1265,9 @@ function sendDiagnosticToChat(view: EditorView, issues: DiagnosticChatIssue[]) {
 }
 
 export function LatexEditor({
+  layoutAnimating = false,
+  layoutTarget,
+  expansion,
   fileConflict = null,
   currentConflictContent,
   agentFileReviewContent,
@@ -1256,7 +1276,7 @@ export function LatexEditor({
   reviewToolbarTarget = null,
   assistantMode = "duet",
   chatLayout = "drawer",
-  selectionAiEnabled = assistantMode === "duet",
+  selectionAiEnabled: requestedSelectionAiEnabled = assistantMode === "duet",
   suppressToolbar = false,
   debugInlineCommentsByFile,
   scrollSyncEnabled = false,
@@ -1265,6 +1285,8 @@ export function LatexEditor({
   scrollSyncTarget = null,
   onScrollPositionChange,
 }: LatexEditorProps = {}) {
+  const selectionAiEnabled =
+    requestedSelectionAiEnabled && !isReferencePanelWindow();
   const renderReviewToolbar = (bar: ReactNode) =>
     reviewToolbarTarget ? createPortal(bar, reviewToolbarTarget) : bar;
   const containerRef = useRef<HTMLDivElement>(null);
@@ -1287,8 +1309,14 @@ export function LatexEditor({
   const activeFileId = useDocumentStore((s) => s.activeFileId);
   const projectRoot = useDocumentStore((s) => s.projectRoot);
   const agentWorkspaceRoot = useDocumentStore((s) => s.agentWorkspaceRoot);
+  const promptDraftSessionId = useDocumentStore(
+    (s) => s.agentWorkspaceSessionId,
+  );
   // These annotations belong to the source, not a potentially different draft.
   const commentProjectRoot = agentWorkspaceRoot ? null : projectRoot;
+  const isReviewApplying = useProposedChangesStore(
+    (s) => !!s.workspaceReview?.isApplying,
+  );
   const isEditorReadOnly = useDocumentStore(
     (s) =>
       s.isApplyingAgentDraft ||
@@ -1306,7 +1334,10 @@ export function LatexEditor({
   const clearJumpRequest = useDocumentStore((s) => s.clearJumpRequest);
 
   const activeFile = files.find((f) => f.id === activeFileId);
-  const showSidecarUi = assistantMode === "duet" && chatLayout === "drawer";
+  const showSidecarUi =
+    assistantMode === "duet" &&
+    chatLayout === "drawer" &&
+    !isReferencePanelWindow();
   const selectedCommentIdsJson = useAgentChatStore((state) =>
     JSON.stringify(
       state.tabs
@@ -1344,14 +1375,12 @@ export function LatexEditor({
   const historyDiffResult = useHistoryStore((s) => s.diffResult);
 
   const [imageScale, setImageScale] = useState(1.0);
-  const [cropMode, setCropMode] = useState(false);
   const [gitHeadRefreshNonce, setGitHeadRefreshNonce] = useState(0);
   const [editorSelectedText, setEditorSelectedText] = useState("");
 
-  // Reset scale and crop mode when switching files
+  // Reset scale when switching files
   useEffect(() => {
     setImageScale(1.0);
-    setCropMode(false);
     setEditorSelectedText("");
     setSelectionRangeForSearch(null);
     setSearchScopeRange(null);
@@ -1516,7 +1545,11 @@ export function LatexEditor({
     const sourceFile = (
       documents.sourceViewSnapshot?.files ?? documents.files
     ).find((file) => file.relativePath === patch.filePath);
-    if (!sourceFile || sourceFile.content == null) return;
+    if (
+      !sourceFile ||
+      (sourceFile.content == null && sourceFile.type !== "pdf")
+    )
+      return;
     const key = JSON.stringify([projectRoot, null, sourceFile.id]);
     const cached = editorStateCache.get(key);
     const pending =
@@ -1524,7 +1557,7 @@ export function LatexEditor({
         ? pendingHistoryRef.current
         : null;
     const baseline = pending ?? cached?.review?.baseline;
-    const document = baseline?.document ?? sourceFile.content;
+    const document = baseline?.document ?? sourceFile.content ?? "";
     const retained =
       baseline?.retained ??
       (cached?.document === document ? cached.history : undefined);
@@ -2251,6 +2284,8 @@ export function LatexEditor({
     button.name = type;
     button.textContent = type === "accept" ? "Accept" : "Reject";
     button.onmousedown = (event) => {
+      if (useProposedChangesStore.getState().workspaceReview?.isApplying)
+        return;
       const view = viewRef.current;
       const widget = button.closest(".cm-deletedChunk");
       if (!view || !widget) return;
@@ -2369,6 +2404,7 @@ export function LatexEditor({
 
   // Keep all changes (⌘Y)
   handleKeepAllRef.current = () => {
+    if (useProposedChangesStore.getState().workspaceReview?.isApplying) return;
     if (pendingChangeRef.current?.source === "external") {
       void settleExternal(pendingChangeRef.current.newContent);
       return;
@@ -2446,6 +2482,7 @@ export function LatexEditor({
 
   // Undo all changes (⌘N)
   handleUndoAllRef.current = () => {
+    if (useProposedChangesStore.getState().workspaceReview?.isApplying) return;
     if (pendingChangeRef.current?.source === "external") {
       void settleExternal(pendingChangeRef.current.oldContent);
       return;
@@ -2818,7 +2855,7 @@ export function LatexEditor({
       if (update.docChanged && savedSelection?.view === update.view) {
         savedSelection.selection = savedSelection.selection.map(update.changes);
       }
-      if (update.selectionSet && (isMarkdownDocument || isLatexDocument)) {
+      if (update.selectionSet || update.docChanged) {
         const { from, to } = update.state.selection.main;
         setEditorSelectedText(update.state.sliceDoc(from, to));
       }
@@ -2975,7 +3012,13 @@ export function LatexEditor({
           // Auto-resolve when all chunks have been individually accepted/rejected
           // Note: acceptChunk doesn't change the main doc (only the original),
           // so we check total === 0 regardless of docChanged
-          if (total === 0 && getThreeWayRegions(update.state).length === 0) {
+          if (
+            total === 0 &&
+            getThreeWayRegions(update.state).length === 0 &&
+            !update.transactions.some((transaction) =>
+              transaction.annotation(diskRefresh),
+            )
+          ) {
             const change = pendingChangeRef.current;
             if (change) {
               setTimeout(() => {
@@ -3043,7 +3086,8 @@ export function LatexEditor({
         );
         // Persist the text before optional comment bookkeeping. A broken
         // anchor must never prevent autosave or automatic compilation.
-        if (!fromStore) setContent(nextContent);
+        if (!fromStore)
+          setContent(nextContent, update.startState.doc.toString());
         const filePath = activeFileRelativePathRef.current;
         // Clean file refreshes have already reached disk. Let native recovery
         // decide continuity; persisting this display diff would race it and
@@ -3403,7 +3447,7 @@ export function LatexEditor({
         historyCompartmentRef.current.of(history()),
         commentHistory((patch) => replayCommentRef.current(patch)),
         readOnlyCompartmentRef.current.of([
-          EditorState.readOnly.of(isEditorReadOnly),
+          EditorState.readOnly.of(isEditorReadOnly || isReviewApplying),
           EditorView.editable.of(!isEditorReadOnly),
         ]),
         keymap.of([
@@ -3828,11 +3872,13 @@ export function LatexEditor({
     if (!view) return;
     view.dispatch({
       effects: readOnlyCompartmentRef.current.reconfigure([
-        EditorState.readOnly.of(isEditorReadOnly || isResolvingGitConflict),
+        EditorState.readOnly.of(
+          isEditorReadOnly || isResolvingGitConflict || isReviewApplying,
+        ),
         EditorView.editable.of(!isEditorReadOnly && !isResolvingGitConflict),
       ]),
     });
-  }, [isEditorReadOnly, isResolvingGitConflict]);
+  }, [isEditorReadOnly, isResolvingGitConflict, isReviewApplying]);
 
   useEffect(() => {
     const view = viewRef.current;
@@ -3882,6 +3928,59 @@ export function LatexEditor({
       }
     }
   }, [activeFileContent, activeMergeChange, isTextFile]);
+
+  // Share the same mapped diagnostics used by the selection actions. Read from
+  // the mounted editor so a file switch cannot publish the previous file's list.
+  useEffect(() => {
+    if (isReferencePanelWindow()) return;
+    const view = viewRef.current;
+    if (!view || !isTextFile || !activeFile) {
+      useDocumentStore.setState({ promptDiagnostics: null });
+      return;
+    }
+    const issues: PromptDiagnostic[] = [];
+    if (!suppressSyntaxDiagnostics) {
+      forEachDiagnostic(view.state, (diagnostic, from, to) => {
+        issues.push({
+          from,
+          to,
+          line: view.state.doc.lineAt(from).number,
+          endLine: view.state.doc.lineAt(Math.max(from, to - 1)).number,
+          severity: diagnostic.severity,
+          message: diagnostic.message,
+        });
+      });
+      for (const diagnostic of view.state.field(compileDiagnosticField, false)
+        ?.unlocated ?? []) {
+        issues.push({
+          from: null,
+          to: null,
+          line: null,
+          endLine: null,
+          severity: diagnostic.severity,
+          message: diagnostic.message,
+        });
+      }
+    }
+    useDocumentStore.setState({
+      promptDiagnostics: {
+        projectRoot,
+        draftSessionId: promptDraftSessionId,
+        filePath: activeFile.relativePath,
+        content: view.state.doc.toString(),
+        issues,
+      },
+    });
+  }, [
+    diagnostics,
+    unlocatedCompileDiagnostics,
+    activeFile,
+    isTextFile,
+    projectRoot,
+    promptDraftSessionId,
+    editorReadyRevision,
+    suppressSyntaxDiagnostics,
+  ]);
 
   // Watch for proposed changes or Git conflicts → update the merge view.
   useEffect(() => {
@@ -4156,6 +4255,54 @@ export function LatexEditor({
     isTextFile,
   ]);
 
+  // A review can be visible in several windows. Mirror its live draft and
+  // accepted baseline without recording a new edit or making another decision.
+  useEffect(() => {
+    const view = viewRef.current;
+    if (
+      !view ||
+      !isMergeActiveRef.current ||
+      activeMergeChange?.source !== "proposal" ||
+      !activeMergeChange.workspaceSessionId ||
+      activeMergeChange.workspaceSessionId !==
+        useDocumentStore.getState().agentWorkspaceSessionId ||
+      pendingChangeRef.current?.id !== activeMergeChange.id ||
+      activeFileContent === undefined
+    )
+      return;
+    const original = getOriginalDoc(view.state).toString();
+    const baseline =
+      activeMergeChange.reviewedContent ?? activeMergeChange.oldContent;
+    const content = view.state.doc.toString();
+    // A deleted file has a source-text placeholder in the document tree until
+    // review settles. Its untouched proposed document is still empty.
+    const draftContent =
+      activeMergeChange.workspaceChangeKind === "deleted" &&
+      !activeFile?.isDirty &&
+      activeFileContent === activeMergeChange.oldContent
+        ? activeMergeChange.newContent
+        : activeFileContent;
+    if (content === draftContent && original === baseline) return;
+    view.dispatch({
+      changes: createDocumentChangeSet(content, draftContent),
+      effects:
+        original === baseline
+          ? []
+          : [
+              originalDocChangeEffect(
+                view.state,
+                createDocumentChangeSet(original, baseline),
+              ),
+            ],
+      annotations: [Transaction.addToHistory.of(false), diskRefresh.of(true)],
+    });
+  }, [
+    activeFileContent,
+    activeFile?.isDirty,
+    activeMergeChange,
+    editorReadyRevision,
+  ]);
+
   useEffect(() => {
     const view = viewRef.current;
     if (!view || jumpToPosition === null) return;
@@ -4246,6 +4393,21 @@ export function LatexEditor({
       return null;
     }
   }, [selectionRange, activeFile]);
+  const selectionContext =
+    selectionLabel && selectionRange && activeFile?.content
+      ? {
+          label: selectionLabel,
+          filePath: activeFile.relativePath,
+          selectedText: activeFile.content.slice(
+            selectionRange.start,
+            selectionRange.end,
+          ),
+          proposedDraft: captureProposedDraft(
+            promptDraftSessionId,
+            activeFile.content,
+          ),
+        }
+      : null;
 
   useEffect(() => {
     const clearForPdfSelection = (event: Event) => {
@@ -4360,56 +4522,9 @@ export function LatexEditor({
     }
   }, [selectionCoords, selectionRange]);
 
-  const getSelectedDiagnosticIssues = useCallback(() => {
-    const view = viewRef.current;
-    if (!view || !selectionRange || suppressSyntaxDiagnostics) return [];
-    const { doc } = view.state;
-    const from = Math.max(
-      0,
-      Math.min(selectionRange.start, selectionRange.end, doc.length),
-    );
-    const to = Math.min(
-      doc.length,
-      Math.max(selectionRange.start, selectionRange.end),
-    );
-    if (from >= to) return [];
-    const firstLine = doc.lineAt(from).number;
-    // Selection ends are exclusive: ending at the next row's start excludes it.
-    const lastLine = doc.lineAt(to - 1).number;
-    const issues: DiagnosticChatIssue[] = [];
-    forEachDiagnostic(view.state, (diagnostic, start, end) => {
-      const issueFirstLine = doc.lineAt(start).number;
-      const issueLastLine = doc.lineAt(Math.max(start, end - 1)).number;
-      if (issueFirstLine <= lastLine && issueLastLine >= firstLine) {
-        issues.push({ diagnostic, from: start });
-      }
-    });
-    return issues;
-  }, [selectionRange, suppressSyntaxDiagnostics]);
-
-  // Diagnostics may arrive asynchronously after the selection was made.
-  const hasSelectedIssues =
-    diagnostics.length > 0 && getSelectedDiagnosticIssues().length > 0;
-
   const editorToolbarActions: ToolbarAction[] = useMemo(
     () =>
       [
-        ...(hasSelectedIssues
-          ? [
-              {
-                id: "fix-selected-issues",
-                isAI: true,
-                label: "Fix Selected Issues",
-                icon: <MousePointerClickIcon className="size-4" />,
-              },
-            ]
-          : []),
-        {
-          id: "proofread",
-          isAI: true,
-          label: "Proofread",
-          icon: <SpellCheckIcon className="size-4" />,
-        },
         {
           id: "comment",
           isAI: false,
@@ -4421,12 +4536,7 @@ export function LatexEditor({
         (action) =>
           action.id !== "comment" || (displayComments && !agentWorkspaceRoot),
       ),
-    [
-      agentWorkspaceRoot,
-      hasSelectedIssues,
-      displayComments,
-      inlineCommentsLoaded,
-    ],
+    [agentWorkspaceRoot, displayComments, inlineCommentsLoaded],
   );
 
   const openCommentForSelection = useCallback(() => {
@@ -4517,17 +4627,19 @@ export function LatexEditor({
       const source = useDocumentStore
         .getState()
         .files.find((file) => file.relativePath === filePath);
-      if (!source || source.content == null) return false;
+      if (!source || (source.content == null && source.type !== "pdf"))
+        return false;
+      const sourceContent = source.content ?? "";
       const key = JSON.stringify([projectRoot, null, source.id]);
       const cached = editorStateCache.get(key);
       if (
         !cached?.history ||
-        cached.document !== source.content ||
+        cached.document !== sourceContent ||
         cached.review
       )
         return false;
       const state = EditorState.create({
-        doc: source.content,
+        doc: sourceContent,
         extensions: [
           cached.history,
           commentHistory(() => {}),
@@ -4724,58 +4836,9 @@ export function LatexEditor({
 
   const handleToolbarAction = useCallback(
     (actionId: string) => {
-      if (actionId === "comment") {
-        openCommentForSelection();
-        return;
-      }
-
-      if (actionId === "fix-selected-issues") {
-        const view = viewRef.current;
-        const issues = getSelectedDiagnosticIssues();
-        toolbarStickyRef.current = false;
-        setSelectionCoords(null);
-        setSelectionRange(null);
-        if (view && issues.length > 0) sendDiagnosticToChat(view, issues);
-        return;
-      }
-
-      const contextOverride =
-        activeFile && selectionRange && selectionLabel && activeFile.content
-          ? {
-              label: selectionLabel,
-              filePath: activeFile.relativePath,
-              selectedText: activeFile.content.slice(
-                Math.max(
-                  0,
-                  Math.min(selectionRange.start, activeFile.content.length),
-                ),
-                Math.max(
-                  0,
-                  Math.min(selectionRange.end, activeFile.content.length),
-                ),
-              ),
-            }
-          : undefined;
-      toolbarStickyRef.current = false;
-      setSelectionCoords(null);
-      setSelectionRange(null);
-      if (actionId === "proofread") {
-        useAgentChatStore
-          .getState()
-          .sendPrompt(
-            "Proofread and fix any errors in this text",
-            contextOverride,
-          );
-      }
+      if (actionId === "comment") openCommentForSelection();
     },
-    [
-      activeFile,
-      openCommentForSelection,
-      getSelectedDiagnosticIssues,
-      selectionLabel,
-      selectionRange,
-      setSelectionRange,
-    ],
+    [openCommentForSelection],
   );
 
   const handleToolbarDismiss = useCallback(
@@ -5560,7 +5623,7 @@ export function LatexEditor({
     !isReviewDisplay &&
     allActiveFileInlineComments.length > 0;
   const problemsSummary = (
-    <div className="flex shrink-0 items-center gap-1">
+    <div className="flex shrink-0 items-center">
       <ProblemsMotion
         kind="button"
         open={canShowProblems && !problemsPanelOpen}
@@ -5568,7 +5631,7 @@ export function LatexEditor({
         <div className="flex items-center">
           <div
             aria-hidden="true"
-            className="mx-1 h-4 w-px shrink-0 bg-border"
+            className="mx-2 h-4 w-px shrink-0 bg-border"
           />
           <ProblemsSummaryButton
             diagnostics={problemDiagnostics}
@@ -5586,7 +5649,7 @@ export function LatexEditor({
         <div className="flex items-center">
           <div
             aria-hidden="true"
-            className="mx-1 h-4 w-px shrink-0 bg-border"
+            className="mx-2 h-4 w-px shrink-0 bg-border"
           />
           <CommentsSummaryButton
             comments={allActiveFileInlineComments}
@@ -5626,78 +5689,81 @@ export function LatexEditor({
         closeSearch();
       }}
     >
-      {activeFile?.externalChange &&
-        !activeFileChange &&
-        !activeGitConflict && (
-          <div
-            data-external-file-review="true"
-            className="flex flex-wrap items-center gap-2 border-border border-b bg-muted/50 px-3 py-2 text-sm"
-          >
-            <span className="mr-auto font-medium">
-              {activeFile.externalChange.disk === null
-                ? "File deleted on disk"
-                : "File changed on disk"}
-            </span>
-            <span className="text-muted-foreground text-xs">
-              Your text is preserved. Autosave is paused.
-            </span>
-            <button
-              type="button"
-              disabled={isResolvingGitConflict}
-              className="rounded border px-2 py-1 hover:bg-background"
-              onClick={() => void settleExternal(activeFile.content ?? "")}
-            >
-              {activeFile.externalChange.disk === null
-                ? "Restore my file"
-                : "Keep my version"}
-            </button>
-            <button
-              type="button"
-              disabled={isResolvingGitConflict}
-              className="rounded border px-2 py-1 hover:bg-background"
-              onClick={() =>
-                void settleExternal(activeFile.externalChange!.disk)
-              }
-            >
-              {activeFile.externalChange.disk === null
-                ? "Close deleted file"
-                : "Use disk version"}
-            </button>
-            {activeFile.externalChange.disk !== null && (
-              <button
-                type="button"
-                disabled={isResolvingGitConflict}
-                className="rounded bg-primary px-2 py-1 text-primary-foreground"
-                onClick={() =>
-                  void settleExternal(
-                    viewRef.current?.state.doc.toString() ??
-                      activeFile.content ??
-                      "",
-                  )
-                }
-              >
-                Save reviewed version
-              </button>
-            )}
-            {gitConflictError && (
-              <span role="alert" className="w-full text-destructive text-xs">
-                {gitConflictError}
-              </span>
-            )}
-          </div>
-        )}
       {/* Toolbar — adapts to file type */}
-      {shouldRenderInlineToolbar ? toolbarNode : null}
+      {shouldRenderInlineToolbar ? (
+        <div className="h-10 shrink-0">{toolbarNode}</div>
+      ) : null}
       {!shouldRenderInlineToolbar && toolbarNode && globalToolbarTarget
         ? createPortal(toolbarNode, globalToolbarTarget)
         : null}
       <WorkspacePanel
+        expansion={expansion}
         data-drawer-shell="true"
         data-workspace-panel-screen="true"
         className={`flex flex-1 flex-col ${
           showToolbar && !useGlobalToolbar ? "mt-2" : ""
         }`}
       >
+        {activeFile?.externalChange &&
+          !activeFileChange &&
+          !activeGitConflict && (
+            <div
+              data-external-file-review="true"
+              className="flex flex-wrap items-center gap-2 border-border border-b bg-muted/50 px-3 py-2 text-sm"
+            >
+              <span className="mr-auto font-medium">
+                {activeFile.externalChange.disk === null
+                  ? "File deleted on disk"
+                  : "File changed on disk"}
+              </span>
+              <span className="text-muted-foreground text-xs">
+                Your text is preserved. Autosave is paused.
+              </span>
+              <button
+                type="button"
+                disabled={isResolvingGitConflict}
+                className="rounded border px-2 py-1 hover:bg-background"
+                onClick={() => void settleExternal(activeFile.content ?? "")}
+              >
+                {activeFile.externalChange.disk === null
+                  ? "Restore my file"
+                  : "Keep my version"}
+              </button>
+              <button
+                type="button"
+                disabled={isResolvingGitConflict}
+                className="rounded border px-2 py-1 hover:bg-background"
+                onClick={() =>
+                  void settleExternal(activeFile.externalChange!.disk)
+                }
+              >
+                {activeFile.externalChange.disk === null
+                  ? "Close deleted file"
+                  : "Use disk version"}
+              </button>
+              {activeFile.externalChange.disk !== null && (
+                <button
+                  type="button"
+                  disabled={isResolvingGitConflict}
+                  className="rounded bg-primary px-2 py-1 text-primary-foreground"
+                  onClick={() =>
+                    void settleExternal(
+                      viewRef.current?.state.doc.toString() ??
+                        activeFile.content ??
+                        "",
+                    )
+                  }
+                >
+                  Save reviewed version
+                </button>
+              )}
+              {gitConflictError && (
+                <span role="alert" className="w-full text-destructive text-xs">
+                  {gitConflictError}
+                </span>
+              )}
+            </div>
+          )}
         {isMarkdownDocument && !reviewingSnapshot ? (
           <MarkdownEditorHeader
             selectedWords={editorTextStatistics.selectedWords}
@@ -5720,19 +5786,23 @@ export function LatexEditor({
             onBlockFormat={applyLatexBlockFormat}
           />
         ) : null}
-        {(!(isMarkdownDocument || isLatexDocument) || reviewingSnapshot) && (
-          <ProblemsMotion
-            kind="bar"
-            open={
-              (canShowProblems && !problemsPanelOpen) ||
-              (canShowComments && !commentsPanelOpen)
-            }
-          >
-            <div className="flex h-12 shrink-0 items-center justify-end border-border border-b bg-background px-2">
+        {!isPdf &&
+          !isFilePreview &&
+          !isWholeFileReview &&
+          (!(isMarkdownDocument || isLatexDocument) || reviewingSnapshot) && (
+            <FilePanelHeader
+              textEditor
+              fileName={activeFile?.name}
+              textStatistics={
+                isTextFile && !isLargeFileNotLoaded
+                  ? editorTextStatistics
+                  : undefined
+              }
+            >
               {problemsSummary}
-            </div>
-          </ProblemsMotion>
-        )}
+            </FilePanelHeader>
+          )}
+
         {/* Text-editor-only panels */}
         {!isPdf &&
           !isFilePreview &&
@@ -5855,6 +5925,7 @@ export function LatexEditor({
           activeFileChange &&
           renderReviewToolbar(
             <ProposedChangesPanel
+              disabled={isReviewApplying}
               threeWay={!!activeFileChange.conflictContents}
               onUseStarting={useStartingRegions}
               showChunkNavigation={!reviewToolbarTarget}
@@ -5972,6 +6043,8 @@ export function LatexEditor({
             isPdf &&
             activeFile && (
               <InlinePdfContent
+                layoutAnimating={layoutAnimating}
+                layoutTarget={layoutTarget}
                 file={activeFile}
                 aiEnabled={selectionAiEnabled}
               />
@@ -5985,8 +6058,6 @@ export function LatexEditor({
                 file={activeFile}
                 scale={imageScale}
                 onScaleChange={setImageScale}
-                cropMode={cropMode}
-                onCropModeChange={setCropMode}
               />
             )}
           {!isWholeFileReview &&
@@ -6175,7 +6246,8 @@ export function LatexEditor({
                 {reviewingSnapshot && historyDiffResult && (
                   <HistoryDiffView diffs={historyDiffResult} />
                 )}
-                {toolbarPosition &&
+                {(editorToolbarActions.length > 0 || selectionContext) &&
+                  toolbarPosition &&
                   selectionLabel &&
                   !isReviewDisplay &&
                   !isSearchOpen && (
@@ -6183,8 +6255,8 @@ export function LatexEditor({
                       position={toolbarPosition}
                       getAnchor={getToolbarAnchor}
                       contextLabel={selectionLabel}
+                      selectionContext={selectionContext}
                       actions={editorToolbarActions}
-                      aiEnabled={selectionAiEnabled}
                       onAction={handleToolbarAction}
                       onDismiss={handleToolbarDismiss}
                     />
@@ -6238,9 +6310,13 @@ export function LatexEditor({
 function InlinePdfContent({
   file,
   aiEnabled,
+  layoutAnimating,
+  layoutTarget,
 }: {
   file: ProjectFile;
   aiEnabled: boolean;
+  layoutAnimating: boolean;
+  layoutTarget?: PdfLayoutTarget;
 }) {
   const [pdfData, setPdfData] = useState<PdfSource | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -6267,6 +6343,8 @@ function InlinePdfContent({
     return (
       <div className="flex min-h-0 flex-1 flex-col">
         <PdfPreview
+          layoutAnimating={layoutAnimating}
+          layoutTarget={layoutTarget}
           aiEnabled={aiEnabled}
           standalonePdfData={pdfData}
           standaloneRootFileId={file.id}

@@ -109,7 +109,14 @@ test("file context menu exposes file actions", async ({ page }) => {
   await page.evaluate(async () => {
     const modulePath = "/src/renderer/stores/document-store.ts";
     const { useDocumentStore } = await import(modulePath);
-    useDocumentStore.setState({ activeFileId: "chapters/nested/intro.tex" });
+    useDocumentStore.setState({
+      activeFileId: "chapters/nested/intro.tex",
+      projectRoot: "/tmp/harness",
+    });
+    const { useAgentChatStore: chat } = await import(
+      /* @vite-ignore */ "/src/renderer/stores/agent-chat-store.ts"
+    );
+    chat.setState({ chatProjectRoot: "/tmp/harness" });
   });
   await page
     .locator('[data-sidebar-file-id="main.tex"]')

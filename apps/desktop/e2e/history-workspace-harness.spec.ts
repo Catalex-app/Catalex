@@ -734,6 +734,22 @@ test("current image selection replaces source with a read-only image and preserv
     0,
   );
   await expect(media).not.toContainText("Drag to select crop area");
+  await media.getByRole("button", { name: "Fit height", exact: true }).click();
+  await expect(
+    media.getByRole("button", { name: "Fit height", exact: true }),
+  ).toHaveAttribute("aria-pressed", "true");
+  const percentage = media.getByRole("textbox", { name: "Zoom percentage" });
+  await percentage.fill("75");
+  await percentage.press("Enter");
+  await expect(percentage).toHaveValue("75%");
+  await expect(
+    media.getByRole("button", { name: "Fit height", exact: true }),
+  ).toHaveAttribute("aria-pressed", "false");
+  await page.mouse.move(10, 10);
+  await page.screenshot({
+    path: test.info().outputPath("image-history-controls.png"),
+    animations: "disabled",
+  });
   await dialog.getByTestId("history-snapshot-older").click();
   await card.getByTestId("history-file-overview.svg").click();
   await expectRenderedImage(media);

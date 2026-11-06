@@ -1,4 +1,7 @@
+import { useLibraryPromptsExpanded } from "@/hooks/use-library-prompts-expanded";
 import { RoundElapsedTime } from "./round-elapsed-time";
+import { Separator } from "@/components/ui/separator";
+import { chatModelSectionLabels } from "@/lib/chat-model-sections";
 import { providerStatusLabel } from "@/lib/agent-provider-status";
 import { useSettingsStore } from "@/stores/settings-store";
 import { formatRoundDuration } from "@/lib/agent-round-timing";
@@ -81,23 +84,31 @@ const StreamingIndicator: FC = memo(() => {
 
 // ─── Chat Messages (main component) ───
 
-export const ChatMessages: FC<{ revealHistory?: boolean }> = ({
-  revealHistory,
-}) => {
+export const ChatMessages: FC<{
+  revealHistory?: boolean;
+  reservePromptSpace?: boolean;
+}> = ({ revealHistory, reservePromptSpace = false }) => {
   const activeTabId = useAgentChatStore((s) => s.activeTabId);
   const projectRoot = useAgentChatStore((s) => s.chatProjectRoot);
+  const activeTab = useAgentChatStore((s) =>
+    s.tabs.find((tab) => tab.id === s.activeTabId),
+  );
+  const promptsPinned = useSettingsStore((s) => s.keepMiniPromptsOpen);
+  const promptsFolded = !useLibraryPromptsExpanded(activeTab, promptsPinned);
   return (
     <ChatMessagesForTab
       key={`${projectRoot}:${activeTabId}`}
       revealHistory={revealHistory}
+      reservePromptSpace={reservePromptSpace && promptsFolded}
     />
   );
 };
 
 // Keep pending page requests and scroll observers scoped to the displayed chat.
-const ChatMessagesForTab: FC<{ revealHistory?: boolean }> = ({
-  revealHistory,
-}) => {
+const ChatMessagesForTab: FC<{
+  revealHistory?: boolean;
+  reservePromptSpace: boolean;
+}> = ({ revealHistory, reservePromptSpace }) => {
   const [historyReady, setHistoryReady] = useState(false);
   const revealFrame = useRef<number | null>(null);
   const historyMeasured = useRef(false);
@@ -136,7 +147,6 @@ const ChatMessagesForTab: FC<{ revealHistory?: boolean }> = ({
     const timing = s.tabs.find((tab) => tab.id === s.activeTabId)?.roundTiming;
     return Boolean(timing && !timing.finished && timing.waitingFor.length);
   });
-  const selectedProvider = useAgentChatStore((s) => s.selectedProvider);
   const forkSessionAtMessage = useAgentChatStore((s) => s.forkSessionAtMessage);
   const projectRoot = useAgentChatStore((s) => s.chatProjectRoot);
   const positionKey = `${projectRoot}:${activeTabId}`;
@@ -240,6 +250,7 @@ const ChatMessagesForTab: FC<{ revealHistory?: boolean }> = ({
 
   // Filter displayable messages
   const displayMessages = useMemo(() => {
+    const sectionLabels = chatModelSectionLabels(messages, history?.start ?? 0);
     // Collect all assistant text for dedup against result
     const assistantTexts = new Set<string>();
     for (const msg of messages) {
@@ -256,6 +267,7 @@ const ChatMessagesForTab: FC<{ revealHistory?: boolean }> = ({
       .map((message, messageIndex) => ({
         message,
         messageIndex: messageIndex + (history?.start ?? 0),
+        sectionLabel: sectionLabels[messageIndex],
       }))
       .filter(({ message: msg }) => {
         if (msg.type === "system" && msg.subtype === "init") return false;
@@ -354,14 +366,10 @@ const ChatMessagesForTab: FC<{ revealHistory?: boolean }> = ({
     );
   if (displayMessages.length === 0 && !isStreaming)
     return (
-      <div className="flex h-full items-center justify-center text-muted-foreground text-sm">
-        {history?.total
-          ? "Loading chat…"
-          : selectedProvider === "claude"
-            ? "Ask Claude about your LaTeX document..."
-            : selectedProvider === "pi"
-              ? "Ask Pi about your LaTeX document..."
-              : "Ask Codex about your LaTeX document..."}
+      <div className="app-scrollbar flex h-full flex-col items-center overflow-y-auto p-4">
+        {history?.total ? (
+          <span className="text-muted-foreground text-sm">Loading chat…</span>
+        ) : null}
       </div>
     );
   return (
@@ -463,14 +471,24 @@ const ChatMessagesForTab: FC<{ revealHistory?: boolean }> = ({
       }}
       followOutput={() => (!userScrolled.current ? "auto" : false)}
       components={{
-        Footer: () =>
-          isStreaming || isPaused || isWaiting ? (
-            <div className="px-4">
-              <StreamingIndicator />
-            </div>
-          ) : null,
+        Footer: () => (
+          <>
+            {(isStreaming || isPaused || isWaiting) && (
+              <div className="px-4">
+                <StreamingIndicator />
+              </div>
+            )}
+            {reservePromptSpace && (
+              <div
+                data-prompt-scroll-clearance
+                aria-hidden="true"
+                className="h-9"
+              />
+            )}
+          </>
+        ),
       }}
-      itemContent={(logicalIndex, { message, messageIndex }) => {
+      itemContent={(logicalIndex, { message, messageIndex, sectionLabel }) => {
         const index = logicalIndex;
         const nextMessage = displayMessages[index + 1]?.message;
         const hasAnswerContent =
@@ -494,6 +512,20 @@ const ChatMessagesForTab: FC<{ revealHistory?: boolean }> = ({
 
         return (
           <div className="px-4" data-message-index={messageIndex}>
+            {sectionLabel && (
+              <div
+                data-chat-model-divider=""
+                role="separator"
+                aria-label={sectionLabel}
+                className="mt-2 mb-4 flex items-center gap-3 text-muted-foreground text-xs"
+              >
+                <Separator className="min-w-4 flex-1 data-[orientation=horizontal]:w-auto" />
+                <span className="min-w-0 truncate" title={sectionLabel}>
+                  {sectionLabel}
+                </span>
+                <Separator className="min-w-4 flex-1 data-[orientation=horizontal]:w-auto" />
+              </div>
+            )}
             <MessageBubble
               key={message.uuid ?? `${message.type}-${messageIndex}`}
               message={message}

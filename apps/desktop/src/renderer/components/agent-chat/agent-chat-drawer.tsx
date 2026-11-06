@@ -567,10 +567,11 @@ export function AgentChatDrawer({
           <div
             key={activeTabId}
             data-chat-messages
-            className="relative min-h-0 flex-1 overflow-hidden"
+            className="chat-conversation-fade relative min-h-0 flex-1 overflow-hidden"
             style={{ opacity: "var(--drawer-message-opacity, 1)" }}
           >
             <ChatMessages
+              reservePromptSpace
               revealHistory={composerTransferPhase !== "drawer_enter_prep"}
             />
           </div>

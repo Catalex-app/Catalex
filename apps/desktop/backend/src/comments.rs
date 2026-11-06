@@ -6,6 +6,7 @@ mod text_changes;
 #[cfg(test)]
 pub(crate) use store::{test_read, test_write};
 mod identity;
+pub mod pdf;
 pub(crate) mod recovery;
 use crate::host::WindowContext;
 pub use identity::manage_comment_files;
@@ -69,7 +70,27 @@ fn read_offset<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<usiz
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PdfCommentRegion {
+    pub page: usize,
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PdfCommentAnchor {
+    pub fingerprint: String,
+    pub text: String,
+    pub regions: Vec<PdfCommentRegion>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Comment {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pdf: Option<PdfCommentAnchor>,
     pub id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub number: Option<u64>,
@@ -128,6 +149,7 @@ struct AuthorSnapshot {
 
 #[derive(Default)]
 pub struct CommentService {
+    pdf_requests: pdf::PdfRequests,
     gates: std::sync::Mutex<BTreeMap<PathBuf, std::sync::Weak<Mutex<()>>>>,
     clear_versions: std::sync::Mutex<BTreeMap<String, u64>>,
     confirmations: Arc<Mutex<BTreeMap<String, (String, oneshot::Sender<bool>)>>>,
@@ -205,6 +227,15 @@ fn validate(comment: &Comment) -> Result<(), String> {
         || comment.line == 0
     {
         return Err("invalid_comment: comment text, range, or id is invalid".into());
+    }
+    if let Some(pdf) = &comment.pdf {
+        if pdf.fingerprint.len() != 40 || !pdf.fingerprint.bytes().all(|c| c.is_ascii_hexdigit())
+            || pdf.text.trim().is_empty() || pdf.text.len() > 80_000
+            || pdf.regions.is_empty() || pdf.regions.len() > 2000
+            || pdf.regions.iter().any(|r| r.page == 0 || r.page > 100_000
+                || [r.x, r.y, r.width, r.height].iter().any(|v| !v.is_finite() || *v < 0.0 || *v > 1_000_000.0)
+                || r.width <= 0.0 || r.height <= 0.0)
+        { return Err("invalid_comment: invalid PDF anchor".into()); }
     }
     if let Some(origin) = &comment.origin {
         if !matches!(origin.provider.as_str(), "claude" | "codex" | "pi")
@@ -445,6 +476,7 @@ fn merge_comment(
                     merged.$name = after.$name.clone();
                 }
             }; }
+            field!(pdf);
             field!(text);
             field!(resolved);
             field!(position_reset);
@@ -541,6 +573,11 @@ fn apply_patch_to_snapshot(
     known_index: Option<usize>,
 ) -> Result<CommentPatch, String> {
     if source.is_some_and(|(text, _)| text.len() as u64 > MAX_BYTES) { return Err("Comment source exceeds storage limit".into()); }
+    if let Some(pdf) = patch.after.as_ref().and_then(|comment| comment.pdf.as_ref()) {
+        if source.is_some() || identity::project_source(root, &patch.file_path)?.as_deref() != Some(&format!("pdf:{}", pdf.fingerprint)) {
+            return Err("comment_conflict: PDF changed; reopen it before commenting".into());
+        }
+    }
     let files = &mut snapshot.files;
     let comments = files.entry(patch.file_path.clone()).or_default();
     let index = known_index.filter(|index| comments.get(*index).is_some_and(|c| c.id == patch.id)).or_else(|| comments.iter().position(|comment| comment.id == patch.id));
@@ -1015,6 +1052,11 @@ fn replay_patch_on(root: &Path, storage: &Path, db: &store::Connection, patch: C
     }
     if let Some(after) = &patch.after {
         validate(after)?;
+        if let Some(pdf) = &after.pdf {
+            if identity::project_source(root, &patch.file_path)?.as_deref() != Some(&format!("pdf:{}", pdf.fingerprint)) {
+                return Err("comment_conflict: PDF changed; the original comment was preserved".into());
+            }
+        }
         if after.id != patch.id || after.origin.is_some() != agent {
             return Err("Invalid comment history entry".into());
         }
@@ -1210,6 +1252,7 @@ pub async fn manage_agent_comment(
 #[derive(Clone, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct CreateComment {
+    pdf: Option<pdf::PdfLocation>,
     file_path: String,
     passage: String,
     line_hint: Option<usize>,
@@ -1439,6 +1482,7 @@ fn anchored_comment(
     }
     let end = offset + input.passage.len();
     let comment = Comment {
+        pdf: None,
         id: uuid::Uuid::new_v4().to_string(),
         number: None,
         anchor_revision: None,
@@ -1491,6 +1535,13 @@ pub async fn create_agent_comment(
     let mut choice = review_choice.lock().await;
     let input: CreateComment =
         serde_json::from_value(args).map_err(|e| format!("invalid_arguments: {e}"))?;
+    if input.pdf.is_some() {
+        if *choice == Some(ReviewChoice::Stop) { return Err("review_stopped: no further comment saves are authorized this turn".into()); }
+        return pdf::create(window, source_root, draft_root, tab_id, origin, &input, cancelled).await;
+    }
+    if Path::new(&input.file_path).extension().is_some_and(|ext| ext.eq_ignore_ascii_case("pdf")) {
+        return Err("invalid_arguments: call read_pdf first, then provide pdf.page and pdf.fingerprint".into());
+    }
     let relative = relative_path(&input.file_path)?;
     if is_sidecar(&input.file_path) {
         return Err("invalid_path: comment snapshots are app-managed metadata".into());
@@ -2089,6 +2140,7 @@ mod tests {
 
     fn comment(id: &str, agent: bool) -> Comment {
         Comment {
+            pdf: None,
             id: id.into(),
             number: None,
             anchor_revision: None,
@@ -2114,12 +2166,45 @@ mod tests {
     }
     fn input(passage: &str, line_hint: Option<usize>) -> CreateComment {
         CreateComment {
+            pdf: None,
             file_path: "main.tex".into(),
             passage: passage.into(),
             line_hint,
             text: "Clarify this".into(),
             reviewed_paragraph: None,
         }
+    }
+
+    #[test]
+    fn pdf_comments_persist_geometry_and_disconnect_on_binary_replacement() {
+        let root = TempDir::new().unwrap();
+        let storage = TempDir::new().unwrap();
+        let bytes = b"%PDF-1.7\noriginal binary \xff\x00";
+        fs::write(root.path().join("paper.pdf"), bytes).unwrap();
+        let mut annotation = comment("pdf-one", false);
+        annotation.from = 0;
+        annotation.to = 0;
+        annotation.line = 2;
+        annotation.pdf = Some(PdfCommentAnchor {
+            fingerprint: format!("{:x}", Sha1::digest(bytes)), text: "Selected passage".into(),
+            regions: vec![PdfCommentRegion { page: 2, x: 40.0, y: 80.0, width: 90.0, height: 12.0 }],
+        });
+        let creation = CommentPatch { file_path: "paper.pdf".into(), id: annotation.id.clone(), before: None, after: Some(annotation.clone()) };
+        let saved = apply_patch(root.path(), storage.path(), &creation, false).unwrap().after.unwrap();
+        let loaded = read_author_snapshot(root.path(), storage.path(), false).unwrap();
+        assert_eq!(loaded.files["paper.pdf"][0].pdf, annotation.pdf);
+        let mut changed = saved.clone(); changed.text = "Updated comment".into();
+        let edit = CommentPatch { before: Some(saved), after: Some(changed.clone()), ..creation.clone() };
+        apply_patch(root.path(), storage.path(), &edit, false).unwrap();
+        assert_eq!(read_author_comments(root.path(), storage.path(), false).unwrap()["paper.pdf"][0].text, "Updated comment");
+        fs::write(root.path().join("paper.pdf"), b"%PDF-1.7\nreplacement").unwrap();
+        let snapshot = identity::load_for_write(root.path(), storage.path(), [("paper.pdf".into(), None)]).unwrap();
+        assert!(!snapshot[0].files.contains_key("paper.pdf"));
+        assert_eq!(snapshot[0].orphaned["paper.pdf"][0].pdf, annotation.pdf);
+        assert!(apply_patch(root.path(), storage.path(), &creation, false).is_err());
+        // A new comment made against the stale viewer must not bind to new bytes.
+        let stale = CommentPatch { id: "stale".into(), after: Some(Comment { id: "stale".into(), ..annotation }), ..creation };
+        assert!(apply_patch(root.path(), storage.path(), &stale, false).unwrap_err().contains("PDF changed"));
     }
 
     #[test]

@@ -145,7 +145,7 @@ export function ProblemsPanel({
   return (
     <div
       data-problems-panel="true"
-      className="@container/problems flex h-12 shrink-0 items-center gap-3 border-border border-b bg-background px-3"
+      className="@container/problems flex h-12 shrink-0 items-center gap-3 border-border border-b bg-background pr-2 pl-3"
     >
       <div className="flex min-w-0 flex-1 items-center gap-3 text-xs">
         <div className="flex shrink-0 items-center gap-2">
@@ -325,7 +325,7 @@ export function ProblemsPanel({
               type="button"
               onClick={onClose}
               aria-label="Hide problems"
-              className="ml-1 flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="ml-1 flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               <XIcon className="size-3.5" />
             </button>

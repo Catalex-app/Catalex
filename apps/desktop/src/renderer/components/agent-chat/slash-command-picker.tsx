@@ -548,13 +548,24 @@ export const SlashCommandPicker: FC<SlashCommandPickerProps> = ({
 
   // Compute fixed position from anchor element
   useLayoutEffect(() => {
-    if (!anchorRef.current) return;
-    const rect = anchorRef.current.getBoundingClientRect();
-    setPos({
-      left: rect.left + 12,
-      right: Math.max(window.innerWidth - rect.right + 12, 12),
-      bottom: window.innerHeight - rect.top,
-    });
+    const anchor = anchorRef.current;
+    if (!anchor) return;
+    const updatePosition = () => {
+      const rect = anchor.getBoundingClientRect();
+      setPos({
+        left: rect.left,
+        right: Math.max(window.innerWidth - rect.right, 12),
+        bottom: window.innerHeight - rect.top + 8,
+      });
+    };
+    updatePosition();
+    const observer = new ResizeObserver(updatePosition);
+    observer.observe(anchor);
+    window.addEventListener("resize", updatePosition);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", updatePosition);
+    };
   }, [anchorRef]);
 
   const handleTabsWheel = useCallback((e: React.WheelEvent<HTMLDivElement>) => {

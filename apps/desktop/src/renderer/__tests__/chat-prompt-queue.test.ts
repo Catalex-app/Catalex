@@ -1,7 +1,10 @@
+import { useClaudeSetupStore } from "@/stores/claude-setup-store";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { invoke } from "@/lib/desktop/core";
 import {
   useAgentChatStore,
+  createChatPanelStore,
+  lastCommunicationDetails,
   type QueuedChatPrompt,
 } from "@/stores/agent-chat-store";
 import { useSettingsStore } from "@/stores/settings-store";
@@ -93,6 +96,53 @@ beforeEach(() => {
 });
 
 describe("chat prompt queue", () => {
+  it("resets manual prompt visibility on file changes, not content updates", () => {
+    useDocumentStore.setState({ activeFileId: "main.tex" });
+    const store = useAgentChatStore.getState();
+    store.setMiniPromptsExpanded("one", false);
+    store.setMiniPromptsExpanded("two", true);
+    useDocumentStore.setState({ contentGeneration: 10 });
+    expect(tab().miniPromptsExpanded).toBe(false);
+    useDocumentStore.setState({ activeFileId: "figure.svg" });
+    expect(
+      useAgentChatStore
+        .getState()
+        .tabs.every((item) => item.miniPromptsExpanded === undefined),
+    ).toBe(true);
+    useDocumentStore.setState({ activeFileId: "main.tex" });
+    expect(tab().miniPromptsExpanded).toBeUndefined();
+    store.setMiniPromptsExpanded("one", true);
+    useDocumentStore.setState({ projectRoot: "/another-project" });
+    expect(tab().miniPromptsExpanded).toBeUndefined();
+  });
+  it("resets manual Mini prompt visibility on each chat visit", () => {
+    const store = useAgentChatStore.getState();
+    store.setMiniPromptsExpanded("one", true);
+    store.setMiniPromptsExpanded("two", false);
+    store.setActiveTab("two");
+    expect(
+      useAgentChatStore.getState().tabs.find((item) => item.id === "two")
+        ?.miniPromptsExpanded,
+    ).toBeUndefined();
+    store.setActiveTab("one");
+    expect(tab().miniPromptsExpanded).toBeUndefined();
+  });
+  it("folds only the submitting tab's Mini prompts after acceptance, not rejection", async () => {
+    const store = useAgentChatStore.getState();
+    store.setMiniPromptsExpanded("one", true);
+    store.setMiniPromptsExpanded("two", true);
+    const accepted = vi.fn();
+    await store.sendPrompt("", [], false, accepted);
+    expect(accepted).not.toHaveBeenCalled();
+    expect(tab().miniPromptsExpanded).toBe(true);
+    await store.sendPrompt("Review this", [], false, accepted);
+    expect(accepted).toHaveBeenCalledOnce();
+    expect(tab().miniPromptsExpanded).toBe(false);
+    expect(
+      useAgentChatStore.getState().tabs.find((item) => item.id === "two")
+        ?.miniPromptsExpanded,
+    ).toBe(true);
+  });
   it("continues after a turn that completed before its launch acknowledgement", async () => {
     update({
       isStreaming: false,
@@ -460,4 +510,309 @@ it.each([
   }
   await useAgentChatStore.getState().cancelExecution();
   expect(invoke).toHaveBeenCalledWith("cancel_pi_execution", { tabId: "one" });
+});
+
+describe("sent model and effort snapshot", () => {
+  it.each([
+    "claude",
+    "codex",
+    "pi",
+  ] as const)("captures %s settings used by the request", async (provider) => {
+    useSettingsStore.setState({
+      enabledProviders: { claude: true, codex: true, pi: true },
+    });
+    useClaudeSetupStore.setState({
+      models: [
+        {
+          value: "claude-sonnet-4-6",
+          displayName: "Sonnet 4.6",
+          description: "",
+          supportsEffort: true,
+          supportedEffortLevels: ["low", "high"],
+        },
+      ],
+    });
+    usePiSetupStore.setState({
+      models: [
+        {
+          id: "test-model",
+          provider: "test",
+          name: "Test model",
+          reasoning: true,
+        },
+      ],
+    });
+    const model =
+      provider === "claude"
+        ? "claude-sonnet-4-6"
+        : provider === "pi"
+          ? '["test","test-model"]'
+          : "gpt-6.1-sol";
+    update({ provider, isStreaming: false, turnPhase: null, pauseState: null });
+    useAgentChatStore.setState({
+      selectedProvider: provider,
+      isStreaming: false,
+      selectedClaudeModel: "claude-sonnet-4-6",
+      effortLevel: "max",
+      selectedCodexModel: "gpt-6.1-sol",
+      selectedCodexReasoningEffort: "high",
+      selectedPiModel: '["test","test-model"]',
+      selectedPiReasoningEffort: "max",
+    });
+    await useAgentChatStore.getState().sendPrompt("Remember this model", []);
+    const request = vi
+      .mocked(invoke)
+      .mock.calls.find(([name]) => name === `execute_${provider}_code`);
+    expect(request).toBeDefined();
+    const effort = provider === "claude" ? "low" : "high";
+    expect(request![1]).toEqual(
+      expect.objectContaining({
+        model,
+        [provider === "claude" ? "effortLevel" : "reasoningEffort"]: effort,
+      }),
+    );
+    expect(lastCommunicationDetails(tab())).toEqual({
+      provider,
+      model,
+      effort,
+    });
+    useAgentChatStore.setState({
+      selectedCodexModel: "other-model",
+      selectedCodexReasoningEffort: "low",
+      effortLevel: "low",
+      selectedPiReasoningEffort: "off",
+    });
+    expect(lastCommunicationDetails(tab())).toEqual({
+      provider,
+      model,
+      effort,
+    });
+  });
+});
+
+describe("pinned chat views", () => {
+  it("queues a simultaneous send from the other view instead of starting a second agent", async () => {
+    update({ isStreaming: false, turnPhase: null });
+    const { store: view, dispose } = createChatPanelStore("one");
+    try {
+      await Promise.all([
+        view.getState().sendPrompt("First send", []),
+        useAgentChatStore.getState().sendPrompt("Second send", []),
+      ]);
+      expect(
+        vi
+          .mocked(invoke)
+          .mock.calls.filter(([name]) => name === "execute_codex_code"),
+      ).toHaveLength(1);
+      expect(tab().queuedPrompts?.map((item) => item.prompt)).toEqual([
+        "Second send",
+      ]);
+      expect(
+        tab().messages.filter((message) => message.type === "user"),
+      ).toHaveLength(1);
+    } finally {
+      dispose();
+    }
+  });
+
+  it("keeps an in-flight agent and its messages alive when the pop-out closes", async () => {
+    update({ isStreaming: false, turnPhase: null });
+    const { store: view, dispose } = createChatPanelStore("one");
+    await view.getState().sendPrompt("Continue after close", []);
+    dispose();
+    useAgentChatStore.getState().setActiveTab("two");
+    useAgentChatStore.getState()._appendMessage("one", {
+      type: "assistant",
+      message: { content: [{ type: "text", text: "Still running" }] },
+    });
+    expect(tab().isStreaming).toBe(true);
+    expect(tab().messages.slice(-1)[0]?.message?.content).toEqual([
+      { type: "text", text: "Still running" },
+    ]);
+    expect(invoke).not.toHaveBeenCalledWith(
+      "cancel_codex_execution",
+      expect.anything(),
+    );
+    const reopened = createChatPanelStore("one");
+    expect(reopened.store.getState().messages).toBe(tab().messages);
+    reopened.dispose();
+  });
+
+  it("discards an in-flight history preparation when its project changes", async () => {
+    update({
+      isStreaming: false,
+      turnPhase: null,
+      sessionId: "session-one",
+      sharedSessionId: "shared-one",
+      history: { start: 1000, total: 1000 },
+    });
+    let release!: (value: unknown) => void;
+    vi.mocked(invoke).mockImplementation(async (command) => {
+      if (command === "desktop:chat:prepare-turn")
+        return new Promise((resolve) => {
+          release = resolve;
+        }) as never;
+      return undefined as never;
+    });
+    const { store: view, dispose } = createChatPanelStore("one");
+    try {
+      const sending = view.getState().sendPrompt("Old project prompt", []);
+      await vi.waitFor(() => expect(release).toBeDefined());
+      useAgentChatStore.setState({ chatProjectRoot: "/different-project" });
+      useDocumentStore.setState({ projectRoot: "/different-project" });
+      release({
+        messages: [],
+        start: 1000,
+        total: 1000,
+        prefixCount: 1000,
+        latestReview: null,
+        transcript: "",
+      });
+      await sending;
+      expect(tab().messages).toEqual([]);
+      expect(tab().isStreaming).toBe(false);
+      expect(invoke).not.toHaveBeenCalledWith(
+        "execute_codex_code",
+        expect.anything(),
+      );
+    } finally {
+      dispose();
+    }
+  });
+
+  it("shares one chat's edits, model choices and stream without selecting it in the owner", async () => {
+    update({ isStreaming: false, turnPhase: null });
+    const { store: view, dispose } = createChatPanelStore("one");
+    try {
+      useAgentChatStore.getState().setActiveTab("two");
+      const otherModel = useAgentChatStore.getState().selectedCodexModel;
+      view.getState().setSelectedCodexModel("gpt-6.1-sol");
+      view.getState().setSelectedCodexReasoningEffort("high");
+      view
+        .getState()
+        .saveDraft("one", { input: "Only for one", pinnedContexts: [] });
+      expect(view.getState().activeTabId).toBe("one");
+      expect(useAgentChatStore.getState().activeTabId).toBe("two");
+      expect(useAgentChatStore.getState().selectedCodexModel).toBe(otherModel);
+      expect(tab().draft.input).toBe("Only for one");
+      expect(
+        useAgentChatStore.getState().tabs.find((t) => t.id === "two")?.draft
+          .input,
+      ).toBe("Keep my newer draft");
+      await view.getState().sendPrompt("Send from pinned chat", []);
+      expect(invoke).toHaveBeenCalledWith(
+        "execute_codex_code",
+        expect.objectContaining({
+          tabId: "one",
+          model: "gpt-6.1-sol",
+          reasoningEffort: "high",
+        }),
+      );
+      expect(useAgentChatStore.getState().activeTabId).toBe("two");
+      expect(useAgentChatStore.getState().messages).not.toEqual(
+        view.getState().messages,
+      );
+      useAgentChatStore.getState()._appendMessage("one", {
+        type: "assistant",
+        provider: "codex",
+        message: { content: [{ type: "text", text: "Response to one" }] },
+      });
+      expect(view.getState().messages.slice(-1)[0]?.message?.content).toEqual([
+        { type: "text", text: "Response to one" },
+      ]);
+      await view.getState().cancelExecution();
+      expect(invoke).toHaveBeenCalledWith(
+        "cancel_codex_execution",
+        expect.objectContaining({ tabId: "one" }),
+      );
+      expect(useAgentChatStore.getState().activeTabId).toBe("two");
+      useAgentChatStore.getState().setActiveTab("one");
+      expect(useAgentChatStore.getState().selectedCodexModel).toBe(
+        "gpt-6.1-sol",
+      );
+      expect(useAgentChatStore.getState().selectedCodexReasoningEffort).toBe(
+        "high",
+      );
+    } finally {
+      dispose();
+    }
+  });
+  it("changes the pinned provider and resumes its question without affecting the owner's chat", async () => {
+    update({ isStreaming: false, turnPhase: null });
+    const { store: view, dispose } = createChatPanelStore("one");
+    try {
+      useAgentChatStore.getState().setActiveTab("two");
+      view.getState().setProvider("claude");
+      expect(tab().provider).toBe("claude");
+      expect(view.getState().selectedProvider).toBe("claude");
+      expect(useAgentChatStore.getState().selectedProvider).toBe("codex");
+      view.getState().setProvider("codex");
+      update({
+        pauseState: "paused",
+        pendingQuestion: {
+          requestId: "question",
+          projectRoot: "/project",
+          question: "Which method?",
+          options: [],
+        },
+      });
+      await view
+        .getState()
+        ._answerRestoredQuestion("one", "question", "Method B");
+      expect(invoke).toHaveBeenCalledWith(
+        "execute_codex_code",
+        expect.objectContaining({
+          tabId: "one",
+          prompt: expect.stringContaining("Method B"),
+        }),
+      );
+      expect(useAgentChatStore.getState().activeTabId).toBe("two");
+      expect(tab().pendingQuestion).toBeNull();
+    } finally {
+      dispose();
+    }
+  });
+});
+
+it("does not retain initial transcripts or keep observing the owner after a chat view closes", () => {
+  update({
+    messages: [
+      {
+        type: "user",
+        message: { content: [{ type: "text", text: "Loaded transcript" }] },
+      },
+    ],
+  });
+  const { store: view, dispose } = createChatPanelStore("one");
+  expect(view.getState().messages).toHaveLength(1);
+  // The permanent Zustand initial snapshot must not pin any loaded transcript.
+  expect(view.getInitialState().tabs).toEqual([]);
+  expect(view.getInitialState().messages).toEqual([]);
+  const notify = vi.fn();
+  const stop = view.subscribe(notify);
+  update({ title: "Updated title" });
+  expect(notify).toHaveBeenCalledTimes(1);
+  dispose();
+  update({ title: "After close" });
+  expect(notify).toHaveBeenCalledTimes(1);
+  stop();
+});
+
+it("rejects stale pop-out edits and sends after the owner changes project", async () => {
+  update({ isStreaming: false, turnPhase: null });
+  const { store: view, dispose } = createChatPanelStore("one");
+  try {
+    useAgentChatStore.setState({ chatProjectRoot: "/different-project" });
+    view
+      .getState()
+      .saveDraft("one", { input: "Stale draft", pinnedContexts: [] });
+    await view.getState().sendPrompt("Stale prompt", []);
+    expect(tab().draft.input).toBe("Keep my newer draft");
+    expect(invoke).not.toHaveBeenCalledWith(
+      "execute_codex_code",
+      expect.anything(),
+    );
+  } finally {
+    dispose();
+  }
 });

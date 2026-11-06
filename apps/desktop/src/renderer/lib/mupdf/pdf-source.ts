@@ -6,6 +6,7 @@ export interface PdfFileSource {
   id: string;
   url: string;
   byteLength: number;
+  fingerprint?: string;
 }
 export type PdfSource = Uint8Array | PdfFileSource;
 
@@ -26,13 +27,13 @@ export async function openPdfSource(path: string): Promise<PdfSource> {
   );
 }
 export async function exportPdfSource(source: PdfSource, path: string) {
-  if (source instanceof Uint8Array) return writeFile(path, source);
+  if (ArrayBuffer.isView(source)) return writeFile(path, source);
   return invoke("desktop:pdf:export", { id: source.id, path });
 }
 export function pdfOpenArgument(
   source: PdfSource,
 ): ArrayBuffer | PdfFileSource {
-  return source instanceof Uint8Array
+  return ArrayBuffer.isView(source)
     ? (source.slice().buffer as ArrayBuffer)
     : source;
 }

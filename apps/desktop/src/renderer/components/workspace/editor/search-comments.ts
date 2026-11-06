@@ -31,7 +31,9 @@ export function useSearchComments(
       return Object.entries(files).flatMap(([filePath, comments]) => {
         if (
           pdf
-            ? !/\.(tex|bib|sty|cls)$/i.test(filePath)
+            ? activeFile?.type === "pdf"
+              ? filePath !== activeFile.relativePath
+              : !/\.(tex|bib|sty|cls)$/i.test(filePath)
             : filePath !== activeFile?.relativePath
         )
           return [];
@@ -69,6 +71,7 @@ export function useSearchComments(
     query.wholeWord,
     query.regex,
     activeFile?.relativePath,
+    activeFile?.type,
     pdf,
     range,
   ]);

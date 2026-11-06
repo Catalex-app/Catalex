@@ -35,6 +35,7 @@ vi.mock("@/stores/history-store", () => ({
 vi.mock("@/stores/agent-chat-store", () => ({
   useAgentChatStore: {
     getState: vi.fn(() => ({
+      tabs: [],
       newSession: vi.fn(),
       restoreProjectTabs: vi.fn(),
     })),

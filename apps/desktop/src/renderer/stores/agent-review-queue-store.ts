@@ -1,3 +1,4 @@
+import { createPanelStore } from "@/lib/panel-window-runtime";
 import { normalizeDocumentText, encodeDocumentText } from "@/lib/document-text";
 import { invoke } from "@/lib/desktop/core";
 import { retireAgentDraft } from "@/lib/retire-agent-draft";
@@ -5,7 +6,6 @@ import {
   workspaceStatePersistence,
   flushWorkspaceState,
 } from "@/lib/workspace-state-storage";
-import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { synchronizePersistedStore } from "@/lib/persisted-store-sync";
 import {
@@ -117,6 +117,7 @@ function changeKey(change: AgentWorkspacePreview["changes"][number]) {
 }
 const processing = new Set<string>();
 
+const create = createPanelStore("reviews");
 export const useAgentReviewQueueStore = create<{
   entries: ReviewQueueEntry[];
   captureEdits: () => void;

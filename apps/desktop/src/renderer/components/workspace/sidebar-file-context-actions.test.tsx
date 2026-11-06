@@ -10,9 +10,12 @@ import {
 } from "./sidebar-file-context-actions";
 
 vi.mock("@/components/ui/context-menu", () => ({
-  ContextMenuItem: (props: React.ButtonHTMLAttributes<HTMLButtonElement>) => (
-    <button {...props} />
-  ),
+  ContextMenuItem: ({
+    textValue: _textValue,
+    ...props
+  }: React.ButtonHTMLAttributes<HTMLButtonElement> & {
+    textValue?: string;
+  }) => <button {...props} />,
   ContextMenuSeparator: () => <hr />,
 }));
 (
@@ -27,28 +30,46 @@ const file: ProjectFile = {
   content: "Unsaved working text",
   isDirty: true,
 };
+const initialChat = useAgentChatStore.getState();
+const initialDocument = useDocumentStore.getState();
 let root: Root;
 let container: HTMLDivElement;
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(invoke).mockResolvedValue(undefined);
   useAgentChatStore.setState({
+    chatProjectRoot: "/project",
+    activeTabId: "main",
+    tabs: [
+      {
+        ...initialChat.tabs[0],
+        id: "main",
+        draft: { input: "Keep draft", pinnedContexts: [] },
+      },
+    ],
     pendingAttachments: [],
     drawerOpenRequested: false,
   });
-  useDocumentStore.setState({ projectRoot: "/project" });
+  useDocumentStore.setState({
+    projectRoot: "/project",
+    activeFileId: "other.tex",
+  });
   container = document.createElement("div");
   root = createRoot(container);
 });
 afterEach(async () => {
   await act(async () => root.unmount());
+  useAgentChatStore.setState(initialChat, true);
+  useDocumentStore.setState(initialDocument, true);
 });
 
 it("keeps one file attachment without opening the drawer and preserving unsaved content", () => {
-  sendSidebarFileToChat(file);
-  sendSidebarFileToChat(file);
+  sendSidebarFileToChat(file, "main", "/project");
+  sendSidebarFileToChat(file, "main", "/project");
   expect(useAgentChatStore.getState().drawerOpenRequested).toBe(false);
-  expect(useAgentChatStore.getState().pendingAttachments).toEqual([
+  expect(useAgentChatStore.getState().pendingAttachments).toEqual([]);
+  expect(useAgentChatStore.getState().tabs[0].draft.input).toBe("Keep draft");
+  expect(useAgentChatStore.getState().tabs[0].draft.pinnedContexts).toEqual([
     {
       label: `@${file.relativePath}`,
       filePath: file.relativePath,

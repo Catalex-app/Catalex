@@ -1,3 +1,4 @@
+import { createPanelStore } from "@/lib/panel-window-runtime";
 import { PRODUCT_NAME } from "../../branding";
 import {
   normalizeDocumentText,
@@ -11,7 +12,6 @@ import {
   workspaceStatePersistence,
   flushWorkspaceState,
 } from "@/lib/workspace-state-storage";
-import { create } from "zustand";
 import { toast } from "sonner";
 import { persist } from "zustand/middleware";
 import { synchronizePersistedStore } from "@/lib/persisted-store-sync";
@@ -28,6 +28,8 @@ import {
 } from "@/lib/agent-workspace";
 
 const log = createLogger("proposed-changes");
+// Shared owner actions must reserve a transaction before their first await.
+const settlingWorkspaces = new Set<string>();
 
 export interface ProposedChange {
   id: string; // tool_use_id
@@ -209,7 +211,13 @@ async function settleWorkspaceDecision(
   set((state) => {
     const change = state.changes.find((item) => item.id === id);
     const review = state.workspaceReview;
-    if (!change?.workspaceSessionId || !review || review.isApplying) return {};
+    if (
+      !change?.workspaceSessionId ||
+      !review ||
+      review.isApplying ||
+      settlingWorkspaces.has(change.workspaceSessionId)
+    )
+      return {};
     workspaceSessionId = change.workspaceSessionId;
     const nextReview: WorkspaceReview = {
       ...review,
@@ -290,6 +298,38 @@ async function settleWorkspaceReview(
     updater: (state: ProposedChangesState) => Partial<ProposedChangesState>,
   ) => void,
   automatic = false,
+) {
+  const id = review.session.sessionId;
+  if (settlingWorkspaces.has(id)) return;
+  settlingWorkspaces.add(id);
+  set((current) =>
+    current.workspaceReview?.session.sessionId === id
+      ? {
+          workspaceReview: { ...current.workspaceReview, isApplying: true },
+        }
+      : {},
+  );
+  try {
+    await applyWorkspaceReview(review, set, automatic);
+  } finally {
+    settlingWorkspaces.delete(id);
+    set((current) =>
+      current.workspaceReview?.session.sessionId === id &&
+      current.workspaceReview.isApplying
+        ? {
+            workspaceReview: { ...current.workspaceReview, isApplying: false },
+          }
+        : {},
+    );
+  }
+}
+
+async function applyWorkspaceReview(
+  review: WorkspaceReview,
+  set: (
+    updater: (state: ProposedChangesState) => Partial<ProposedChangesState>,
+  ) => void,
+  automatic: boolean,
 ) {
   const workspaceSessionId = review.session.sessionId;
   const projectRoot = review.session.projectRoot;
@@ -756,6 +796,7 @@ function toProposedChanges(
   }));
 }
 
+const create = createPanelStore("proposals");
 export const useProposedChangesStore = create<ProposedChangesState>()(
   persist(
     (set, get) => ({

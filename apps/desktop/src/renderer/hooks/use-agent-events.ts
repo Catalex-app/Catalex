@@ -1,3 +1,4 @@
+import { readAgentPdf, type AgentPdfRequest } from "@/lib/agent-pdf";
 import { PRODUCT_NAME } from "../../branding";
 import { retireAgentDraft } from "@/lib/retire-agent-draft";
 import { HARNESSES } from "@/lib/agent-harness";
@@ -1362,6 +1363,29 @@ export function useAgentEvents() {
         return;
       }
       listenersRef.current.push(unlistenCommentCheck);
+
+      const unlistenAgentPdf = await listen<AgentPdfRequest>(
+        "catalex-agent-pdf-request",
+        (event) => {
+          if (cancelled) return;
+          void readAgentPdf(event.payload)
+            .catch((error) => ({ error: String(error) }))
+            .then((result) =>
+              invoke("resolve_agent_pdf_request", {
+                requestId: event.payload.requestId,
+                result,
+              }),
+            )
+            .catch((error) =>
+              log.warn("PDF comment request expired", { error }),
+            );
+        },
+      );
+      if (cancelled) {
+        unlistenAgentPdf();
+        return;
+      }
+      listenersRef.current.push(unlistenAgentPdf);
 
       let recoveringQuestions = true;
       const closedDuringRecovery = new Set<string>();

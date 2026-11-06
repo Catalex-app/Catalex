@@ -345,7 +345,7 @@ test("chat badge follows PDF and editor selections without requiring a source ma
   await page.getByTestId("pdf-scroll-container").focus();
   await selectFormattedText(page);
   await expect(
-    page.getByText("PDF p.1 · “Your abstract”", { exact: true }),
+    page.getByText("PDF p.1 · @main.tex · “Your abstract”", { exact: true }),
   ).toBeVisible();
   await expect(page.getByText(/@main\.tex:\d+:\d+-\d+:\d+/)).toHaveCount(0);
   await expect
@@ -357,7 +357,10 @@ test("chat badge follows PDF and editor selections without requiring a source ma
       ),
     )
     .toMatchObject([
-      { label: "PDF p.1 · “Your abstract”", selectedText: "Your abstract" },
+      {
+        label: "PDF p.1 · @main.tex · “Your abstract”",
+        selectedText: "Your abstract",
+      },
     ]);
   await page.screenshot({ path: test.info().outputPath("pdf-chat-badge.png") });
   const composer = page.locator("[data-chat-composer-input]:visible");
@@ -370,7 +373,7 @@ test("chat badge follows PDF and editor selections without requiring a source ma
     "rgba(140, 140, 140, 0.25)",
   );
   await expect(
-    page.getByText("PDF p.1 · “Your abstract”", { exact: true }),
+    page.getByText("PDF p.1 · @main.tex · “Your abstract”", { exact: true }),
   ).toBeVisible();
   await expect
     .poll(() =>
@@ -381,7 +384,10 @@ test("chat badge follows PDF and editor selections without requiring a source ma
       ),
     )
     .toMatchObject([
-      { label: "PDF p.1 · “Your abstract”", selectedText: "Your abstract" },
+      {
+        label: "PDF p.1 · @main.tex · “Your abstract”",
+        selectedText: "Your abstract",
+      },
     ]);
   await page.screenshot({
     path: test.info().outputPath("pdf-selection-chat-focus.png"),
@@ -394,7 +400,7 @@ test("chat badge follows PDF and editor selections without requiring a source ma
   await editor.focus();
   await page.keyboard.press("Shift+ArrowRight");
   await expect(
-    page.getByText("PDF p.1 · “Your abstract”", { exact: true }),
+    page.getByText("PDF p.1 · @main.tex · “Your abstract”", { exact: true }),
   ).toHaveCount(0);
   await expect(
     page.getByText(/@main\.tex:\d+:\d+-\d+:\d+/).first(),
@@ -402,7 +408,7 @@ test("chat badge follows PDF and editor selections without requiring a source ma
   await page.getByTestId("pdf-scroll-container").focus();
   await selectFormattedText(page);
   await expect(
-    page.getByText("PDF p.1 · “Your abstract”", { exact: true }),
+    page.getByText("PDF p.1 · @main.tex · “Your abstract”", { exact: true }),
   ).toBeVisible();
 });
 
@@ -425,6 +431,7 @@ test("PDF chat context reuses the matched source range", async ({ page }) => {
       {
         label: expect.stringMatching(/^PDF p\.1 · @chapter\.tex:81:1-81:\d+$/),
         filePath: "chapter.tex",
+        pdf: { documentPath: "main.tex", kind: "compiled", page: 1 },
         selectedText: expect.stringMatching(
           /^Your abstract\n\n\[Source: chapter\.tex, line 81, offsets /,
         ),

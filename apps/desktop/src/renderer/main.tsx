@@ -192,7 +192,7 @@ function hideLoadingScreen() {
 
 async function bootstrap() {
   let announceRecovery = () => {};
-  if (window.catalex) {
+  if (window.catalex && !urlParams.has("panel-window")) {
     const { migrateBrowserWorkspaceState, showWorkspaceMigrationNotice } =
       await import("./lib/workspace-state-storage");
     const backups = await migrateBrowserWorkspaceState();
@@ -218,7 +218,7 @@ async function bootstrap() {
         );
     }
   }
-  if (window.catalex) {
+  if (window.catalex && !urlParams.has("panel-window")) {
     const { initializeUpdater } = await import("./stores/updater-store");
     await initializeUpdater();
   }
@@ -241,6 +241,13 @@ async function bootstrap() {
         </React.StrictMode>,
       );
     }
+    hideLoadingScreen();
+    return;
+  }
+
+  if (urlParams.has("panel-window")) {
+    const { PanelWindow } = await import("./components/workspace/panel-window");
+    root.render(<PanelWindow />);
     hideLoadingScreen();
     return;
   }

@@ -182,6 +182,12 @@ impl WorkspaceMcp {
                         },
                     };
                 }
+                if tool == "read_pdf" {
+                    return match crate::comments::pdf::read(&window, &source_root, &scope.project_path, &tab_id, arguments, &scope.cancelled).await {
+                        Ok(payload) => VerificationToolResult { success: true, payload, images: vec![] },
+                        Err(error) => VerificationToolResult { success: false, payload: json!({"status":"error","message":error}), images: vec![] },
+                    };
+                }
                 execute_tool(
                     &window,
                     &scope.project_path,
@@ -329,6 +335,9 @@ fn tool_catalog() -> Vec<Tool> {
             "type":"object", "properties":{"pages":{"type":"array","items":{"type":"integer","minimum":1},"minItems":1,"maxItems":MAX_RENDER_PAGES,"uniqueItems":true}},
             "required":["pages"],"additionalProperties":false
         })),
+        ("read_pdf", "Read selectable text from one to three pages of a standalone project PDF. Returns pageCount and the exact PDF fingerprint. Use this text and fingerprint with create_comment's pdf field. Scanned pages may contain no text; OCR is not provided. Source and draft PDF bytes must match. This does not read the compiled LaTeX preview.", json!({
+            "type":"object","properties":{"filePath":{"type":"string"},"pages":{"type":"array","items":{"type":"integer","minimum":1},"minItems":1,"maxItems":3,"uniqueItems":true}},"required":["filePath","pages"],"additionalProperties":false
+        })),
         ("ask_user", concat!("Ask the user one question with 2–4 choices in ", env!("APP_BRAND_NAME"), "'s UI; custom answers are also allowed. Use when clarification or a decision is needed. Keep questions and choices simple, precise, and compact. Waits for an answer in this turn (up to 10 minutes); cancellation/expiry is not approval. The answer does not bypass any tool validation. For changed review text, offer updating feedback, saving only safely anchored comments, or discarding only unsaved comments."), json!({
             "type":"object","properties":{
                 "permission":{"type":"boolean","description":"Whether this is a tool approval request with explicit choices only."},
@@ -344,11 +353,12 @@ fn tool_catalog() -> Vec<Tool> {
         ("edit_comment", "Edit only the text of an existing human or agent comment. Applies directly in every approval mode. Preserves its anchor and original author. Use the revision from list_comments; on conflict, reread and reconsider.", json!({"type": "object", "properties": {"filePath": {"type": "string", "description": "Project-relative source document path"}, "id": {"type": "string", "minLength": 1}, "revision": {"type": "string", "minLength": 1}, "text": {"type": "string", "minLength": 1, "maxLength": 20000}}, "required": ["filePath", "id", "revision", "text"], "additionalProperties": false})),
         ("resolve_comment", "Change comment status directly in every approval mode. Set resolved to true to resolve, or false to reopen and show it again. Omitted resolved defaults to true. Briefly inform the user before changing existing comments. Use its current revision from list_comments; on conflict, reread and reconsider.", json!({"type": "object", "properties": {"filePath": {"type": "string", "description": "Project-relative source document path"}, "id": {"type": "string", "minLength": 1}, "revision": {"type": "string", "minLength": 1}, "resolved": {"type": "boolean", "default": true, "description": "true resolves the comment; false reopens it"}}, "required": ["filePath", "id", "revision"], "additionalProperties": false})),
         ("delete_comment", "Delete a comment directly. Prefer resolving; delete only when explicitly requested. Use its current revision from list_comments; on conflict, reread and reconsider.", json!({"type": "object", "properties": {"filePath": {"type": "string", "description": "Project-relative source document path"}, "id": {"type": "string", "minLength": 1}, "revision": {"type": "string", "minLength": 1}}, "required": ["filePath", "id", "revision"], "additionalProperties": false})),
-        ("create_comment", concat!("Add an Agent review comment immediately to the source, independently of accepting draft edits. Supply an exact passage and optionally its 1-based start line in the draft. If the file differs, the complete blank-line-delimited paragraph(s) must remain exact and unique in source; shifted/moved blocks are allowed. A missing or conflicting anchor opens ", env!("APP_BRAND_NAME"), "'s existing choice UI and waits for the user. Do not launch another question. A review_decision response saved nothing: follow the recorded answer. Only Update comments permits a fresh reviewedParagraph; reread the returned source path and reconsider feedback first. Safe-only and discard decisions cannot be bypassed with fresh context. Never edit source to force a match; unsaved source buffers and stale sessions still reject."), json!({
+        ("create_comment", concat!("Add an Agent review comment immediately, independently of accepting draft edits. For a standalone PDF, first call read_pdf and supply the pdf page/fingerprint field. The following source-matching rules apply to editable text files. Supply an exact passage and optionally its 1-based start line in the draft. If the file differs, the complete blank-line-delimited paragraph(s) must remain exact and unique in source; shifted/moved blocks are allowed. A missing or conflicting anchor opens ", env!("APP_BRAND_NAME"), "'s existing choice UI and waits for the user. Do not launch another question. A review_decision response saved nothing: follow the recorded answer. Only Update comments permits a fresh reviewedParagraph; reread the returned source path and reconsider feedback first. Safe-only and discard decisions cannot be bypassed with fresh context. Never edit source to force a match; unsaved source buffers and stale sessions still reject."), json!({
             "type":"object","properties":{
                 "filePath":{"type":"string","description":"Project-relative document path"},
                 "passage":{"type":"string","minLength":1,"maxLength":20000},
                 "lineHint":{"type":"integer","minimum":1},
+                "pdf":{"type":"object","description":"For standalone PDFs only: call read_pdf first, quote a unique passage from one page (whitespace/ligatures are normalized), and provide that page and fingerprint. Do not provide lineHint or reviewedParagraph. No OCR or fuzzy matching; stale PDFs reject. The app calculates highlight coordinates.","properties":{"page":{"type":"integer","minimum":1},"fingerprint":{"type":"string","pattern":"^[a-f0-9]{40}$"}},"required":["page","fingerprint"],"additionalProperties":false},
                 "text":{"type":"string","minLength":1,"maxLength":20000},
                 "reviewedParagraph":{"type":"string","minLength":1,"maxLength":20000,"description":"Only after rereviewing changed source: exact complete blank-line-delimited source block(s), including adjoining section/command lines when no blank line separates them. Omit outer blank lines and the trailing newline. Must be unique; passage must occur once inside it. An incomplete_paragraph error supplies the full context to review before a corrected attempt. lineHint is not used in this mode."}
             },"required":["filePath","passage","text"],"additionalProperties":false
@@ -426,12 +436,12 @@ impl ServerHandler for WorkspaceHandler {
         let arguments = Value::Object(request.arguments.unwrap_or_default());
         let execute = self.execute.clone();
         let token = scope.cancelled.clone();
-        if matches!(request.name.as_ref(), "ask_user" | "create_comment") {
-            // Both can wait for a question; drop that wait on client cancellation.
+        if matches!(request.name.as_ref(), "ask_user" | "create_comment" | "read_pdf") {
+            // Renderer requests and questions can drop their wait on client cancellation.
             let result = tokio::select! {
                 biased;
-                _ = token.cancelled() => CallToolResult::error(vec![ContentBlock::text("Question cancelled with its agent turn")]),
-                _ = context.ct.cancelled() => CallToolResult::error(vec![ContentBlock::text("Question cancelled by client")]),
+                _ = token.cancelled() => CallToolResult::error(vec![ContentBlock::text("Tool cancelled with its agent turn")]),
+                _ = context.ct.cancelled() => CallToolResult::error(vec![ContentBlock::text("Tool cancelled by client")]),
                 result = execute(scope, request.name.into_owned(), arguments) => mcp_result(result),
             };
             drop(permit);
@@ -604,7 +614,7 @@ pub(crate) mod tests {
         );
         let listed = rpc(&connection, "tools/list", json!({})).await;
         let tools = listed["result"]["tools"].as_array().unwrap();
-        assert_eq!(tools.len(), 10);
+        assert_eq!(tools.len(), 11);
         let status_tool = tools.iter().find(|tool| tool["name"] == "resolve_comment").unwrap();
         assert_eq!(status_tool["inputSchema"]["properties"]["resolved"]["type"], "boolean");
         assert_eq!(status_tool["inputSchema"]["properties"]["resolved"]["default"], true);
@@ -618,6 +628,7 @@ pub(crate) mod tests {
                 "diagnostics",
                 "workspace_state",
                 "render_page",
+                "read_pdf",
                 "ask_user",
                 "list_comments",
                 "edit_comment",
@@ -895,6 +906,7 @@ pub(crate) mod tests {
     async fn cancelling_a_question_drops_the_waiter_instead_of_detaching_it() {
         assert_question_cancellation("ask_user").await;
         assert_question_cancellation("create_comment").await;
+        assert_question_cancellation("read_pdf").await;
     }
 
     async fn assert_question_cancellation(question_tool: &'static str) {

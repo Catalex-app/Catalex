@@ -63,6 +63,11 @@ pnpm -C apps/desktop test:electron-profile
 pnpm -C apps/desktop test:electron-windows
 node apps/desktop/e2e/electron/updater-smoke.mjs
 node apps/desktop/e2e/electron/compile-cancellation-smoke.mjs
+node apps/desktop/e2e/electron/panel-window-smoke.mjs
+node apps/desktop/e2e/electron/panel-review-smoke.mjs
+node apps/desktop/e2e/electron/prompt-library-smoke.mjs
+node apps/desktop/e2e/electron/pdf-file-comments-smoke.mjs
+node apps/desktop/e2e/electron/agent-pdf-comments-smoke.mjs
 ```
 
 The compilation cancellation smoke uses an isolated profile, a controlled latexmk
@@ -72,7 +77,25 @@ macOS/Linux process groups; Windows cleanup requires separate runtime verificati
 The compilation-controls browser suite covers the hover/focus Stop action,
 Stopping state, pending recompiles, and resuming after a fresh edit.
 
+The `prompt-library` browser suite checks immediate sends without consuming the
+composer draft, contextual suggestions, empty-chat cards, and settings editing
+and synchronization. The prompt-library Electron smoke uses an isolated profile
+and production assets to verify library text, ordering, and enabled state across
+native windows and a full app restart; it does not launch an external agent.
+
+The panel-window smoke starts an isolated Vite server and Electron profile. It checks native editor, Markdown, PDF, and chat windows, pinned files, bidirectional edits, comments, save-failure protection, duplicate focus (including shared LaTeX roots), project-close cleanup, and persistence after restart. It uses the installed LaTeXmk compiler for its PDF check.
+
+The panel-review smoke uses a temporary Git project, isolated Electron profile, and the real backend to check editor pop-outs through draft/source transitions, decisions from different windows, accepted deletion, and resumed editing/saving. It creates a controlled proposal without launching an external agent. The `multi-window-context` browser suite covers live selection sharing, targeted
+selection pinning from reference windows, comment-only main-window selection menus, chat-menu status and window
+availability, keyboard dismissal, reference-window controls, shared-root preview windows, and rejected/failed
+deletion. The panel-window smoke also checks selection transfer between native
+windows and retention of the pinned excerpt after a full application restart.
+
 Additional `e2e/electron/*-smoke.mjs` scripts exercise specific features, including comments, Git, agent drafts, native compilation, and restart recovery. Review each script's prerequisites before running it. Agent protocol fixtures use local scripted providers; real installed-agent tests must be explicitly selected and may depend on local credentials.
+
+The PDF file comments smoke uses isolated Vite, Electron, and project directories to verify selection comments, sharing across native windows, same-name file isolation, persistence through restart, and safe disconnection after binary replacement. The `pdf-file-comments` browser suite covers editing, resolving, undo, and highlight rendering in standalone PDF views.
+
+The agent PDF comments smoke holds an isolated Claude turn open against a local dummy model endpoint, then calls the actual authenticated MCP tools without model inference. It checks PDF reading and all comment operations, same-name isolation, passage/page/path errors, stale fingerprints, unchanged binary files, Markdown creation, and restart persistence. No personal project or external model endpoint is used.
 
 See [agent harnesses](../development/agent-harnesses.md) for provider boundaries, [private draft snapshots](private-draft-snapshots.md) for draft behavior, and the [PDF](pdf-performance.md) and [long-project](long-paper-performance.md) runbooks for opt-in stress tests. Run performance measurements without competing builds or tests and distinguish browser, native, and packaged-app coverage.
 
@@ -91,3 +114,8 @@ This does not remove projects, chat history, settings, or agent accounts. Deleti
 Launch Catalex and open a small project in Downloads. Automatic Claude status/model checks should not request Apple Music, Photos, Desktop, or unrelated Documents access. A request for the protected location containing the selected project can be legitimate. Check model discovery with the existing account, then start a normal conversation to verify project instructions, skills, and tool permission handling still work. macOS may request permissions later if an actual tool operation accesses another protected resource.
 
 A successful test without resetting permissions does not establish first-use prompt behavior: macOS remembers earlier grants and denials. Use macOS privacy-service logs to distinguish the responsible app from the subprocess making the access. Do not grant Full Disk Access to hide a prompt regression.
+
+The `pdf-minimap` browser suite checks standalone and compiled PDF navigation,
+dragging, zoom, author filters, page labels, comment activation and preview
+pop-outs. Run it alongside `editor-minimap-harness`, `pdf-file-comments`, and
+`standalone-pdf-layout` when changing the shared minimap or PDF viewport inset.

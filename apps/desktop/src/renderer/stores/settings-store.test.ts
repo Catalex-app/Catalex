@@ -7,6 +7,10 @@ import {
   useSettingsStore,
 } from "./settings-store";
 import { DEFAULT_AGENT_MD } from "@/lib/default-agent-md";
+import {
+  DEFAULT_PROMPT_LIBRARY,
+  visiblePromptLibrary,
+} from "@/lib/prompt-library";
 import { DEFAULT_MODE_THEMES } from "@/lib/ui-theme";
 import {
   GITHUB_DARK_MARKDOWN_THEME_ID,
@@ -854,4 +858,117 @@ it("preserves a previously saved skip and normalizes per-version skip lists", ()
       state,
     ).skippedUpdateVersions,
   ).toEqual([]);
+});
+
+describe("saved prompt library", () => {
+  it("upgrades saved stock icons once and preserves custom choices", async () => {
+    const [writing, , review, layout] = DEFAULT_PROMPT_LIBRARY;
+    const customReview = { ...review, icon: "quote" as const };
+    localStorage.setItem(
+      "catalex-settings",
+      JSON.stringify({
+        version: 26,
+        state: {
+          promptLibrary: [
+            { ...layout, icon: "target" },
+            customReview,
+            { ...writing, icon: "list-tree" },
+          ],
+        },
+      }),
+    );
+    await useSettingsStore.persist.rehydrate();
+    expect(useSettingsStore.getState().promptLibrary).toEqual([
+      layout,
+      customReview,
+      writing,
+    ]);
+    const edited = { ...writing, icon: "list-tree" as const };
+    useSettingsStore.getState().saveLibraryPrompt(edited);
+    await useSettingsStore.persist.rehydrate();
+    expect(useSettingsStore.getState().promptLibrary[2]).toEqual(edited);
+  });
+
+  it("persists the shared prompt pin under its original key and explicit unpin", async () => {
+    const store = useSettingsStore.getState;
+    store().setKeepMiniPromptsOpen(true);
+    await useSettingsStore.persist.rehydrate();
+    expect(store().keepMiniPromptsOpen).toBe(true);
+    store().setKeepMiniPromptsOpen(false);
+    await useSettingsStore.persist.rehydrate();
+    expect(store().keepMiniPromptsOpen).toBe(false);
+  });
+  it("loads defaults for older settings without resetting global instructions", async () => {
+    localStorage.setItem(
+      "catalex-settings",
+      JSON.stringify({
+        version: 26,
+        state: { globalAgentPrompt: "Keep my instructions" },
+      }),
+    );
+    await useSettingsStore.persist.rehydrate();
+    expect(
+      useSettingsStore.getState().promptLibrary.map((prompt) => prompt.id),
+    ).toEqual([
+      "improve-writing",
+      "fix-issues",
+      "review-and-comment",
+      "tighten-layout",
+    ]);
+    expect(useSettingsStore.getState().globalAgentPrompt).toBe(
+      "Keep my instructions",
+    );
+    expect(useSettingsStore.getState().keepMiniPromptsOpen).toBe(false);
+  });
+  it("retains custom text, ordering, disabled prompts, and deliberate deletion after rehydration", async () => {
+    useSettingsStore.setState({ promptLibrary: [] });
+    const store = useSettingsStore.getState;
+    const prompt = {
+      id: "custom",
+      title: "Custom",
+      prompt: "My prompt",
+      availability: "always" as const,
+      enabled: false,
+    };
+    store().saveLibraryPrompt(prompt);
+    store().saveLibraryPrompt({ ...prompt, id: "second", title: "Second" });
+    store().moveLibraryPrompt("second", -1);
+    await useSettingsStore.persist.rehydrate();
+    expect(store().promptLibrary.map((item) => item.id)).toEqual([
+      "second",
+      "custom",
+    ]);
+    expect(store().promptLibrary[1]).toEqual(prompt);
+    store().deleteLibraryPrompt("second");
+    store().deleteLibraryPrompt("custom");
+    await useSettingsStore.persist.rehydrate();
+    expect(store().promptLibrary).toEqual([]);
+  });
+});
+
+it("reorders visible built-ins past hidden prompts while preserving saved custom content", () => {
+  const [writing, fix, review, layout] = DEFAULT_PROMPT_LIBRARY;
+  const edited = {
+    ...writing,
+    title: "Edited writing",
+    prompt: "Keep my text",
+  };
+  const custom = { ...writing, id: "custom", title: "My custom prompt" };
+  useSettingsStore.setState({ promptLibrary: [edited, custom, fix] });
+  const visible = visiblePromptLibrary(
+    useSettingsStore.getState().promptLibrary,
+  ).map((item) => item.id);
+  useSettingsStore.getState().moveLibraryPrompt(fix.id, -1, visible);
+  expect(
+    visiblePromptLibrary(useSettingsStore.getState().promptLibrary).map(
+      (item) => item.id,
+    ),
+  ).toEqual([fix.id, writing.id, review.id, layout.id]);
+  expect(useSettingsStore.getState().promptLibrary).toEqual([
+    fix,
+    custom,
+    edited,
+    review,
+    layout,
+  ]);
 });

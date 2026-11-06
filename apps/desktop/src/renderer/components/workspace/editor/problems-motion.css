@@ -18,16 +18,11 @@
 .problems-motion--button {
   display: grid;
   grid-template-columns: 0fr;
-  /* Remove the header's gap while the count button is collapsed. */
-  margin-left: -0.5rem;
-  transition:
-    grid-template-columns var(--problems-motion-duration) var(--problems-motion-ease),
-    margin-left var(--problems-motion-duration) var(--problems-motion-ease);
+  transition: grid-template-columns var(--problems-motion-duration) var(--problems-motion-ease);
 }
 
 .problems-motion--button[data-open="true"] {
   grid-template-columns: 1fr;
-  margin-left: 0;
 }
 
 .problems-motion-clip {

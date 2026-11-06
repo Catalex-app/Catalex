@@ -1,7 +1,8 @@
+import { getPanelWindowSession } from "./panel-window-runtime";
 import { invoke } from "./desktop/core";
 import type { PdfSource } from "./mupdf/pdf-source";
 import { isMarkdownFile } from "./markdown";
-import { useDocumentStore, hasPdfData } from "@/stores/document-store";
+import { useDocumentStore, getPdfBytes } from "@/stores/document-store";
 import { useHistoryStore } from "@/stores/history-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import {
@@ -15,12 +16,20 @@ import {
 } from "./latex-compiler";
 
 type State = ReturnType<typeof useDocumentStore.getState>;
-type Options = { force?: boolean; snapshot?: boolean; automatic?: boolean };
+export type CompileOptions = {
+  force?: boolean;
+  snapshot?: boolean;
+  automatic?: boolean;
+  fileId?: string;
+};
+type Options = CompileOptions;
 export type Compilation = {
   readonly id: string;
   readonly projectDir: string;
   readonly projectRoot: string;
   readonly rootId: string;
+  readonly fileId?: string;
+  readonly inputs: string;
   cancelled: boolean;
   nativeStarted: boolean;
   readonly generation: number;
@@ -28,6 +37,7 @@ export type Compilation = {
 };
 function mergeRequests(previous: Options | null, next: Options): Options {
   return {
+    fileId: next.fileId,
     force: previous?.force || next.force,
     snapshot: previous?.snapshot || next.snapshot,
     // A manual request survives when automatic recompilation is disabled.
@@ -46,11 +56,11 @@ let workspaceRevision = 0;
 let stopRevision = 0;
 let stoppedAutomaticInputs: string | null = null;
 
-function automaticInputs(state: State) {
+function automaticInputs(state: State, fileId = state.activeFileId) {
   const settings = useSettingsStore.getState();
-  const root = resolveCompileTarget(state.activeFileId, state.files)?.rootId;
+  const root = resolveCompileTarget(fileId, state.files)?.rootId;
   return JSON.stringify([
-    context(state),
+    context(state, fileId),
     state.contentGeneration,
     state.files.map((file) => file.relativePath),
     state.projectRoot && root
@@ -85,11 +95,13 @@ function drainCompilationQueue() {
 
 /** Cancel only this window's current workspace; keep ownership until cleanup. */
 export async function stopCompilation() {
+  const session = getPanelWindowSession();
+  if (session) return session.stopCompilation();
   observeWorkspace();
   const state = useDocumentStore.getState();
   const projectDir = state.agentWorkspaceRoot ?? state.projectRoot;
   if (!projectDir) return;
-  stoppedAutomaticInputs = automaticInputs(state);
+  stoppedAutomaticInputs = automaticInputs(state, active?.fileId);
   stopRevision += 1;
   revision += 1;
   queued = null;
@@ -130,14 +142,14 @@ export function captureCompileContext() {
   return () => workspaceRevision === captured;
 }
 
-function context(state: State) {
+function context(state: State, fileId = state.activeFileId) {
   return JSON.stringify([
     state.projectRoot,
     state.agentWorkspaceRoot,
     state.agentWorkspaceSessionId,
     state.isGitOperationRunning,
     state.isApplyingAgentDraft,
-    resolveCompileTarget(state.activeFileId, state.files),
+    resolveCompileTarget(fileId, state.files),
   ]);
 }
 
@@ -168,7 +180,8 @@ function observeWorkspace() {
       state.isApplyingAgentDraft === previous.isApplyingAgentDraft
     )
       return;
-    const switched = context(state) !== context(previous);
+    const switched =
+      context(state, active?.fileId) !== context(previous, active?.fileId);
     const edited =
       state.contentGeneration !== previous.contentGeneration ||
       JSON.stringify(state.files.map((file) => file.relativePath)) !==
@@ -192,6 +205,7 @@ function observeWorkspace() {
 export function beginCompilation(
   rootId: string,
   id: string = crypto.randomUUID(),
+  fileId?: string,
 ): Compilation | null {
   observeWorkspace();
   const state = useDocumentStore.getState();
@@ -201,12 +215,17 @@ export function beginCompilation(
     state.isApplyingAgentDraft
   )
     return null;
-  if (resolveCompileTarget(state.activeFileId, state.files)?.rootId !== rootId)
+  if (
+    resolveCompileTarget(fileId ?? state.activeFileId, state.files)?.rootId !==
+    rootId
+  )
     return null;
   revision += 1;
   const request: Compilation = {
     id,
     rootId,
+    fileId,
+    inputs: automaticInputs(state, fileId),
     generation: state.contentGeneration,
     revision,
     projectDir: state.agentWorkspaceRoot ?? state.projectRoot,
@@ -275,6 +294,8 @@ export function finishCompilation(request: Compilation) {
 
 /** Shared entry point for editor shortcuts, preview buttons and auto-compilation. */
 export async function compileWorkspace(options: Options = {}) {
+  const session = getPanelWindowSession();
+  if (session) return session.compile({ ...options, fileId: session.fileId });
   if (
     options.automatic &&
     !useSettingsStore
@@ -289,10 +310,14 @@ export async function compileWorkspace(options: Options = {}) {
     state.isApplyingAgentDraft
   )
     return;
-  if (options.automatic && stoppedAutomaticInputs === automaticInputs(state))
+  if (
+    options.automatic &&
+    stoppedAutomaticInputs === automaticInputs(state, options.fileId)
+  )
     return;
   stoppedAutomaticInputs = null;
-  const file = state.files.find((entry) => entry.id === state.activeFileId);
+  const fileId = options.fileId ?? state.activeFileId;
+  const file = state.files.find((entry) => entry.id === fileId);
   if (
     file?.type === "pdf" ||
     file?.type === "image" ||
@@ -300,12 +325,22 @@ export async function compileWorkspace(options: Options = {}) {
   )
     return;
   if (running || active || stopping.size > 0) {
+    // A second view can request the same source revision. Keep one build;
+    // retries from the same view and explicit manual requests queue normally.
+    if (
+      options.automatic &&
+      active &&
+      options.fileId !== active.fileId &&
+      isCurrentCompilation(active) &&
+      active.inputs === automaticInputs(state, fileId)
+    )
+      return;
     revision += 1;
     queued = mergeRequests(queued, options);
     useDocumentStore.setState({ isCompiling: true, pendingRecompile: true });
     return;
   }
-  const target = resolveCompileTarget(state.activeFileId, state.files);
+  const target = resolveCompileTarget(fileId, state.files);
   if (!target) {
     state.setCompileError(
       "No .tex file found in this project. Create a main.tex file to compile.",
@@ -314,12 +349,12 @@ export async function compileWorkspace(options: Options = {}) {
   }
   if (
     !options.force &&
-    hasPdfData() &&
+    getPdfBytes(target.rootId) &&
     state.lastCompiledGenerations.get(target.rootId) === state.contentGeneration
   )
     return;
   useHistoryStore.getState().stopReview();
-  const request = beginCompilation(target.rootId);
+  const request = beginCompilation(target.rootId, undefined, options.fileId);
   if (!request) return;
   running = request;
   request.nativeStarted = false;

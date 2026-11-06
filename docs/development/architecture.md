@@ -93,6 +93,24 @@ palette. The welcome screen and separate Settings window use Modern. Theme rules
 may style control density (Classic uses compact toolbar controls), but must not
 change workspace layout, available features, or mode transition behavior. Keep theme decisions out of individual feature components.
 
+Workspace panels share a temporary expanded state in `workspace-layout.tsx`.
+`workspace-panel.tsx` keeps the live content mounted and lifts the selected panel
+above the app while making the surrounding workspace inactive. The split ratios
+remain unchanged. Headers use the same expand/restore control; Escape restores
+the panel after nested menus or search have handled the key. The editor and preview expand the same `WorkspacePanel` boundary, including its
+header and content. File tabs stay outside that boundary; file-change notices
+stay inside the editor panel. Markdown forwards Escape from its iframe.
+Expansion and restoration share the split-layout timing. Live panel bounds and
+PDF display scale update together before each paint; PDF raster rendering waits
+until motion finishes. Workspace column transitions provide the same motion inputs
+to compiled previews and standalone PDFs, using the preview and editor column
+dimensions respectively. Background branches scale together around the viewport
+center on that same timeline, bringing the toolbar behind the expanded panel
+without scaling the native traffic lights or the focused content. Light mode
+uses a white backdrop; dark mode retains its dim backdrop and outer shadow.
+Reduced motion skips the transition. This state is local
+to the workspace and resets when its project or mode changes.
+
 ## Native backend and sidecar
 
 Rust lives under `backend/`, with its implementation unchanged by the folder reorganization. `src/main.rs` starts
@@ -151,6 +169,95 @@ commands through their own harness tools. Similar-looking provider discovery
 and process-launching code may have different platform requirements and should
 not be merged solely to remove duplication.
 
+The prompt library is a provider-independent list in the persisted settings
+store (`catalex-settings`). `lib/prompt-library.ts` defines defaults and validates
+saved entries; an empty list stays empty. Settings → Agent manages titles, text,
+availability (Always, Has text selection, Has issues), optional icons, enabled
+state, and ordering. The defaults are Improve writing, Fix issues, Review &
+comment, and Tighten layout. A complete, untouched older set upgrades in place.
+Customized libraries and intentionally deleted prompts are preserved.
+The icon picker starts with 16 suggested Lucide icons. Search and the All icons tab
+load the installed catalog on demand (`lib/prompt-icons.ts`). Default icon uses
+the prompt's assigned icon or a bookmark for custom prompts. No icon is saved
+as `null`.
+Half/Full use a
+card strip above the composer with a narrow right-side fold/menu column. Mini
+uses a title strip beside the chat switcher, with its fold control at the left
+and menu at the right. All three modes share `areLibraryPromptsExpanded`: new
+chats start expanded and existing conversations start folded with one expand
+button. In Half, the folded button floats above the composer with its bottom
+aligned to the expanded shelf's bottom (8px above the input). The virtual list
+reserves 36px of scrollable footer space while folded so the last message can
+clear it. In Full, the folded button sits at the right of the mode-switch row,
+independently of its centered switcher. Full shares the same 36px footer space
+so the last message and its actions can scroll above the conversation fade.
+The composer shelf stays mounted so width, height, and reserved space transition
+over 200ms when opening or folding, with reduced motion respected. Full fades
+the shelf out while revealing its separate mode-row button.
+Typing and selection do not change visibility.
+The tab's window-local `miniPromptsExpanded` choice resets on each chat visit:
+empty chats expand and existing conversations fold. An accepted `sendPrompt`
+submission (including queued submissions) folds the strip; rejections preserve
+its visibility. The persisted app-wide `keepMiniPromptsOpen` setting overrides
+these defaults in Mini, Half, and Full, including while sending. Its original
+storage key is retained to preserve existing pins. Enable it through “Pin
+prompt bar” in any prompt menu; the chevron becomes a pin that unpins globally
+and folds the current chat's strip in one click. Existing Mini chats retain their
+status icon beside expanded prompts, with status details on hover. Folding
+prompts restores the status or latest-message preview and elapsed timer.
+The strip's dots menu exposes the full library and pin preference; the input
+toolbar keeps only its command and mention shortcuts.
+Command completion replaces only the active `/query` at the caret, preserving
+the surrounding draft and leaving a space for continued typing. Command and
+mention popovers anchor 8px above the input surface, overlaying the prompt shelf
+instead of moving upward when the shelf is expanded.
+Selecting a prompt sends it through the current chat's normal `sendPrompt` path
+with an explicit context snapshot, preserving history and the unsent composer
+draft. Global instructions remain a separate new-chat setting.
+Context is automatic: live selection, then pinned selection, then current text
+file. Always can also send without a file. Has issues uses the editor's transient
+`promptDiagnostics` snapshot, shared with chat popouts through the document view.
+It requires matching project, file, draft session, and content. A selection scopes
+issues to its lines (an end at column one excludes that ending line); a clean or
+stale selection never borrows unrelated file issues. File context includes
+unlocated compiler problems. Diagnostic messages, severity, and locations travel
+with the source attachment and stay separate from the user's prompt text.
+LaTeX preview pop-outs are keyed by project and resolved TeX root, using the
+same `resolveTexRoot` mapping as the PDF cache. Opening a preview from another
+included file focuses the existing window without resetting its page or zoom.
+The preview's title, compilation target, and lifetime belong to the root;
+deleting an included file does not close it. Editor and non-LaTeX preview
+pop-outs remain pinned to individual files.
+
+Main-window editor and PDF selection popups offer Comment; their selections
+continue to provide live context to chats, where users can pin them. Editor and
+PDF pop-outs additionally offer Send to chat. This action
+replaces the popup's actions with chat choices on click or keyboard activation, keeping
+one popup surface. A back arrow, Escape, or Left Arrow restores the actions;
+keyboard users can navigate the choices with arrow keys. It lists the main chat
+and open chat pop-outs with status indicators
+and Main, Pop-out, or Main & Pop-out badges. A chat open in both places still
+appears once and receives the selection once. With just one target, Send to chat shows its badge and pins directly
+when clicked, without a submenu.
+PDF excerpts retain the project-relative compiled root (or directly opened PDF
+path), page, and selection identity independently of optional source mapping.
+The document path and page are included in the agent prompt even when mapping
+fails. Duplicate checks use document identity and selection position/text, so
+identical passages in different PDFs remain separate. Older excerpts without
+PDF identity are kept rather than guessed to match new captures.
+
+Directly opened PDF comments reuse the existing comment cards and project storage, with selected text, page rectangles in PDF coordinates, and a fingerprint of the exact immutable PDF snapshot. Native snapshot creation and comment storage hash bytes by streaming. Comments never modify the PDF binary. Replacement bytes disconnect old comments instead of mapping them through source-text offsets or placing highlights on a different document; historical and agent draft previews remain isolated. Compiled LaTeX comments retain their source-based mapping.
+
+Agents use `read_pdf({filePath, pages})` to obtain selectable text, page count, and a binary fingerprint, then `create_comment({filePath, passage, text, pdf: {page, fingerprint}})`. The owning renderer opens a private MuPDF snapshot and derives glyph rectangles without changing the visible document. Matching is case-sensitive, normalizes whitespace and Unicode compatibility forms (including ligatures), and requires a unique passage on one page. The backend validates project/session scope and matching source/draft fingerprints before reading and saving; replies are bound to their requesting window and pending requests expire or cancel. There is no OCR, fuzzy matching, or agent-supplied geometry. Existing revision-checked comment tools manage both PDF and source comments.
+The Files context menu uses the same chat targets, location badges and click-to-open inline chooser. A single target sends directly; the full back row, Escape and Left Arrow return to file actions. Whole-file sends update one pinned reference per path in the chosen draft, including files without text content, without changing the active chat or opening its drawer. Selection sends still require nonempty selected text.
+
+Choosing a chat pins the excerpt in that chat's draft without submitting a
+prompt, switching chats, or replacing typed text. File pop-outs can explicitly
+send their local selections through this menu while their automatic selection
+context remains local. Closed and archived chats are excluded, and the target
+and project are checked again when attaching. AI quick actions live in the
+prompt bar. A surface with no available actions renders no selection popup.
+
 ## Repository support and generated files
 
 - `scripts/`: workspace version synchronization and platform build helpers.
@@ -193,3 +300,30 @@ installer review. Pull requests and non-tag manual runs only build.
 Automatic updating is explicitly unavailable. The workflow does not consume
 signing secrets or create version tags. Signing/notarization, update delivery,
 and any future profile migration require separate release checks.
+
+### PDF minimap
+
+Text editors and PDF viewers share the `DocumentMinimap` presentation: layers,
+clustered comment hover cards, keyboard focus, and pixel-based scroll dragging.
+The existing Show minimap preference covers both. PDF views expose only human
+and agent comment layers, and retain their horizontal scrollbar. Their adapter
+measures rendered page bounds, so zoom, mixed page sizes, and panel motion use
+the actual viewport. Both minimaps share the same inset, rounded, shadow-free surface styling;
+only their background differs. The editor leaves a gutter for it, while the
+PDF minimap overlays the page with an opaque surface matching the panel. A right content gutter keeps fitted pages
+clear of it, while zoomed pages can extend underneath. Fit-width motion includes
+that gutter; the scroll viewport itself spans the whole panel.
+
+Standalone markers reuse fingerprint-validated PDF anchors; compiled markers
+use the current SyncTeX source map and full project-relative source paths. No
+extra page rasterization or whole-document text extraction is required. A
+changed comment context or compilation discards pending marker results; hidden,
+historical, draft, or stale previews retain navigation without live comment
+markers. Marker activation uses the existing PDF comment interaction, including
+source synchronization when the editor is visible.
+
+Sidebar file and session context menus use explicit targets with `openPanelWindow`; they do not change the main file or chat selection. Small text files load on demand, and saved sessions restore through `loadChatInBackground` with project and duplicate checks before opening a window. Archived sessions must be restored first.
+
+Prompt expansion uses one shared file-aware rule across Mini, Half, Full, and chat pop-outs. Standalone PDF, image, and binary files suppress only the new-chat automatic expansion; editable source files (including LaTeX with a PDF preview) keep that default. Manual expansion or collapse overrides the default for the current file visit; changing the active file or project clears it in the owner window, and chat entry also resets it. Pinning remains persistent across file and chat changes. Prompt availability and library settings are unchanged.
+
+Prompt customization is temporarily gated by `PROMPT_CUSTOMIZATION_ENABLED`. Settings and chat use `visiblePromptLibrary` to show the four stock prompts with saved ordering and enabled flags. Add/edit/delete and icon-picker implementations remain in place behind the gate; stored custom entries and edits are retained without a migration. Visible reordering skips hidden entries, and toggles preserve saved custom content.

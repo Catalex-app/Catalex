@@ -2,6 +2,7 @@ import type { InlineEditorComment } from "@/components/workspace/editor/inline-c
 import { useDocumentStore } from "@/stores/document-store";
 import { SELECTION_OWNER_EVENT } from "./workspace-events";
 import type { ChatContextBadge } from "./chat-context";
+import { isReferencePanelWindow } from "./panel-window-runtime";
 
 export function commentChatContext(
   filePath: string,
@@ -11,6 +12,15 @@ export function commentChatContext(
   return {
     label: `${label} · ${filePath}`,
     filePath,
+    ...(comment.pdf
+      ? {
+          pdf: {
+            documentPath: filePath,
+            kind: "file" as const,
+            page: comment.pdf.regions[0].page,
+          },
+        }
+      : {}),
     selectionKey: `comment:${JSON.stringify([filePath, comment.id])}`,
     comment: {
       id: comment.id,
@@ -22,7 +32,7 @@ export function commentChatContext(
       from: comment.from,
       to: comment.to,
     },
-    selectedText: comment.text,
+    selectedText: comment.pdf?.text ?? comment.text,
   };
 }
 
@@ -33,6 +43,7 @@ export function attachCommentToChat(
 ) {
   const document = useDocumentStore.getState();
   if (
+    isReferencePanelWindow() ||
     !projectRoot ||
     document.projectRoot !== projectRoot ||
     document.agentWorkspaceRoot ||

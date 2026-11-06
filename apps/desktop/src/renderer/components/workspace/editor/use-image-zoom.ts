@@ -1,5 +1,8 @@
 import { useCallback, useLayoutEffect, useState, type RefObject } from "react";
 
+export const MIN_IMAGE_SCALE = 0.25;
+export const MAX_IMAGE_SCALE = 4;
+
 export type ImageFitMode = "fit-width" | "fit-height" | null;
 
 export function useImageZoom({
@@ -76,7 +79,9 @@ export function useImageZoom({
   const changeScale = useCallback(
     (next: number) => {
       setFit({ key: sourceKey, mode: null });
-      onScaleChange?.(Math.max(0.25, Math.min(4, next)));
+      onScaleChange?.(
+        Math.max(MIN_IMAGE_SCALE, Math.min(MAX_IMAGE_SCALE, next)),
+      );
     },
     [onScaleChange, sourceKey],
   );
