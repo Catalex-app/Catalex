@@ -208,7 +208,10 @@ import {
   replaceCompileDiagnostics,
 } from "./compile-diagnostics";
 import { documentLinter } from "./document-linter";
-import { PdfPreview } from "@/components/workspace/preview/pdf-preview";
+import {
+  PdfPreview,
+  type PdfLayoutTarget,
+} from "@/components/workspace/preview/pdf-preview";
 import { openPdfSource, type PdfSource } from "@/lib/mupdf/pdf-source";
 import { createLogger } from "@/lib/debug/logger";
 import { isMarkdownFile } from "@/lib/markdown";
@@ -1215,6 +1218,8 @@ export function clearEditorStateCache(): void {
 }
 
 interface LatexEditorProps {
+  layoutAnimating?: boolean;
+  layoutTarget?: PdfLayoutTarget;
   expansion?: WorkspacePanelExpansion;
   fileConflict?: ConflictFile | null;
   currentConflictContent?: ReactNode;
@@ -1260,6 +1265,8 @@ function sendDiagnosticToChat(view: EditorView, issues: DiagnosticChatIssue[]) {
 }
 
 export function LatexEditor({
+  layoutAnimating = false,
+  layoutTarget,
   expansion,
   fileConflict = null,
   currentConflictContent,
@@ -6032,6 +6039,8 @@ export function LatexEditor({
             isPdf &&
             activeFile && (
               <InlinePdfContent
+                layoutAnimating={layoutAnimating}
+                layoutTarget={layoutTarget}
                 file={activeFile}
                 aiEnabled={selectionAiEnabled}
               />
@@ -6299,9 +6308,13 @@ export function LatexEditor({
 function InlinePdfContent({
   file,
   aiEnabled,
+  layoutAnimating,
+  layoutTarget,
 }: {
   file: ProjectFile;
   aiEnabled: boolean;
+  layoutAnimating: boolean;
+  layoutTarget?: PdfLayoutTarget;
 }) {
   const [pdfData, setPdfData] = useState<PdfSource | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -6328,6 +6341,8 @@ function InlinePdfContent({
     return (
       <div className="flex min-h-0 flex-1 flex-col">
         <PdfPreview
+          layoutAnimating={layoutAnimating}
+          layoutTarget={layoutTarget}
           aiEnabled={aiEnabled}
           standalonePdfData={pdfData}
           standaloneRootFileId={file.id}

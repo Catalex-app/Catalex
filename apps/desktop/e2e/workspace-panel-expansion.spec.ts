@@ -674,3 +674,67 @@ test("the chat drawer fades out and back in when focusing a panel", async ({
     .click();
   await expect(drawer).toHaveCSS("opacity", "1");
 });
+
+test("expanded window controls reveal their full icon and label together", async ({
+  page,
+}) => {
+  await page.goto("/?debug=comment-workspace&pdf");
+  await expect(page.locator(".mupdf-text-layer").first()).toBeVisible();
+  for (const label of ["Editor", "PDF"]) {
+    const action = await openExpandAction(page, label);
+    const frames = action.evaluate(async (button) => {
+      button.click();
+      const samples: { opacity: number; clipped: number; width: number }[] = [];
+      const start = performance.now();
+      await new Promise<void>((resolve) => {
+        const sample = () => {
+          const actions = document.querySelector(
+            "[data-expanded-panel-actions]",
+          );
+          const clip = actions?.querySelector(".problems-motion-clip");
+          const content = actions?.querySelector(".problems-motion-content");
+          if (clip && content) {
+            const bounds = clip.getBoundingClientRect();
+            const buttons = Array.from(content.querySelectorAll("button"));
+            samples.push({
+              opacity: Number(getComputedStyle(content).opacity),
+              width: bounds.width,
+              clipped: Math.max(
+                0,
+                ...buttons.map(
+                  (button) =>
+                    button.getBoundingClientRect().right - bounds.right,
+                ),
+              ),
+            });
+          }
+          if (performance.now() - start < 500) requestAnimationFrame(sample);
+          else resolve();
+        };
+        requestAnimationFrame(sample);
+      });
+      return samples;
+    });
+    await page
+      .locator("[data-expanded-panel-actions]")
+      .waitFor({ state: "visible" });
+    await page.waitForTimeout(60);
+    await page.screenshot({
+      path: test.info().outputPath(`${label}-controls-entering.png`),
+    });
+    const samples = await frames;
+    const visible = samples.filter((frame) => frame.opacity > 0.1);
+    expect(visible.length).toBeGreaterThan(3);
+    expect(Math.max(...visible.map((frame) => frame.clipped))).toBeLessThan(1);
+    expect(
+      Math.max(...visible.map((frame) => frame.width)) -
+        Math.min(...visible.map((frame) => frame.width)),
+    ).toBeLessThan(1);
+    await page
+      .getByRole("button", { name: `Restore ${label}`, exact: true })
+      .click();
+    await expect(
+      page.getByRole("dialog", { name: `${label} expanded`, exact: true }),
+    ).toHaveCount(0);
+  }
+});

@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+- Reveal expanded-panel icons and labels together without clipping the Pop out and Restore text during their entrance.
+
+- Make directly opened PDFs follow workspace panel resizing with the same scaling and final sharp render as LaTeX previews, preserving reading position and manual zoom.
+
 - Make panel header gestures discoverable with a hand cursor and tooltip, and label the expanded view's Pop out and Restore buttons.
 
 - Identify PDF selections by their document and page even when source mapping is unavailable, and keep matching passages from different PDFs as separate chat attachments.

@@ -144,6 +144,13 @@ export function clearZoomCache(): void {
   zoomCache.clear();
 }
 
+export interface PdfLayoutTarget {
+  from: number;
+  to: number;
+  width: number;
+  currentWidth: number;
+}
+
 export function PdfPreview({
   aiEnabled: requestedAiEnabled = false,
   editorVisible = false,
@@ -166,12 +173,7 @@ export function PdfPreview({
   onRevealSource?: () => void;
   editorVisible?: boolean;
   layoutAnimating?: boolean;
-  layoutTarget?: {
-    from: number;
-    to: number;
-    width: number;
-    currentWidth: number;
-  };
+  layoutTarget?: PdfLayoutTarget;
   standalonePdfData?: PdfSource | null;
   standaloneRootFileId?: string;
   /** Historical bytes only; never navigate or write to the current workspace. */

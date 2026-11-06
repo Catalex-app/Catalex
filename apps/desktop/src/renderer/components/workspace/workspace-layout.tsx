@@ -66,7 +66,7 @@ import {
 } from "lucide-react";
 import { Sidebar } from "./sidebar";
 import { LatexEditor } from "./editor/latex-editor";
-import { PdfPreview } from "./preview/pdf-preview";
+import { PdfPreview, type PdfLayoutTarget } from "./preview/pdf-preview";
 import { MarkdownPreview } from "./preview/markdown-preview";
 import { CsvTable } from "./preview/csv-table";
 import { ExternalAppSelector } from "./external-app-selector";
@@ -605,12 +605,8 @@ function ProjectWorkspaceLayout() {
     from: DrawerHostAnchor;
     progress: number;
   } | null>(null);
-  const [pdfLayoutTarget, setPdfLayoutTarget] = useState<{
-    from: number;
-    to: number;
-    width: number;
-    currentWidth: number;
-  }>();
+  const [pdfLayoutTargets, setPdfLayoutTargets] =
+    useState<Record<"editor" | "pdf", PdfLayoutTarget>>();
   const handlePanelAnimationStart = useCallback(
     (from: number[], to: number[]) => {
       const group = pdfPanelRef.current?.closest("[data-panel-group]");
@@ -619,14 +615,23 @@ function ProjectWorkspaceLayout() {
         (sum, panel) => sum + panel.getBoundingClientRect().width,
         0,
       );
-      setPdfLayoutTarget({
-        currentWidth: pdfPanelRef.current?.clientWidth ?? 0,
-        from: from[getColumnIndex("pdf")],
-        to: to[getColumnIndex("pdf")],
+      // Standalone PDFs live in the editor column; both viewers consume the
+      // same frame policy, using the dimensions of their own column.
+      const target = (
+        column: "editor" | "pdf",
+        element: HTMLElement | null,
+      ) => ({
+        currentWidth: element?.clientWidth ?? 0,
+        from: from[getColumnIndex(column)],
+        to: to[getColumnIndex(column)],
         width: Math.max(
           0,
-          (availableWidth * to[getColumnIndex("pdf")]) / 100 - 2,
+          (availableWidth * to[getColumnIndex(column)]) / 100 - 2,
         ),
+      });
+      setPdfLayoutTargets({
+        editor: target("editor", editorPanelRef.current),
+        pdf: target("pdf", pdfPanelRef.current),
       });
       // A replacement conflict can mount into an already-open Incoming column.
       if (to[getColumnIndex("incoming")] > 0.5 && incomingPanelRef.current) {
@@ -650,19 +655,18 @@ function ProjectWorkspaceLayout() {
         (sum, panel) => sum + panel.getBoundingClientRect().width,
         0,
       );
-      const currentWidth = Math.max(
-        0,
-        (availableWidth * layout[getColumnIndex("pdf")]) / 100 - 2,
-      );
-      setPdfLayoutTarget((current) =>
-        current
-          ? {
-              ...current,
-              currentWidth,
-              width: Math.max(0, (availableWidth * current.to) / 100 - 2),
-            }
-          : current,
-      );
+      setPdfLayoutTargets((current) => {
+        if (!current) return current;
+        const frame = (column: "editor" | "pdf") => ({
+          ...current[column],
+          currentWidth: Math.max(
+            0,
+            (availableWidth * layout[getColumnIndex(column)]) / 100 - 2,
+          ),
+          width: Math.max(0, (availableWidth * current[column].to) / 100 - 2),
+        });
+        return { editor: frame("editor"), pdf: frame("pdf") };
+      });
     },
     [],
   );
@@ -2971,6 +2975,8 @@ function ProjectWorkspaceLayout() {
                                 className="h-full min-h-0"
                               >
                                 <LatexEditor
+                                  layoutAnimating={isColumnLayoutAnimating}
+                                  layoutTarget={pdfLayoutTargets?.editor}
                                   expansion={panelExpansion(
                                     "editor",
                                     editorPanelLabel,
@@ -3270,7 +3276,7 @@ function ProjectWorkspaceLayout() {
                                       />
                                     ) : (
                                       <PdfPreview
-                                        layoutTarget={pdfLayoutTarget}
+                                        layoutTarget={pdfLayoutTargets?.pdf}
                                         aiEnabled={workspaceMode !== "artisan"}
                                         onRevealSource={() => {
                                           if (isWorkspaceChat)

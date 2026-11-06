@@ -102,7 +102,9 @@ header and content. File tabs stay outside that boundary; file-change notices
 stay inside the editor panel. Markdown forwards Escape from its iframe.
 Expansion and restoration share the split-layout timing. Live panel bounds and
 PDF display scale update together before each paint; PDF raster rendering waits
-until motion finishes. Background branches scale together around the viewport
+until motion finishes. Workspace column transitions provide the same motion inputs
+to compiled previews and standalone PDFs, using the preview and editor column
+dimensions respectively. Background branches scale together around the viewport
 center on that same timeline, bringing the toolbar behind the expanded panel
 without scaling the native traffic lights or the focused content. Light mode
 uses a white backdrop; dark mode retains its dim backdrop and outer shadow.
