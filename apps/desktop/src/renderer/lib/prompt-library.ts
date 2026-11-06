@@ -10,6 +10,7 @@ import {
 export function areLibraryPromptsExpanded(
   tab: TabState | undefined,
   pinned: boolean,
+  autoExpand = true,
 ): boolean {
   const hasConversation = Boolean(
     tab &&
@@ -19,7 +20,9 @@ export function areLibraryPromptsExpanded(
         tab.sharedSessionId ||
         Object.values(tab.providerSessionIds).some(Boolean)),
   );
-  return pinned || (tab?.miniPromptsExpanded ?? !hasConversation);
+  return (
+    pinned || (tab?.miniPromptsExpanded ?? (autoExpand && !hasConversation))
+  );
 }
 
 export const PROMPT_ICON_NAMES = [

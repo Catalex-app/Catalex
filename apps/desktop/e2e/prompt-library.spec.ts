@@ -849,6 +849,11 @@ test("one prompt pin follows Mini, Half, and Full through sends and unpinning", 
     const strip = panel.locator(
       `[data-prompt-suggestions="${mode === "Collapsed" ? "compact" : "cards"}"]:visible`,
     );
+    await expect(panel.locator("[data-chat-composer-shell]")).toHaveAttribute(
+      "data-composer-transfer-phase",
+      "idle",
+    );
+    await expect(strip).toHaveCount(1);
     await expect(strip).toBeVisible();
     return { panel, strip };
   };
@@ -856,6 +861,9 @@ test("one prompt pin follows Mini, Half, and Full through sends and unpinning", 
   await panel
     .locator("[data-chat-composer-input]:visible")
     .fill("Keep my draft across modes");
+  await expect
+    .poll(async () => (await activeTab(page)).draft.input)
+    .toBe("Keep my draft across modes");
   await strip.getByRole("button", { name: "All prompts", exact: true }).click();
   await page.getByRole("menuitemcheckbox", { name: "Pin prompt bar" }).click();
   await expect(
@@ -1523,4 +1531,235 @@ test("prompt settings add, edit, reorder, disable, delete, and synchronize acros
   await page.screenshot({
     path: test.info().outputPath("prompt-library-edit-dark.png"),
   });
+});
+
+async function promptFileFixtures(page: Page) {
+  await page.evaluate(async () => {
+    const { useDocumentStore: doc } = await import(
+      /* @vite-ignore */ "/src/renderer/stores/document-store.ts"
+    );
+    const { useSettingsStore: settings } = await import(
+      /* @vite-ignore */ "/src/renderer/stores/settings-store.ts"
+    );
+    settings.getState().setProjectAutoCompile("/tmp/harness", false);
+    const bytes = new Uint8Array(
+      await (await fetch("/examples/paper-standard/main.pdf")).arrayBuffer(),
+    );
+    const host = (window as any).__TAURI_INTERNALS__;
+    const invoke = host.invoke.bind(host);
+    host.invoke = (command: string, args: any, ...rest: any[]) =>
+      command === "plugin:fs|read_file" && args.path.endsWith("/template.pdf")
+        ? Promise.resolve(bytes)
+        : invoke(command, args, ...rest);
+    const base = doc.getState().files[0];
+    doc.setState({
+      files: [
+        ...doc.getState().files,
+        {
+          ...base,
+          id: "figure.svg",
+          name: "figure.svg",
+          relativePath: "figure.svg",
+          absolutePath: "/tmp/harness/figure.svg",
+          type: "image",
+          content:
+            'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40"><rect width="40" height="40" fill="lightblue"/></svg>',
+        },
+        {
+          ...base,
+          id: "archive.bin",
+          name: "archive.bin",
+          relativePath: "archive.bin",
+          absolutePath: "/tmp/harness/archive.bin",
+          type: "other",
+          content: undefined,
+          isBinary: true,
+        },
+      ],
+    });
+  });
+}
+
+async function selectPromptFile(page: Page, id: string) {
+  await page.evaluate(async (id) => {
+    const { useDocumentStore } = await import(
+      /* @vite-ignore */ "/src/renderer/stores/document-store.ts"
+    );
+    useDocumentStore.getState().setActiveFile(id);
+  }, id);
+}
+
+for (const display of ["Collapsed", "Expanded", "Workspace"]) {
+  test(`file changes reset temporary prompt choices in ${display} while pinning wins`, async ({
+    page,
+  }) => {
+    test.setTimeout(60_000);
+    await workspace(page);
+    await promptFileFixtures(page);
+    await page
+      .locator("[data-chat-drawer-panel] [data-chat-composer-input]:visible")
+      .fill("Keep the draft when changing files");
+    await expect
+      .poll(async () => (await activeTab(page)).draft.input)
+      .toBe("Keep the draft when changing files");
+    const control = page.locator(`[data-chat-display="${display}"]`);
+    await control.evaluate((element) => (element as HTMLButtonElement).click());
+    await expect(
+      page.locator("[data-workspace-layout-animating]"),
+    ).toHaveAttribute("data-workspace-layout-animating", "false");
+    const panel = page.locator(
+      display === "Workspace"
+        ? "[data-workspace-chat-pane]"
+        : "[data-chat-drawer-panel]",
+    );
+    const cards = panel.locator(
+      `[data-prompt-suggestions="${display === "Collapsed" ? "compact" : "cards"}"]:visible`,
+    );
+    const show = display === "Collapsed" ? "Show prompts" : "Show prompt cards";
+    const hide = display === "Collapsed" ? "Hide prompts" : "Hide prompt cards";
+    const input = panel.locator("[data-chat-composer-input]:visible");
+    await expect(panel.locator("[data-chat-composer-shell]")).toHaveAttribute(
+      "data-composer-transfer-phase",
+      "idle",
+    );
+    await expect(input).toHaveValue("Keep the draft when changing files");
+    await expect(
+      cards.getByRole("button", { name: hide, exact: true }),
+    ).toBeVisible();
+    for (const id of ["template.pdf", "figure.svg", "archive.bin"]) {
+      await selectPromptFile(page, id);
+      await expect(
+        cards.getByRole("button", { name: show, exact: true }),
+      ).toBeVisible();
+      expect((await activeTab(page)).miniPromptsExpanded).toBeUndefined();
+      await selectPromptFile(page, "main.tex");
+      await expect(
+        cards.getByRole("button", { name: hide, exact: true }),
+      ).toBeVisible();
+    }
+    await selectPromptFile(page, "template.pdf");
+    await expect(page.locator(".mupdf-text-layer").first()).toBeVisible();
+    await expect(
+      cards.getByRole("button", { name: show, exact: true }),
+    ).toBeVisible();
+    await page.screenshot({
+      path: test.info().outputPath(`pdf-prompts-${display}-collapsed.png`),
+      animations: "disabled",
+    });
+    await cards.getByRole("button", { name: show, exact: true }).click();
+    await expect(
+      cards.getByRole("button", { name: /^Improve writing/ }),
+    ).toBeEnabled();
+    await selectPromptFile(page, "figure.svg");
+    await expect(
+      cards.getByRole("button", { name: show, exact: true }),
+    ).toBeVisible();
+    // Returning to the previous file must not restore its temporary override.
+    await selectPromptFile(page, "template.pdf");
+    await expect(
+      cards.getByRole("button", { name: show, exact: true }),
+    ).toBeVisible();
+    await selectPromptFile(page, "main.tex");
+    await cards.getByRole("button", { name: hide, exact: true }).click();
+    await expect(
+      cards.getByRole("button", { name: show, exact: true }),
+    ).toBeVisible();
+    await selectPromptFile(page, "figure.svg");
+    await selectPromptFile(page, "main.tex");
+    await expect(
+      cards.getByRole("button", { name: hide, exact: true }),
+    ).toBeVisible();
+    await cards
+      .getByRole("button", { name: "All prompts", exact: true })
+      .click();
+    await page
+      .getByRole("menuitemcheckbox", { name: "Pin prompt bar" })
+      .click();
+    await selectPromptFile(page, "template.pdf");
+    await expect(
+      cards.getByRole("button", { name: "Unpin and collapse" }),
+    ).toBeVisible();
+    await cards.getByRole("button", { name: "Unpin and collapse" }).click();
+    await expect(
+      cards.getByRole("button", { name: show, exact: true }),
+    ).toBeVisible();
+    await selectPromptFile(page, "main.tex");
+    await expect(
+      cards.getByRole("button", { name: hide, exact: true }),
+    ).toBeVisible();
+    await expect(input).toHaveValue("Keep the draft when changing files");
+    // A new chat gets the file-aware default, independent of the prior override.
+    await selectPromptFile(page, "template.pdf");
+    await page.evaluate(() => window.__newInputTransferChat?.());
+    await expect(
+      cards.getByRole("button", { name: show, exact: true }),
+    ).toBeVisible();
+    await selectPromptFile(page, "main.tex");
+    await expect(
+      cards.getByRole("button", { name: hide, exact: true }),
+    ).toBeVisible();
+    await page.screenshot({
+      path: test.info().outputPath(`source-prompts-${display}-expanded.png`),
+      animations: "disabled",
+    });
+  });
+}
+
+test("chat pop-outs share the file-aware prompt default and pin override", async ({
+  page,
+}) => {
+  await workspace(page);
+  await promptFileFixtures(page);
+  const opened = page.waitForEvent("popup");
+  await page.evaluate(async () => {
+    const { useAgentChatStore } = await import(
+      /* @vite-ignore */ "/src/renderer/stores/agent-chat-store.ts"
+    );
+    const { openPanelWindow } = await import(
+      /* @vite-ignore */ "/src/renderer/lib/panel-windows.ts"
+    );
+    useAgentChatStore.setState({ chatProjectRoot: "/tmp/harness" });
+    openPanelWindow("chat", "duet");
+  });
+  const child = await opened;
+  await expect(child.locator("[data-panel-window-title]")).toBeVisible();
+  const cards = child.locator('[data-prompt-suggestions="cards"]:visible');
+  await expect(
+    cards.getByRole("button", { name: "Hide prompt cards", exact: true }),
+  ).toBeVisible();
+  await selectPromptFile(page, "template.pdf");
+  await expect(
+    cards.getByRole("button", { name: "Show prompt cards", exact: true }),
+  ).toBeVisible();
+  await cards
+    .getByRole("button", { name: "Show prompt cards", exact: true })
+    .click();
+  await expect(
+    cards.getByRole("button", { name: "Hide prompt cards", exact: true }),
+  ).toBeVisible();
+  await selectPromptFile(page, "figure.svg");
+  await expect(
+    cards.getByRole("button", { name: "Show prompt cards", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page
+      .locator('[data-prompt-suggestions="compact"]')
+      .getByRole("button", { name: "Show prompts", exact: true }),
+  ).toBeVisible();
+  await selectPromptFile(page, "main.tex");
+  await expect(
+    cards.getByRole("button", { name: "Hide prompt cards", exact: true }),
+  ).toBeVisible();
+  await cards.getByRole("button", { name: "All prompts", exact: true }).click();
+  await child.getByRole("menuitemcheckbox", { name: "Pin prompt bar" }).click();
+  await selectPromptFile(page, "template.pdf");
+  await expect(
+    cards.getByRole("button", { name: "Unpin and collapse" }),
+  ).toBeVisible();
+  await expect(
+    page
+      .locator('[data-prompt-suggestions="compact"]')
+      .getByRole("button", { name: "Unpin and collapse" }),
+  ).toBeVisible();
+  await child.close();
 });

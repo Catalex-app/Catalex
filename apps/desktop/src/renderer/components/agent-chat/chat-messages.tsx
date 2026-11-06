@@ -1,5 +1,5 @@
+import { useLibraryPromptsExpanded } from "@/hooks/use-library-prompts-expanded";
 import { RoundElapsedTime } from "./round-elapsed-time";
-import { areLibraryPromptsExpanded } from "@/lib/prompt-library";
 import { Separator } from "@/components/ui/separator";
 import { chatModelSectionLabels } from "@/lib/chat-model-sections";
 import { providerStatusLabel } from "@/lib/agent-provider-status";
@@ -94,7 +94,7 @@ export const ChatMessages: FC<{
     s.tabs.find((tab) => tab.id === s.activeTabId),
   );
   const promptsPinned = useSettingsStore((s) => s.keepMiniPromptsOpen);
-  const promptsFolded = !areLibraryPromptsExpanded(activeTab, promptsPinned);
+  const promptsFolded = !useLibraryPromptsExpanded(activeTab, promptsPinned);
   return (
     <ChatMessagesForTab
       key={`${projectRoot}:${activeTabId}`}

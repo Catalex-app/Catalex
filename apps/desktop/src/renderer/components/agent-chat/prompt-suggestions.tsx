@@ -1,3 +1,4 @@
+import { useLibraryPromptsExpanded } from "@/hooks/use-library-prompts-expanded";
 import { ButtonGroup } from "@/components/ui/button-group";
 import { Button } from "@/components/ui/button";
 import {
@@ -11,7 +12,6 @@ import {
 import { Hint } from "@/components/ui/tooltip";
 import { invoke } from "@/lib/desktop/core";
 import {
-  areLibraryPromptsExpanded,
   resolveLibraryPromptContext,
   type LibraryPrompt,
 } from "@/lib/prompt-library";
@@ -53,7 +53,7 @@ export function PromptSuggestions({
     state.tabs.find((tab) => tab.id === state.activeTabId),
   );
   const draft = activeTab?.draft;
-  const folded = !areLibraryPromptsExpanded(activeTab, pinned);
+  const folded = !useLibraryPromptsExpanded(activeTab, pinned);
   const setExpanded = (expanded: boolean) => {
     if (compact && onCompactExpandedChange) onCompactExpandedChange(expanded);
     else if (activeTab)

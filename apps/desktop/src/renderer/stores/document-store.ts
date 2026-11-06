@@ -2759,6 +2759,24 @@ storeRef = useDocumentStore;
 // Observe transitions rather than comparing root strings: A → B → A is a new
 // workspace even when an old disk request still refers to A.
 useDocumentStore.subscribe((state, previous) => {
+  // Manual prompt visibility lasts for one file visit. Only the owner resets
+  // shared chat state; pinned editor/preview windows have local file selections.
+  if (
+    !getPanelWindowSession() &&
+    (state.activeFileId !== previous.activeFileId ||
+      state.projectRoot !== previous.projectRoot)
+  ) {
+    const { tabs } = useAgentChatStore.getState();
+    if (tabs.some((tab) => tab.miniPromptsExpanded !== undefined)) {
+      useAgentChatStore.setState({
+        tabs: tabs.map((tab) =>
+          tab.miniPromptsExpanded === undefined
+            ? tab
+            : { ...tab, miniPromptsExpanded: undefined },
+        ),
+      });
+    }
+  }
   if (state.projectRoot && state.projectRoot !== previous.projectRoot) {
     useSettingsStore.getState().initializeProjectAutoCompile(state.projectRoot);
   }

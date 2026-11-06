@@ -96,6 +96,25 @@ beforeEach(() => {
 });
 
 describe("chat prompt queue", () => {
+  it("resets manual prompt visibility on file changes, not content updates", () => {
+    useDocumentStore.setState({ activeFileId: "main.tex" });
+    const store = useAgentChatStore.getState();
+    store.setMiniPromptsExpanded("one", false);
+    store.setMiniPromptsExpanded("two", true);
+    useDocumentStore.setState({ contentGeneration: 10 });
+    expect(tab().miniPromptsExpanded).toBe(false);
+    useDocumentStore.setState({ activeFileId: "figure.svg" });
+    expect(
+      useAgentChatStore
+        .getState()
+        .tabs.every((item) => item.miniPromptsExpanded === undefined),
+    ).toBe(true);
+    useDocumentStore.setState({ activeFileId: "main.tex" });
+    expect(tab().miniPromptsExpanded).toBeUndefined();
+    store.setMiniPromptsExpanded("one", true);
+    useDocumentStore.setState({ projectRoot: "/another-project" });
+    expect(tab().miniPromptsExpanded).toBeUndefined();
+  });
   it("resets manual Mini prompt visibility on each chat visit", () => {
     const store = useAgentChatStore.getState();
     store.setMiniPromptsExpanded("one", true);

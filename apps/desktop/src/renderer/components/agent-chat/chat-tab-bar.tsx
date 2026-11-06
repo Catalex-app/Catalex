@@ -1,7 +1,7 @@
+import { useLibraryPromptsExpanded } from "@/hooks/use-library-prompts-expanded";
 import { useSettingsStore } from "@/stores/settings-store";
 import { PromptSuggestions } from "./prompt-suggestions";
 import { isChatArchiveEligible } from "@/lib/chat-archive-eligibility";
-import { areLibraryPromptsExpanded } from "@/lib/prompt-library";
 import { useAgentReviewQueueStore } from "@/stores/agent-review-queue-store";
 import { RoundElapsedTime } from "./round-elapsed-time";
 import { Button } from "@/components/ui/button";
@@ -125,7 +125,7 @@ export function ChatTabBar({
     (s) => s.setMiniPromptsExpanded,
   );
   const keepMiniPromptsOpen = useSettingsStore((s) => s.keepMiniPromptsOpen);
-  const showPromptSuggestions = areLibraryPromptsExpanded(
+  const showPromptSuggestions = useLibraryPromptsExpanded(
     activeTab,
     keepMiniPromptsOpen,
   );

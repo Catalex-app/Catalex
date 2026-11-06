@@ -291,7 +291,7 @@ function getPinnedSelectionContext(
 }
 
 export interface TabState {
-  /** Prompt visibility across chat modes for this visit; reset on chat entry. */
+  /** Prompt visibility across chat modes; reset on file changes and chat entry. */
   miniPromptsExpanded?: boolean;
   /** Per-conversation composer choices, shared by its workspace and pop-out. */
   modelSelection?: ChatModelSelection;

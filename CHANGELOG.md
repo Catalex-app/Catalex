@@ -4,6 +4,8 @@
 
 - Share PDF-style fit and percentage zoom controls with image previews, and remove image cropping.
 
+- Collapse prompt suggestions by default for standalone PDFs, images, and binary files. New chats expand them again on editable files, while pinning keeps them open and manual choices last until the file or chat changes.
+
 - Keep PDF comment creation in the floating selection toolbar and remove its duplicate right-click menu action.
 
 - Open files and saved chat sessions in pop-outs from their sidebar context menus, preserving the main selection and reusing existing windows.

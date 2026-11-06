@@ -323,3 +323,5 @@ markers. Marker activation uses the existing PDF comment interaction, including
 source synchronization when the editor is visible.
 
 Sidebar file and session context menus use explicit targets with `openPanelWindow`; they do not change the main file or chat selection. Small text files load on demand, and saved sessions restore through `loadChatInBackground` with project and duplicate checks before opening a window. Archived sessions must be restored first.
+
+Prompt expansion uses one shared file-aware rule across Mini, Half, Full, and chat pop-outs. Standalone PDF, image, and binary files suppress only the new-chat automatic expansion; editable source files (including LaTeX with a PDF preview) keep that default. Manual expansion or collapse overrides the default for the current file visit; changing the active file or project clears it in the owner window, and chat entry also resets it. Pinning remains persistent across file and chat changes. Prompt availability and library settings are unchanged.

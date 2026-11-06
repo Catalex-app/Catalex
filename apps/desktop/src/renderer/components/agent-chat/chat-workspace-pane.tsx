@@ -1,3 +1,4 @@
+import { useLibraryPromptsExpanded } from "@/hooks/use-library-prompts-expanded";
 import {
   WorkspacePanel,
   WorkspacePanelHeader,
@@ -8,7 +9,6 @@ import { AgentDraftNotice } from "./agent-question-prompt";
 import { ChatComposer } from "./chat-composer";
 import { ChatMessages } from "./chat-messages";
 import { PromptSuggestions } from "./prompt-suggestions";
-import { areLibraryPromptsExpanded } from "@/lib/prompt-library";
 import { useSettingsStore } from "@/stores/settings-store";
 import { useShallow } from "zustand/react/shallow";
 import {
@@ -44,7 +44,7 @@ export function ChatWorkspacePane({
     s.tabs.find((tab) => tab.id === s.activeTabId),
   );
   const promptsPinned = useSettingsStore((s) => s.keepMiniPromptsOpen);
-  const promptsFolded = !areLibraryPromptsExpanded(activeTab, promptsPinned);
+  const promptsFolded = !useLibraryPromptsExpanded(activeTab, promptsPinned);
   const lastExchange = useAgentChatStore(
     useShallow((s) =>
       lastCommunicationDetails(s.tabs.find((tab) => tab.id === s.activeTabId)),

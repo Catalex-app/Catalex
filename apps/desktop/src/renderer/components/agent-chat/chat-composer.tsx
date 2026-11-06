@@ -1,9 +1,7 @@
+import { useLibraryPromptsExpanded } from "@/hooks/use-library-prompts-expanded";
 import { PromptSuggestions } from "./prompt-suggestions";
 import { PRODUCT_NAME } from "../../../branding";
-import {
-  areLibraryPromptsExpanded,
-  isPromptSelection,
-} from "@/lib/prompt-library";
+import { isPromptSelection } from "@/lib/prompt-library";
 import { usePiSetupStore } from "@/stores/pi-setup-store";
 import {
   findPiModel,
@@ -444,7 +442,7 @@ export const ChatComposer: FC<{
     s.tabs.find((tab) => tab.id === s.activeTabId),
   );
   const promptsPinned = useSettingsStore((s) => s.keepMiniPromptsOpen);
-  const promptsExpanded = areLibraryPromptsExpanded(queueTab, promptsPinned);
+  const promptsExpanded = useLibraryPromptsExpanded(queueTab, promptsPinned);
   const queuedPrompts = queueTab?.queuedPrompts ?? [];
   const hasQueuedPrompts = queuedPrompts.length > 0;
   const queueSensors = useSensors(
