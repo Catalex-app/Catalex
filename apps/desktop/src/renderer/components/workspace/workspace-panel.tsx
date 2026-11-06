@@ -3,6 +3,7 @@ import {
   useContext,
   useLayoutEffect,
   useRef,
+  useState,
   type ComponentPropsWithRef,
   type ComponentProps,
   type CSSProperties,
@@ -387,14 +388,15 @@ export function WorkspacePanelExpandControl({
     >
       <Button
         variant="ghost"
-        size="icon"
-        className="size-7 shrink-0 text-muted-foreground focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset"
+        size="xs"
+        className="h-7 gap-1.5 text-muted-foreground focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset"
         aria-label={`Restore ${expansion.label}`}
         aria-pressed
         disabled={expansion.disabled}
         onClick={() => expansion.onExpandedChange?.(false)}
       >
         <Minimize2Icon className="size-3" />
+        Restore
       </Button>
     </Hint>
   );
@@ -402,13 +404,14 @@ export function WorkspacePanelExpandControl({
     <Hint content="Pop out">
       <Button
         variant="ghost"
-        size="icon"
-        className="size-7 text-muted-foreground focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset"
+        size="xs"
+        className="h-7 gap-1.5 text-muted-foreground focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset"
         aria-label={`Pop out ${expansion.label}`}
         disabled={expansion.disabled}
         onClick={expansion.onPopOut}
       >
         <AppWindowIcon className="size-3.5" />
+        Pop out
       </Button>
     </Hint>
   );
@@ -560,6 +563,10 @@ function isBlankPanelHeader(event: MouseEvent<HTMLElement>): boolean {
 
 export function WorkspacePanelHeader(props: WorkspacePanelHeaderProps) {
   const expansion = useContext(ExpansionContext);
+  const [hoveringGestureArea, setHoveringGestureArea] = useState(false);
+  const canUseHeaderGesture =
+    !expansion?.disabled &&
+    !!(expansion?.onExpandedChange || expansion?.onPopOut);
   const {
     as: Tag = "div",
     actionsLabel,
@@ -572,6 +579,8 @@ export function WorkspacePanelHeader(props: WorkspacePanelHeaderProps) {
     onActionsEscapeKeyDown,
     onDoubleClick,
     onMouseDown,
+    onMouseMove,
+    onMouseLeave,
     ...rest
   } = props;
   const shared = {
@@ -579,7 +588,16 @@ export function WorkspacePanelHeader(props: WorkspacePanelHeaderProps) {
     className: cn(
       "flex h-12 shrink-0 items-center border-border border-b bg-background px-2",
       className,
+      canUseHeaderGesture && hoveringGestureArea && "cursor-pointer",
     ),
+    onMouseMove: (event: MouseEvent<HTMLDivElement>) => {
+      onMouseMove?.(event);
+      setHoveringGestureArea(isBlankPanelHeader(event));
+    },
+    onMouseLeave: (event: MouseEvent<HTMLDivElement>) => {
+      onMouseLeave?.(event);
+      setHoveringGestureArea(false);
+    },
     onMouseDown: (event: MouseEvent<HTMLDivElement>) => {
       onMouseDown?.(event);
       if (
@@ -627,14 +645,36 @@ export function WorkspacePanelHeader(props: WorkspacePanelHeaderProps) {
       </div>
     </>
   );
-  return Tag === "header" ? (
-    <header {...(rest as ComponentPropsWithRef<"header">)} {...shared}>
-      {content}
-    </header>
-  ) : (
-    <div {...(rest as ComponentPropsWithRef<"div">)} {...shared}>
-      {content}
-    </div>
+  const header =
+    Tag === "header" ? (
+      <header {...(rest as ComponentPropsWithRef<"header">)} {...shared}>
+        {content}
+      </header>
+    ) : (
+      <div {...(rest as ComponentPropsWithRef<"div">)} {...shared}>
+        {content}
+      </div>
+    );
+  return (
+    <Hint
+      content={
+        canUseHeaderGesture && hoveringGestureArea ? (
+          <div className="space-y-0.5">
+            {expansion?.onExpandedChange && (
+              <div>
+                Double-click to {expansion.expanded ? "restore" : "expand"}
+              </div>
+            )}
+            {expansion?.onPopOut && (
+              <div>{isMacPlatform() ? "⌥" : "Alt"} Double-click to pop out</div>
+            )}
+          </div>
+        ) : null
+      }
+      onFocus={(event) => event.preventDefault()}
+    >
+      {header}
+    </Hint>
   );
 }
 

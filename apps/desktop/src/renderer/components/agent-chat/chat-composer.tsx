@@ -49,6 +49,7 @@ import {
   captureProposedDraft,
   isEarlierDraftContext,
   isSelectionRangeContextLabel,
+  isSameSelectionContext,
 } from "@/lib/chat-context";
 export { isSelectionRangeContextLabel } from "@/lib/chat-context";
 import { useProjectComments } from "@/components/workspace/editor/use-project-comments";
@@ -176,6 +177,7 @@ function pinnedContextsEqual(a: PinnedContext[], b: PinnedContext[]): boolean {
       context.imageDataUrl === other.imageDataUrl &&
       context.selectionPinned === other.selectionPinned &&
       context.selectionKey === other.selectionKey &&
+      JSON.stringify(context.pdf) === JSON.stringify(other.pdf) &&
       JSON.stringify(context.proposedDraft) ===
         JSON.stringify(other.proposedDraft) &&
       context.comment?.id === other.comment?.id &&
@@ -1250,9 +1252,8 @@ export const ChatComposer: FC<{
         isSelectionRangeContextLabel(context.label) &&
         (!context.selectionPinned ||
           context.label === currentContextLabel ||
-          context.label === pdfSelectionContext?.label ||
-          (context.selectionKey &&
-            context.selectionKey === pdfSelectionContext?.selectionKey))
+          (pdfSelectionContext &&
+            isSameSelectionContext(context, pdfSelectionContext)))
       ) {
         setSelectionRange(null);
         window.dispatchEvent(
@@ -1372,12 +1373,8 @@ export const ChatComposer: FC<{
       );
       const alreadyPinned =
         liveContext &&
-        retained.some(
-          (context) =>
-            (context.selectionKey &&
-              context.selectionKey === liveContext.selectionKey) ||
-            (context.label === liveContext.label &&
-              context.selectedText === liveContext.selectedText),
+        retained.some((context) =>
+          isSameSelectionContext(context, liveContext),
         );
       const target = liveContext
         ? resolveSelectionContextTarget(liveContext, files)
@@ -2852,6 +2849,9 @@ export const ChatComposer: FC<{
                     )}
                     title={
                       ctx.comment?.text ??
+                      (ctx.pdf
+                        ? `${ctx.pdf.documentPath} · PDF p.${ctx.pdf.page}\n${ctx.selectedText}`
+                        : undefined) ??
                       (ctx.proposedDraft ? ctx.selectedText : undefined)
                     }
                   >

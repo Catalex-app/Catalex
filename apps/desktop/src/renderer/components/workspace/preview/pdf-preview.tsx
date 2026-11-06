@@ -1,4 +1,5 @@
 import { exportPdfSource, type PdfSource } from "@/lib/mupdf/pdf-source";
+import { pdfSelectionKey } from "@/lib/chat-context";
 import { CoalescedScrollTask } from "@/lib/coalesced-scroll-task";
 import { createSourceLineIndex } from "@/lib/source-line-index";
 import { createCompiledPdfMap } from "./pdf-source-map";
@@ -112,12 +113,15 @@ import {
 } from "./pdf-comments";
 import { PDF_COMMENT_NAVIGATE_EVENT } from "@/lib/workspace-events";
 
-function pdfSelectionFallbackLabel(selection: PdfTextSelection) {
+function pdfSelectionFallbackLabel(
+  selection: PdfTextSelection,
+  documentPath: string,
+) {
   const text = selection.text.replace(/\s+/g, " ").trim();
   const characters = Array.from(text);
   const excerpt =
     characters.length > 32 ? `${characters.slice(0, 32).join("")}…` : text;
-  return `PDF p.${selection.pageNumber} · “${excerpt}”`;
+  return `PDF p.${selection.pageNumber} · @${documentPath} · “${excerpt}”`;
 }
 
 type FitMode = "fit-width" | "fit-height" | null;
@@ -198,6 +202,7 @@ export function PdfPreview({
   const globalCompilerBackend = useSettingsStore((s) => s.compilerBackend);
   const globalCompilerEngine = useSettingsStore((s) => s.compilerEngine);
   const pdfRevision = useDocumentStore((s) => s.pdfRevision);
+  const pdfSelectionContext = useDocumentStore((s) => s.pdfSelectionContext);
   const compileError = useDocumentStore((s) => s.compileError);
   const isCompiling = useDocumentStore((s) => s.isCompiling);
   const isStoppingCompilation = useDocumentStore(
@@ -394,6 +399,8 @@ export function PdfPreview({
     [isolatedSnapshot, standaloneRootFileId, activeFile?.id, files],
   );
   const currentRootFile = files.find((file) => file.id === currentRootFileId);
+  const pdfDocumentPath = currentRootFile?.relativePath ?? currentRootFileId;
+  const pdfDocumentKind = isStandalonePdf ? "file" : "compiled";
   const agentWorkspaceRoot = useDocumentStore((s) => s.agentWorkspaceRoot);
   const compiledGeneration = useDocumentStore((s) =>
     s.lastCompiledGenerations.get(currentRootFileId),
@@ -944,17 +951,28 @@ export function PdfPreview({
       setPdfSelection(selection);
       setResolvedSource(null);
       if (selection) {
+        const pdf = {
+          documentPath: pdfDocumentPath,
+          kind: pdfDocumentKind,
+          page: selection.pageNumber,
+        } as const;
         useDocumentStore.getState().setPdfSelectionContext({
-          selectionKey: `pdf:${selection.pageNumber}:${selection.pdfX}:${selection.pdfY}:${selection.text}`,
-          label: pdfSelectionFallbackLabel(selection),
-          filePath: "document.pdf",
+          selectionKey: pdfSelectionKey(
+            pdf,
+            selection.pdfX,
+            selection.pdfY,
+            selection.text,
+          ),
+          pdf,
+          label: pdfSelectionFallbackLabel(selection, pdfDocumentPath),
+          filePath: pdfDocumentPath,
           selectedText: selection.text,
         });
       } else {
         useDocumentStore.getState().setPdfSelectionContext(null);
       }
     },
-    [isolatedSnapshot],
+    [isolatedSnapshot, pdfDocumentPath, pdfDocumentKind],
   );
 
   const canMapPdfComment = Boolean(pdfComments && projectRoot);
@@ -1037,7 +1055,8 @@ export function PdfPreview({
       const chatContext = useDocumentStore.getState().pdfSelectionContext;
       if (
         choice &&
-        chatContext?.label === pdfSelectionFallbackLabel(pdfSelection) &&
+        chatContext?.label ===
+          pdfSelectionFallbackLabel(pdfSelection, pdfDocumentPath) &&
         chatContext.selectedText === pdfSelection.text
       ) {
         const content = files.find(
@@ -1075,6 +1094,7 @@ export function PdfPreview({
     contentGeneration,
     compiledGeneration,
     canMapPdfComment,
+    pdfDocumentPath,
   ]);
 
   const pdfContextLabel = resolvedSource
@@ -2984,11 +3004,12 @@ export function PdfPreview({
       {toolbarWidthProbes}
       {renderContent()}
       {/* PDF selection toolbar */}
-      {!isolatedSnapshot && pdfSelection && pdfToolbarActions.length > 0 && (
+      {!isolatedSnapshot && pdfSelection && (
         <SelectionToolbar
           position={pdfSelection.position}
           getAnchor={getPdfToolbarAnchor}
           contextLabel={pdfContextLabel}
+          selectionContext={pdfSelectionContext}
           actions={pdfToolbarActions}
           onAction={handlePdfToolbarAction}
           onDismiss={handlePdfToolbarDismiss}

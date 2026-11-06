@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+- Make panel header gestures discoverable with a hand cursor and tooltip, and label the expanded view's Pop out and Restore buttons.
+
+- Identify PDF selections by their document and page even when source mapping is unavailable, and keep matching passages from different PDFs as separate chat attachments.
+
+- Reuse one LaTeX preview pop-out per root document, including when opened from different chapter files. Keep its page and zoom, and keep it open when an included file is deleted.
+
+- Send selections from editor and PDF pop-outs to the main chat or an open chat pop-out. The selection is pinned in the chosen chat without submitting a prompt or replacing its draft. Main-window selections continue to supply live context automatically.
+
 - Add a customizable prompt library with optional icons and a searchable icon picker in Agent settings, with cards in empty chats and compact suggestions beside the mini-mode chat switcher. Prompt clicks send in the current conversation while preserving the typed draft.
 - Simplify prompt availability to Always, Has text selection, or Has issues, with automatic text context. The four defaults are Improve writing (including proofreading), Fix issues, Review & comment, and Tighten layout.
 

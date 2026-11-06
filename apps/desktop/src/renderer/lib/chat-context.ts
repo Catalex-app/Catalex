@@ -4,6 +4,12 @@ export interface ChatContextBadge {
   selectedText: string;
   selectionPinned?: boolean;
   selectionKey?: string;
+  pdf?: {
+    /** Project-relative TeX root or directly opened PDF path. */
+    documentPath: string;
+    kind: "compiled" | "file";
+    page: number;
+  };
   imageDataUrl?: string;
   attachment?: boolean;
   proposedDraft?: { sessionId: string; contentVersion?: string };
@@ -27,7 +33,48 @@ export interface ChatContextBadge {
 export function isSelectionRangeContextLabel(label: string): boolean {
   return (
     /:\d+:\d+-\d+:\d+(?: · PDF p\.\d+)?$/.test(label) ||
-    /^PDF (?:p\.\d+ · “.*”|· p\. \d+)$/.test(label)
+    /^PDF (?:p\.\d+ · (?:@.+ · )?“.*”|· p\. \d+)$/.test(label)
+  );
+}
+
+export function pdfSelectionKey(
+  pdf: NonNullable<ChatContextBadge["pdf"]>,
+  x: number,
+  y: number,
+  text: string,
+): string {
+  // SVG coordinates can differ by floating-point noise across viewer scales.
+  // A hundredth of a PDF point retains position without treating that as a new excerpt.
+  return `pdf:${JSON.stringify([
+    pdf.kind,
+    pdf.documentPath,
+    pdf.page,
+    Number(x.toFixed(2)),
+    Number(y.toFixed(2)),
+    text,
+  ])}`;
+}
+
+/** PDF excerpts must never fall back to matching text from another document. */
+export function isSameSelectionContext(
+  a: ChatContextBadge,
+  b: ChatContextBadge,
+): boolean {
+  if (a.pdf || b.pdf) {
+    return Boolean(
+      a.pdf &&
+        b.pdf &&
+        a.pdf.documentPath === b.pdf.documentPath &&
+        a.pdf.kind === b.pdf.kind &&
+        a.selectionKey &&
+        a.selectionKey === b.selectionKey,
+    );
+  }
+  return Boolean(
+    (a.selectionKey && a.selectionKey === b.selectionKey) ||
+      (a.filePath === b.filePath &&
+        a.label === b.label &&
+        a.selectedText === b.selectedText),
   );
 }
 

@@ -10,7 +10,11 @@ import { usePausedReviewStore } from "@/stores/paused-review-store";
 import { useClaudeSetupStore } from "@/stores/claude-setup-store";
 import { useCodexSetupStore } from "@/stores/codex-setup-store";
 import { usePiSetupStore } from "@/stores/pi-setup-store";
-import { useDocumentStore, getPdfBytes } from "@/stores/document-store";
+import {
+  useDocumentStore,
+  getPdfBytes,
+  resolveTexRoot,
+} from "@/stores/document-store";
 import {
   useAgentChatStore,
   createChatPanelStore,
@@ -20,12 +24,18 @@ import type {
   PanelWindowKind,
   PanelWindowSession,
 } from "./panel-window-runtime";
+import { notifyPanelSessionsChanged } from "./panel-window-runtime";
 import type { WorkspaceMode } from "./ui-theme";
 
 export function openPanelWindow(kind: PanelWindowKind, mode: WorkspaceMode) {
   const state = useDocumentStore.getState();
   if (!state.projectRoot) return;
-  const fileId = state.activeFileId;
+  // A compiled preview belongs to its root document, regardless of which
+  // included file opened it. Other panel kinds remain pinned to their file.
+  const fileId =
+    kind === "preview"
+      ? resolveTexRoot(state.activeFileId, state.files)
+      : state.activeFileId;
   const chatId =
     kind === "chat" ? useAgentChatStore.getState().activeTabId : undefined;
   const sessions = (window.__catalexPanelSessions ??= new Map());
@@ -96,6 +106,7 @@ export function openPanelWindow(kind: PanelWindowKind, mode: WorkspaceMode) {
     return;
   }
   session.window = child;
+  notifyPanelSessionsChanged();
   const stop = useDocumentStore.subscribe((next) => {
     if (
       next.projectRoot !== session.projectRoot ||
@@ -128,6 +139,7 @@ export function openPanelWindow(kind: PanelWindowKind, mode: WorkspaceMode) {
     stopChat?.();
     chatView?.dispose();
     sessions.delete(token);
+    notifyPanelSessionsChanged();
     clearInterval(interval);
   }, 1000);
 }

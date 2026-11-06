@@ -81,9 +81,13 @@ and synchronization. The prompt-library Electron smoke uses an isolated profile
 and production assets to verify library text, ordering, and enabled state across
 native windows and a full app restart; it does not launch an external agent.
 
-The panel-window smoke starts an isolated Vite server and Electron profile. It checks native editor, Markdown, PDF, and chat windows, pinned files, bidirectional edits, comments, save-failure protection, duplicate focus, project-close cleanup, and persistence after restart. It uses the installed LaTeXmk compiler for its PDF check.
+The panel-window smoke starts an isolated Vite server and Electron profile. It checks native editor, Markdown, PDF, and chat windows, pinned files, bidirectional edits, comments, save-failure protection, duplicate focus (including shared LaTeX roots), project-close cleanup, and persistence after restart. It uses the installed LaTeXmk compiler for its PDF check.
 
-The panel-review smoke uses a temporary Git project, isolated Electron profile, and the real backend to check editor pop-outs through draft/source transitions, decisions from different windows, accepted deletion, and resumed editing/saving. It creates a controlled proposal without launching an external agent. The `multi-window-context` browser suite covers live selection sharing, comment-only selection popups, reference-window controls, and rejected/failed deletion.
+The panel-review smoke uses a temporary Git project, isolated Electron profile, and the real backend to check editor pop-outs through draft/source transitions, decisions from different windows, accepted deletion, and resumed editing/saving. It creates a controlled proposal without launching an external agent. The `multi-window-context` browser suite covers live selection sharing, targeted
+selection pinning from reference windows, comment-only main-window selection menus, chat-menu status and window
+availability, keyboard dismissal, reference-window controls, shared-root preview windows, and rejected/failed
+deletion. The panel-window smoke also checks selection transfer between native
+windows and retention of the pinned excerpt after a full application restart.
 
 Additional `e2e/electron/*-smoke.mjs` scripts exercise specific features, including comments, Git, agent drafts, native compilation, and restart recovery. Review each script's prerequisites before running it. Agent protocol fixtures use local scripted providers; real installed-agent tests must be explicitly selected and may depend on local credentials.
 

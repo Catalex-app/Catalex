@@ -220,9 +220,35 @@ issues to its lines (an end at column one excludes that ending line); a clean or
 stale selection never borrows unrelated file issues. File context includes
 unlocated compiler problems. Diagnostic messages, severity, and locations travel
 with the source attachment and stay separate from the user's prompt text.
-Selection popups in Artisan and Duet expose only Comment, including editor and
-PDF selections. AI quick actions live in the prompt bar. When comments are
-unavailable for a surface, no empty selection popup is rendered.
+LaTeX preview pop-outs are keyed by project and resolved TeX root, using the
+same `resolveTexRoot` mapping as the PDF cache. Opening a preview from another
+included file focuses the existing window without resetting its page or zoom.
+The preview's title, compilation target, and lifetime belong to the root;
+deleting an included file does not close it. Editor and non-LaTeX preview
+pop-outs remain pinned to individual files.
+
+Main-window editor and PDF selection popups offer Comment; their selections
+continue to provide live context to chats, where users can pin them. Editor and
+PDF pop-outs additionally offer Send to chat. This action
+replaces the popup's actions with chat choices on click or keyboard activation, keeping
+one popup surface. A back arrow, Escape, or Left Arrow restores the actions;
+keyboard users can navigate the choices with arrow keys. It lists the main chat
+and open chat pop-outs with status indicators
+and Main, Pop-out, or Main & Pop-out badges. A chat open in both places still
+appears once and receives the selection once. With just one target, Send to chat shows its badge and pins directly
+when clicked, without a submenu.
+PDF excerpts retain the project-relative compiled root (or directly opened PDF
+path), page, and selection identity independently of optional source mapping.
+The document path and page are included in the agent prompt even when mapping
+fails. Duplicate checks use document identity and selection position/text, so
+identical passages in different PDFs remain separate. Older excerpts without
+PDF identity are kept rather than guessed to match new captures.
+Choosing a chat pins the excerpt in that chat's draft without submitting a
+prompt, switching chats, or replacing typed text. File pop-outs can explicitly
+send their local selections through this menu while their automatic selection
+context remains local. Closed and archived chats are excluded, and the target
+and project are checked again when attaching. AI quick actions live in the
+prompt bar. A surface with no available actions renders no selection popup.
 
 ## Repository support and generated files
 

@@ -35,10 +35,16 @@ function formatAttachment(context: ChatContextBadge): string {
   return [
     context.imageDataUrl
       ? "[Attached image]"
-      : isSelectionRangeContextLabel(context.label)
+      : context.pdf || isSelectionRangeContextLabel(context.label)
         ? "[Selected text]"
         : "[Attached file]",
     `File: ${context.filePath}`,
+    ...(context.pdf
+      ? [
+          `${context.pdf.kind === "compiled" ? "PDF compiled from" : "PDF document"}: ${context.pdf.documentPath}`,
+          `PDF page: ${context.pdf.page}`,
+        ]
+      : []),
     ...(context.proposedDraft
       ? [
           "Source: Agent proposed draft (captured snapshot; locations may have changed).",

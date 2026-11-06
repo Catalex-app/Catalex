@@ -47,6 +47,7 @@ import {
 } from "./comment-draft-history";
 import { getActiveComment } from "./active-comment";
 import { attachCommentToChat } from "@/lib/comment-chat-context";
+import { captureProposedDraft } from "@/lib/chat-context";
 import { isReferencePanelWindow } from "@/lib/panel-window-runtime";
 import {
   commentChangeTransaction,
@@ -4383,6 +4384,21 @@ export function LatexEditor({
       return null;
     }
   }, [selectionRange, activeFile]);
+  const selectionContext =
+    selectionLabel && selectionRange && activeFile?.content
+      ? {
+          label: selectionLabel,
+          filePath: activeFile.relativePath,
+          selectedText: activeFile.content.slice(
+            selectionRange.start,
+            selectionRange.end,
+          ),
+          proposedDraft: captureProposedDraft(
+            promptDraftSessionId,
+            activeFile.content,
+          ),
+        }
+      : null;
 
   useEffect(() => {
     const clearForPdfSelection = (event: Event) => {
@@ -6219,7 +6235,7 @@ export function LatexEditor({
                 {reviewingSnapshot && historyDiffResult && (
                   <HistoryDiffView diffs={historyDiffResult} />
                 )}
-                {editorToolbarActions.length > 0 &&
+                {(editorToolbarActions.length > 0 || selectionContext) &&
                   toolbarPosition &&
                   selectionLabel &&
                   !isReviewDisplay &&
@@ -6228,6 +6244,7 @@ export function LatexEditor({
                       position={toolbarPosition}
                       getAnchor={getToolbarAnchor}
                       contextLabel={selectionLabel}
+                      selectionContext={selectionContext}
                       actions={editorToolbarActions}
                       onAction={handleToolbarAction}
                       onDismiss={handleToolbarDismiss}

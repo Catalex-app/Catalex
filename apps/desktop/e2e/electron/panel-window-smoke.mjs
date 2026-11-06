@@ -25,6 +25,10 @@ Native pop-out PDF.
 \end{document}
 `,
 );
+await fs.writeFile(
+  path.join(project, "chapter.tex"),
+  "% !TEX root = main.tex\nA chapter in the main document.\n",
+);
 const artifacts = path.resolve(
   desktopRoot,
   "../../output/playwright/electron/panel-window",
@@ -368,11 +372,13 @@ try {
   await expect(chat.locator("[data-panel-window-title]")).toHaveText(
     "New Chat",
   );
-  await chat.getByPlaceholder("Ask me anything").fill("Shared unsent draft");
+  await chat
+    .locator('[data-chat-composer-input="true"]:visible')
+    .fill("Shared unsent draft");
   await expect(
     main
       .locator('[data-chat-drawer-panel="true"]:visible')
-      .getByPlaceholder("Ask me anything"),
+      .locator('[data-chat-composer-input="true"]:visible'),
   ).toHaveValue("Shared unsent draft");
   await expect
     .poll(() =>
@@ -417,18 +423,18 @@ try {
     "New Chat",
   );
   await secondChat
-    .getByPlaceholder("Ask me anything")
+    .locator('[data-chat-composer-input="true"]:visible')
     .fill("Second chat draft");
   await chat
-    .getByPlaceholder("Ask me anything")
+    .locator('[data-chat-composer-input="true"]:visible')
     .fill("Pinned first chat draft");
-  await expect(secondChat.getByPlaceholder("Ask me anything")).toHaveValue(
-    "Second chat draft",
-  );
+  await expect(
+    secondChat.locator('[data-chat-composer-input="true"]:visible'),
+  ).toHaveValue("Second chat draft");
   await expect(
     main
       .locator('[data-chat-drawer-panel="true"]:visible')
-      .getByPlaceholder("Ask me anything"),
+      .locator('[data-chat-composer-input="true"]:visible'),
   ).toHaveValue("Second chat draft");
   assert.equal(
     await main.evaluate(async () => {
@@ -439,6 +445,42 @@ try {
     }),
     secondChatId,
   );
+  await child.locator(".cm-content").focus();
+  await child.keyboard.press("ControlOrMeta+Home");
+  await child.keyboard.press("Shift+End");
+  await child
+    .getByRole("button", { name: "Send to chat", exact: true })
+    .click();
+  await expect(child.getByRole("menuitem")).toHaveCount(2);
+  await child.screenshot({
+    path: path.join(artifacts, "send-selection-menu.png"),
+    animations: "disabled",
+  });
+  await child
+    .getByRole("menuitem", { name: "New Chat Pop-out", exact: true })
+    .click();
+  await expect(
+    chat.locator('[data-selection-chip="true"][data-selection-pinned="true"]'),
+  ).toHaveCount(1);
+  await expect(
+    secondChat.locator(
+      '[data-selection-chip="true"][data-selection-pinned="true"]',
+    ),
+  ).toHaveCount(0);
+  await expect(
+    chat.locator('[data-chat-composer-input="true"]:visible'),
+  ).toHaveValue("Pinned first chat draft");
+  const transferredSelection = await main.evaluate(async (id) => {
+    const { useAgentChatStore: store } = await import(
+      "/src/renderer/stores/agent-chat-store.ts"
+    );
+    return store
+      .getState()
+      .tabs.find((tab) => tab.id === id)
+      .draft.pinnedContexts.find((context) => context.selectionPinned);
+  }, originalChatId);
+  assert.ok(transferredSelection?.selectedText);
+  console.log("Native reference-window selection pinned to the requested chat");
   const chatWindowCount = app.windows().length;
   const pinnedNativeWindow = await app.browserWindow(chat);
   await pinnedNativeWindow.evaluate((win) => win.hide());
@@ -456,10 +498,12 @@ try {
     .poll(() => pinnedNativeWindow.evaluate((win) => win.isFocused()))
     .toBe(true);
   assert.equal(app.windows().length, chatWindowCount);
-  await expect(chat.getByPlaceholder("Ask me anything")).toHaveValue(
-    "Pinned first chat draft",
-  );
-  await chat.getByPlaceholder("Ask me anything").fill("Shared unsent draft");
+  await expect(
+    chat.locator('[data-chat-composer-input="true"]:visible'),
+  ).toHaveValue("Pinned first chat draft");
+  await chat
+    .locator('[data-chat-composer-input="true"]:visible')
+    .fill("Shared unsent draft");
   await chat.screenshot({ path: path.join(artifacts, "pinned-chat.png") });
   console.log(
     "Independent pinned chats, isolated drafts and duplicate native focus passed",
@@ -473,15 +517,15 @@ try {
   }, secondChatId);
   await secondChatClosed;
   assert.equal(chat.isClosed(), false);
-  await expect(chat.getByPlaceholder("Ask me anything")).toHaveValue(
-    "Shared unsent draft",
-  );
+  await expect(
+    chat.locator('[data-chat-composer-input="true"]:visible'),
+  ).toHaveValue("Shared unsent draft");
   console.log("Removing one chat closes only its own native pop-out");
   await main.evaluate(async () => {
     const { useDocumentStore: s } = await import(
       "/src/renderer/stores/document-store.ts"
     );
-    s.getState().setActiveFile("main.tex");
+    s.getState().setActiveFile("chapter.tex");
   });
   const pdfOpened = app.waitForEvent("window", { timeout: 15000 });
   await main
@@ -491,6 +535,31 @@ try {
     .getByRole("menuitem", { name: "Pop out PDF", exact: true })
     .click();
   const pdf = await ready(await pdfOpened);
+  await expect(pdf.locator("[data-panel-window-title]")).toHaveText("main.tex");
+  const pdfWindow = await app.browserWindow(pdf);
+  const pdfWindowCount = app.windows().length;
+  await pdfWindow.evaluate((win) => win.hide());
+  await main.evaluate(async () => {
+    const { useDocumentStore: s } = await import(
+      "/src/renderer/stores/document-store.ts"
+    );
+    const { openPanelWindow } = await import(
+      "/src/renderer/lib/panel-windows.ts"
+    );
+    s.getState().setActiveFile("main.tex");
+    openPanelWindow("preview", "duet");
+  });
+  await expect
+    .poll(() => pdfWindow.evaluate((win) => win.isVisible()))
+    .toBe(true);
+  await expect
+    .poll(() => pdfWindow.evaluate((win) => win.isFocused()))
+    .toBe(true);
+  assert.equal(
+    app.windows().length,
+    pdfWindowCount,
+    "Root and chapter reuse the same native preview",
+  );
   await main.evaluate(async () => {
     const { useDocumentStore: s } = await import(
       "/src/renderer/stores/document-store.ts"
@@ -608,6 +677,9 @@ try {
       return {
         settings: restored?.lastCommunication,
         startsSection: restored?.messages[0]?.startsModelSection,
+        selection: restored?.draft.pinnedContexts.find(
+          (context) => context.selectionPinned,
+        ),
       };
     }),
     {
@@ -617,6 +689,8 @@ try {
         effort: "high",
       },
       startsSection: true,
+      // Checkpoint JSON omits optional properties whose value is undefined.
+      selection: JSON.parse(JSON.stringify(transferredSelection)),
     },
   );
   assert.equal(errors.length, 0, errors.join("\n"));

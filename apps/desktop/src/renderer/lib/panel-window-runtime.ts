@@ -45,6 +45,33 @@ declare global {
   }
 }
 
+const panelSessionsChanged = "catalex:panel-sessions-changed";
+
+function panelOwner(): Window {
+  return getPanelWindowSession() ? window.opener : window;
+}
+
+export function notifyPanelSessionsChanged() {
+  window.dispatchEvent(new Event(panelSessionsChanged));
+}
+
+export function subscribePanelSessions(listener: () => void) {
+  const owner = panelOwner();
+  owner.addEventListener(panelSessionsChanged, listener);
+  return () => owner.removeEventListener(panelSessionsChanged, listener);
+}
+
+/** A stable snapshot for selection menus in both the workspace and its pop-outs. */
+export function openChatPanelSnapshot(): string {
+  return [...(panelOwner().__catalexPanelSessions?.values() ?? [])]
+    .filter(
+      (session) =>
+        session.kind === "chat" && session.window && !session.window.closed,
+    )
+    .map((session) => session.chatId)
+    .join("\n");
+}
+
 /** Only same-origin child windows explicitly opened by the workspace can attach. */
 export function getPanelWindowSession(): PanelWindowSession | undefined {
   if (typeof window === "undefined") return;
@@ -58,7 +85,7 @@ export function getPanelWindowSession(): PanelWindowSession | undefined {
   }
 }
 
-/** File pop-outs support editing and review; only the main workspace supplies agent context. */
+/** File pop-outs keep automatic selection context local to their document view. */
 export function isReferencePanelWindow(): boolean {
   const kind = getPanelWindowSession()?.kind;
   return kind === "editor" || kind === "preview";

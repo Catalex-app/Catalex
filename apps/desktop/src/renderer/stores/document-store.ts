@@ -157,12 +157,7 @@ export interface DocumentState {
   promptDiagnostics: PromptDiagnosticSnapshot | null;
   commentSelectionContext: ChatContextBadge | null;
   setCommentSelectionContext: (context: ChatContextBadge | null) => void;
-  pdfSelectionContext: {
-    selectionKey?: string;
-    label: string;
-    filePath: string;
-    selectedText: string;
-  } | null;
+  pdfSelectionContext: ChatContextBadge | null;
   setPdfSelectionContext: (
     context: DocumentState["pdfSelectionContext"],
   ) => void;

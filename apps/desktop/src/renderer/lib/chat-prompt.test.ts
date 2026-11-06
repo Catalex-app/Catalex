@@ -118,3 +118,38 @@ describe("chat prompt context", () => {
     expect(prompt).not.toContain("undefined");
   });
 });
+
+it("sends PDF document identity and page even when source mapping is unavailable", () => {
+  const contexts: ChatContextBadge[] = [
+    {
+      label: "PDF p.3 · @papers/a/main.tex · “Introduction”",
+      filePath: "papers/a/main.tex",
+      selectedText: "Introduction",
+      pdf: { documentPath: "papers/a/main.tex", kind: "compiled", page: 3 },
+    },
+    {
+      label: "PDF p.3 · @chapters/intro.tex:12:1-15:4",
+      filePath: "chapters/intro.tex",
+      selectedText: "Introduction",
+      pdf: { documentPath: "papers/b/main.tex", kind: "compiled", page: 3 },
+    },
+    {
+      label: "PDF p.3 · @references/main.pdf · “Introduction”",
+      filePath: "references/main.pdf",
+      selectedText: "Introduction",
+      pdf: { documentPath: "references/main.pdf", kind: "file", page: 3 },
+    },
+  ];
+  const prompt = formatChatPrompt(
+    "Compare these",
+    undefined,
+    JSON.parse(JSON.stringify(contexts)),
+  );
+  expect(prompt).toContain("PDF compiled from: papers/a/main.tex\nPDF page: 3");
+  expect(prompt).toContain(
+    "PDF compiled from: papers/b/main.tex\nPDF page: 3\nRange: line 12, column 1 to line 15, column 4",
+  );
+  expect(prompt).toContain("PDF document: references/main.pdf\nPDF page: 3");
+  expect(prompt).not.toContain("document.pdf");
+  expect(prompt.match(/\[Selected text\]/g)).toHaveLength(3);
+});

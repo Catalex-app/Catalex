@@ -402,6 +402,21 @@ test("blank headers toggle focus, ignore controls and support Alt double-click p
   const header = page.getByTestId("latex-editor-toolbar");
   const space = header.locator("[data-panel-header-space]");
   await expect(space).toBeVisible();
+  await space.hover();
+  await expect(space).toHaveCSS("cursor", "pointer");
+  const expandHint = page
+    .getByRole("tooltip")
+    .filter({ hasText: "Double-click to expand" });
+  await expect(expandHint).toBeVisible();
+  await expect(expandHint).toContainText("Double-click to pop out");
+  await page.screenshot({
+    path: test.info().outputPath("panel-header-hint.png"),
+    animations: "disabled",
+  });
+  const statistics = page.getByTestId("latex-editor-statistics");
+  await statistics.hover();
+  await expect(header).not.toHaveCSS("cursor", "pointer");
+  await expect(expandHint).toHaveCount(0);
   await page.getByTestId("latex-editor-statistics").dblclick();
   await expect(
     page.getByRole("dialog", { name: "Editor expanded" }),
@@ -409,6 +424,23 @@ test("blank headers toggle focus, ignore controls and support Alt double-click p
   await space.dblclick();
   const expanded = page.getByRole("dialog", { name: "Editor expanded" });
   await expect(expanded).toBeVisible();
+  const expandedActions = expanded.locator("[data-expanded-panel-actions]");
+  await expect(
+    expandedActions.getByRole("button", { name: "Pop out Editor" }),
+  ).toHaveText("Pop out");
+  await expect(
+    expandedActions.getByRole("button", { name: "Restore Editor" }),
+  ).toHaveText("Restore");
+  await page.mouse.move(0, 0);
+  await page.screenshot({
+    path: test.info().outputPath("expanded-panel-labels.png"),
+    animations: "disabled",
+  });
+  await space.hover();
+  await expect(space).toHaveCSS("cursor", "pointer");
+  await expect(
+    page.getByRole("tooltip").filter({ hasText: "Double-click to restore" }),
+  ).toBeVisible();
   await expect(
     header.getByRole("button", { name: "More Editor view actions" }),
   ).toBeVisible();
@@ -418,10 +450,22 @@ test("blank headers toggle focus, ignore controls and support Alt double-click p
   await space.dblclick({ modifiers: ["Alt"] });
   const child = await opened;
   await expect(child.locator(".cm-content")).toBeVisible();
+  const childSpace = child.locator("[data-panel-header-space]");
+  await childSpace.hover();
+  await expect(childSpace).not.toHaveCSS("cursor", "pointer");
+  await expect(
+    child.getByRole("tooltip").filter({ hasText: "Double-click to" }),
+  ).toHaveCount(0);
   await expect(expanded).toHaveCount(0);
   await child.close();
   const pdfHeader = page.locator("[data-pdf-toolbar]");
   const pdfSpace = pdfHeader.locator("[data-panel-header-space]");
+  await pdfSpace.hover();
+  await expect(pdfSpace).toHaveCSS("cursor", "pointer");
+  await page.screenshot({
+    path: test.info().outputPath("panel-header-pointer.png"),
+    animations: "disabled",
+  });
   await pdfSpace.dblclick();
   await expect(
     page.getByRole("dialog", { name: "PDF expanded" }),
