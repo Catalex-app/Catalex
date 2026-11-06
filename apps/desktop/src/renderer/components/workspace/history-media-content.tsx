@@ -37,7 +37,6 @@ export function HistoryMediaContent({ file }: { file: ProjectFile }) {
           file={file}
           scale={scale}
           onScaleChange={setScale}
-          readOnly
           toolbarContent={<CurrentAssetMetadata file={file} />}
         />
       ) : (
@@ -215,7 +214,6 @@ export function HistoryRecordedAsset({
           }}
           scale={scale}
           onScaleChange={setScale}
-          readOnly
           toolbarContent={metadata}
         />
       ) : base64 !== null && type === "pdf" ? (

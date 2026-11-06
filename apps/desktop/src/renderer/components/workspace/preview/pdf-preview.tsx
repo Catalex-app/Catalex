@@ -9,7 +9,7 @@ import { pdfSelectionKey } from "@/lib/chat-context";
 import { CoalescedScrollTask } from "@/lib/coalesced-scroll-task";
 import { createSourceLineIndex } from "@/lib/source-line-index";
 import { createCompiledPdfMap } from "./pdf-source-map";
-import { clampPdfScale } from "./pdf-zoom";
+import { clampPdfScale, MIN_PDF_SCALE, MAX_PDF_SCALE } from "./pdf-zoom";
 import {
   captureCompileContext,
   captureAutomaticCompileContext,
@@ -18,7 +18,7 @@ import {
   compileWorkspace,
 } from "@/lib/workspace-compile";
 import { isComposingKey } from "@/lib/keyboard-events";
-import { PdfZoomControl } from "./pdf-zoom-control";
+import { DocumentZoomControl } from "../document-zoom-control";
 import { setCommentDraft } from "../editor/comment-draft-history";
 import { attachCommentToChat } from "@/lib/comment-chat-context";
 import { isReferencePanelWindow } from "@/lib/panel-window-runtime";
@@ -2794,35 +2794,14 @@ export function PdfPreview({
               />
             </>
           )}
-          {!hideFitWidth && (
-            <Hint content="Fit width">
-              <Button
-                variant="ghost"
-                size="icon"
-                className={`size-7 shrink-0 border ${fitMode === "fit-width" ? "border-input bg-background text-foreground hover:bg-background" : "border-transparent"}`}
-                onClick={() => selectFitMode("fit-width")}
-                aria-label="Fit width"
-                aria-pressed={fitMode === "fit-width"}
-              >
-                <MoveHorizontalIcon className="size-3.5" />
-              </Button>
-            </Hint>
-          )}
-          {!hideFitHeight && (
-            <Hint content="Fit height">
-              <Button
-                variant="ghost"
-                size="icon"
-                className={`size-7 shrink-0 border ${fitMode === "fit-height" ? "border-input bg-background text-foreground hover:bg-background" : "border-transparent"}`}
-                onClick={() => selectFitMode("fit-height")}
-                aria-label="Fit height"
-                aria-pressed={fitMode === "fit-height"}
-              >
-                <MoveVerticalIcon className="size-3.5" />
-              </Button>
-            </Hint>
-          )}
-          <PdfZoomControl
+          <DocumentZoomControl
+            label="PDF zoom"
+            minScale={MIN_PDF_SCALE}
+            maxScale={MAX_PDF_SCALE}
+            fitMode={fitMode}
+            onFitModeChange={selectFitMode}
+            hideFitWidth={hideFitWidth}
+            hideFitHeight={hideFitHeight}
             scale={scale}
             onChange={(value) => {
               setFitMode(null);

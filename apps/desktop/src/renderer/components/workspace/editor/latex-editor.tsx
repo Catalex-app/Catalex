@@ -1375,14 +1375,12 @@ export function LatexEditor({
   const historyDiffResult = useHistoryStore((s) => s.diffResult);
 
   const [imageScale, setImageScale] = useState(1.0);
-  const [cropMode, setCropMode] = useState(false);
   const [gitHeadRefreshNonce, setGitHeadRefreshNonce] = useState(0);
   const [editorSelectedText, setEditorSelectedText] = useState("");
 
-  // Reset scale and crop mode when switching files
+  // Reset scale when switching files
   useEffect(() => {
     setImageScale(1.0);
-    setCropMode(false);
     setEditorSelectedText("");
     setSelectionRangeForSearch(null);
     setSearchScopeRange(null);
@@ -6060,8 +6058,6 @@ export function LatexEditor({
                 file={activeFile}
                 scale={imageScale}
                 onScaleChange={setImageScale}
-                cropMode={cropMode}
-                onCropModeChange={setCropMode}
               />
             )}
           {!isWholeFileReview &&

@@ -59,6 +59,7 @@ export function FilePanelHeader({
   children,
   label = "File information",
   textEditor = false,
+  wrapControls = false,
   textStatistics,
 }: {
   fileName?: string;
@@ -67,6 +68,7 @@ export function FilePanelHeader({
   children?: ReactNode;
   label?: string;
   textEditor?: boolean;
+  wrapControls?: boolean;
   textStatistics?: {
     wordCount: number;
     characterCount: number;
@@ -179,14 +181,26 @@ export function FilePanelHeader({
     <WorkspacePanelHeader
       trailingContent={
         children ? (
-          <div className="flex items-center gap-1">{children}</div>
+          <div
+            className={
+              wrapControls
+                ? "flex min-w-0 flex-wrap items-center justify-end gap-1"
+                : "flex items-center gap-1"
+            }
+          >
+            {children}
+          </div>
         ) : undefined
       }
       hasTrailingContent={!!children}
       as="header"
       role="toolbar"
       aria-label={label}
-      className="gap-1"
+      className={
+        wrapControls
+          ? "h-auto min-h-12 flex-wrap gap-x-1 gap-y-1 py-1.5 [&>[data-panel-header-trailing]]:min-w-0 [&>[data-panel-header-trailing]]:max-w-full"
+          : "gap-1"
+      }
     >
       <Hint
         content={

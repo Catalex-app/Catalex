@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Share PDF-style fit and percentage zoom controls with image previews, and remove image cropping.
+
 - Keep PDF comment creation in the floating selection toolbar and remove its duplicate right-click menu action.
 
 - Open files and saved chat sessions in pop-outs from their sidebar context menus, preserving the main selection and reusing existing windows.

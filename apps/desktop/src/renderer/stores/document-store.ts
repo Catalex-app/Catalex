@@ -198,7 +198,6 @@ export interface DocumentState {
   renameFile: (id: string, name: string) => Promise<void>;
   renameFolder: (folderPath: string, name: string) => Promise<string | null>;
   updateFileContent: (id: string, content: string, base?: string) => void;
-  updateImageDataUrl: (id: string, dataUrl: string) => void;
   setCursorPosition: (position: number) => void;
   setSelectionRange: (range: { start: number; end: number } | null) => void;
   setSelectionPreviewRange: (
@@ -1464,13 +1463,6 @@ export const useDocumentStore = create<DocumentState>()((set, get) => ({
       contentGeneration: state.contentGeneration + 1,
     }));
     scheduleAutoSave();
-  },
-
-  updateImageDataUrl: (id, dataUrl) => {
-    if (get().isAgentWorkspaceReadOnly || get().isGitOperationRunning) return;
-    set((state) => ({
-      files: state.files.map((f) => (f.id === id ? { ...f, dataUrl } : f)),
-    }));
   },
 
   setThreadOpen: (open) => set({ isThreadOpen: open }),
