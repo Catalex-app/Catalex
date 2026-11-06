@@ -12,6 +12,15 @@ export function commentChatContext(
   return {
     label: `${label} · ${filePath}`,
     filePath,
+    ...(comment.pdf
+      ? {
+          pdf: {
+            documentPath: filePath,
+            kind: "file" as const,
+            page: comment.pdf.regions[0].page,
+          },
+        }
+      : {}),
     selectionKey: `comment:${JSON.stringify([filePath, comment.id])}`,
     comment: {
       id: comment.id,
@@ -23,7 +32,7 @@ export function commentChatContext(
       from: comment.from,
       to: comment.to,
     },
-    selectedText: comment.text,
+    selectedText: comment.pdf?.text ?? comment.text,
   };
 }
 

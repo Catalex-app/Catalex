@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import fs from "node:fs/promises";
+import { createHash } from "node:crypto";
 import os from "node:os";
 import path from "node:path";
 import { PdfSnapshots } from "./pdf-snapshots";
@@ -22,6 +23,12 @@ describe("PDF disk snapshots", () => {
     await fs.writeFile(source, "%PDF-first version");
     const pdf = await snapshots.copy("window", source);
     await fs.writeFile(source, "%PDF-other version");
+    expect(pdf.fingerprint).toBe(
+      createHash("sha1").update("%PDF-first version").digest("hex"),
+    );
+    const replacement = await snapshots.copy("other-window", source);
+    expect(replacement.fingerprint).not.toBe(pdf.fingerprint);
+    await snapshots.release("other-window", replacement.id);
     const lease = await (
       await snapshots.respond(request(`${pdf.url}/lease`, "POST"))
     ).text();

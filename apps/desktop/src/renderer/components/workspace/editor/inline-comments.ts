@@ -41,7 +41,20 @@ import {
   ViewPlugin,
 } from "@codemirror/view";
 
+export interface PdfCommentAnchor {
+  fingerprint: string;
+  text: string;
+  regions: Array<{
+    page: number;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  }>;
+}
+
 export interface InlineEditorComment {
+  pdf?: PdfCommentAnchor;
   id: string;
   number?: number;
   expectedNumber?: number;

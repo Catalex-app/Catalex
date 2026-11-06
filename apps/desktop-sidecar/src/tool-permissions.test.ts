@@ -15,6 +15,7 @@ test("all app tools and web tools are preauthorized", () => {
     "diagnostics",
     "workspace_state",
     "render_page",
+    "read_pdf",
     "ask_user",
     "create_comment",
     "list_comments",

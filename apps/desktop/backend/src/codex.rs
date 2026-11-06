@@ -331,7 +331,7 @@ fn codex_system_prompt() -> &'static str {
         "It compiles the editor's resolved root with the user's active compiler settings and returns diagnostics.\n",
         "8. INSPECT OUTPUT: When visual verification matters, call mcp__catalex__render_page after a successful compile. ",
         "Request only the one to three pages needed for inspection.\n",
-        concat!("9. REVIEW COMMENTS: When asked to leave document comments, use the ", env!("APP_BRAND_NAME"), " MCP create_comment tool with a relative file path and an exact passage. "),
+        concat!("9. REVIEW COMMENTS: When asked to leave document comments, use the ", env!("APP_BRAND_NAME"), " MCP create_comment tool with a relative file path and an exact passage. For standalone PDFs, first use read_pdf and include its page and fingerprint in create_comment.pdf; never invent page coordinates. "),
         concat!("Use list_comments to read comments and their revisions. Comment changes apply directly; follow the per-turn comment guidance. Comments save immediately after source paragraph validation. Never edit comments.json or comments-agents.json directly. Use the ", env!("APP_BRAND_NAME"), " MCP ask_user tool for user choices instead of native request_user_input. "),
         "Use $review-document for document reviews and critiques; follow chat-only requests and do not rewrite sources during review-only work."
     )
@@ -1066,6 +1066,7 @@ pub(crate) fn codex_mcp_config(settings: &crate::workspace_mcp::ConnectionSettin
                 "compile": { "approval_mode": "approve" },
                 "diagnostics": { "approval_mode": "approve" },
                 "render_page": { "approval_mode": "approve" },
+                "read_pdf": { "approval_mode": "approve" },
                 "workspace_state": { "approval_mode": "approve" },
                 "create_comment": { "approval_mode": "approve" },
                 "list_comments": { "approval_mode": "approve" },
@@ -2865,8 +2866,8 @@ mod tests {
         assert_eq!(config["catalex"]["url"], settings.url);
         assert_eq!(config["catalex"]["http_headers"]["Authorization"], "Bearer scope");
         assert_eq!(config["catalex"]["required"], true);
-        assert_eq!(config["catalex"]["tools"].as_object().unwrap().len(), 10);
-        for tool in ["compile", "diagnostics", "render_page", "workspace_state", "create_comment", "list_comments", "edit_comment", "resolve_comment", "delete_comment", "ask_user"] {
+        assert_eq!(config["catalex"]["tools"].as_object().unwrap().len(), 11);
+        for tool in ["compile", "diagnostics", "render_page", "read_pdf", "workspace_state", "create_comment", "list_comments", "edit_comment", "resolve_comment", "delete_comment", "ask_user"] {
             assert_eq!(config["catalex"]["tools"][tool]["approval_mode"], "approve");
         }
         assert!(config["catalex"].get("default_tools_approval_mode").is_none());

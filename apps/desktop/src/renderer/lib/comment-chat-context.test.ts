@@ -1,5 +1,6 @@
 import { useDocumentStore } from "@/stores/document-store";
 import { describe, expect, it } from "vitest";
+import { formatChatPrompt } from "./chat-prompt";
 import {
   commentChatContext,
   commentsInSelection,
@@ -15,6 +16,24 @@ const comment = {
 };
 
 describe("comment chat context", () => {
+  it("keeps PDF comment text, document path and selected passage together", () => {
+    const context = commentChatContext("papers/a/paper.pdf", {
+      ...comment,
+      from: 0,
+      to: 0,
+      pdf: {
+        fingerprint: "a".repeat(40),
+        text: "The measured result is 42.",
+        regions: [{ page: 3, x: 20, y: 30, width: 90, height: 12 }],
+      },
+    });
+    const prompt = formatChatPrompt("Review this.", undefined, [context]);
+    expect(prompt).toContain("File: papers/a/paper.pdf");
+    expect(prompt).toContain("Location: PDF page 3");
+    expect(prompt).toContain("Selected PDF text:\nThe measured result is 42.");
+    expect(prompt).toContain(`Comment:\n${comment.text}`);
+    expect(prompt).not.toContain("offsets");
+  });
   it("includes a stable file/id reference and comment snapshot", () => {
     const context = commentChatContext("intro.tex", comment);
     expect(context.label).toBe("H-4 · intro.tex");

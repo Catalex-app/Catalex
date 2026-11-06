@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+- Extend the document minimap to standalone PDFs and LaTeX previews, with page navigation, a draggable viewport, and human/agent comment markers using the existing styling and settings.
+
+- Let agents read standalone PDF pages and create anchored review comments, using verified text and document fingerprints. Existing comment tools can edit, resolve, reopen, and delete PDF comments.
+
+- Add comments to directly opened PDF selections, with page highlights, existing comment actions, pop-out synchronization, and restart persistence. Keep comments disconnected when the PDF bytes change, without modifying the PDF file.
+
 - Reveal expanded-panel icons and labels together without clipping the Pop out and Restore text during their entrance.
 
 - Make directly opened PDFs follow workspace panel resizing with the same scaling and final sharp render as LaTeX previews, preserving reading position and manual zoom.

@@ -30,6 +30,7 @@ const expected = [
   "diagnostics",
   "edit_comment",
   "list_comments",
+  "read_pdf",
   "render_page",
   "resolve_comment",
   "workspace_state",

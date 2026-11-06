@@ -3,16 +3,16 @@
 .editor-with-minimap .cm-editor .cm-scroller::-webkit-scrollbar { width: 0; }
 /* Match the card's 4px gutter gap; retain its existing left alignment. */
 .editor-with-minimap .cm-inlineCommentCard { width: calc(100% + 20px); }
-.editor-minimap { position: absolute; inset: 0 0 0 auto; width: 36px; color: var(--muted-foreground); background: var(--background); user-select: none; }
-.editor-minimap-settings { display: grid; place-items: center; width: 28px; height: 28px; margin: 3px 4px; border-radius: 5px; cursor: pointer; opacity: .7; }
+.editor-minimap { position: absolute; inset: 4px 4px 8px auto; width: 32px; border-radius: 8px; color: var(--muted-foreground); background: var(--minimap-background, var(--background)); box-shadow: none; z-index: 2; user-select: none; }
+.editor-minimap-settings { display: grid; place-items: center; width: 26px; height: 28px; margin: 3px; border-radius: 5px; cursor: pointer; opacity: .7; }
 .editor-minimap-settings:hover, .editor-minimap-settings[data-state="open"] { background: var(--muted); color: var(--foreground); opacity: 1; }
 .editor-minimap-settings[data-filtered="true"] { color: var(--foreground); opacity: 1; }
-.editor-minimap-track { position: absolute; inset: 36px 4px 8px; }
+.editor-minimap-track { position: absolute; inset: 36px 3px 8px; }
 .editor-minimap-scrubber { position: absolute; inset: 0; width: 100%; height: 100%; cursor: pointer; border-radius: 4px; touch-action: none; }
 .editor-minimap-viewport { position: absolute; inset-inline: 0; border: 1px solid color-mix(in oklab, var(--muted-foreground) 28%, transparent); border-radius: 4px; background: color-mix(in oklab, var(--muted-foreground) 10%, transparent); pointer-events: none; }
 .editor-minimap:hover .editor-minimap-viewport { background: color-mix(in oklab, var(--muted-foreground) 15%, transparent); }
-.editor-minimap-mark { position: absolute; left: 50%; width: 26px; transform: translateX(-50%); display: flex; align-items: center; justify-content: center; min-height: 10px; border-radius: 3px; cursor: pointer; z-index: 1; }
-.editor-minimap-colors { display: flex; flex-direction: row; width: 22px; height: 3px; gap: 1px; pointer-events: none; }
+.editor-minimap-mark { position: absolute; left: 50%; width: 24px; transform: translateX(-50%); display: flex; align-items: center; justify-content: center; min-height: 10px; border-radius: 3px; cursor: pointer; z-index: 1; }
+.editor-minimap-colors { display: flex; flex-direction: row; width: 20px; height: 3px; gap: 1px; pointer-events: none; }
 .editor-minimap-stroke { flex: 1 1 0; min-width: 0; height: 3px; border-radius: 1px; background: var(--minimap-color); opacity: .8; transition: opacity 120ms, transform 120ms; }
 .editor-minimap-stroke:is([data-kind="add"], [data-kind="modify"], [data-kind="delete"]) { order: 0; }
 .editor-minimap-stroke[data-kind="human"] { order: 1; }
@@ -44,3 +44,12 @@
 .editor-minimap-settings:disabled { opacity: .3; cursor: default; background: transparent; }
 :is(.editor-minimap-stroke, .editor-minimap-dot):is([data-kind="review"], [data-kind="conflict"]) { background: var(--review-stack); height: var(--review-height, 3px); }
 .editor-minimap-colors:has([data-review-versions]) { height: auto; align-items: center; }
+
+/* Standard scrollbar properties override Chromium's axis-specific sizing. */
+.app-scrollbar.pdf-with-minimap { scrollbar-width: auto; scrollbar-color: auto; }
+.app-scrollbar.pdf-with-minimap::-webkit-scrollbar { width: 0; }
+/* Fit pages leave room for the island; oversized pages can scroll behind it. */
+.pdf-with-minimap { --pdf-minimap-inset: 36px; }
+.pdf-with-minimap > [data-pdf-scroll-content] { padding-right: calc(16px + var(--pdf-minimap-inset)); }
+.pdf-panel-surface { --pdf-panel-background: color-mix(in oklab, var(--muted) 50%, var(--background)); background: var(--pdf-panel-background); }
+.editor-minimap[data-pdf-minimap] { --minimap-background: var(--pdf-panel-background, var(--background)); }

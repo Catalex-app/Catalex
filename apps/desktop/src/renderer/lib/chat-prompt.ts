@@ -8,14 +8,16 @@ import {
 function formatAttachment(context: ChatContextBadge): string {
   const comment = context.comment;
   if (comment) {
-    const location = [
-      comment.line === undefined ? null : `line ${comment.line}`,
-      comment.from === undefined || comment.to === undefined
-        ? null
-        : `offsets ${comment.from}–${comment.to}`,
-    ]
-      .filter(Boolean)
-      .join(", ");
+    const location = context.pdf
+      ? `PDF page ${context.pdf.page}`
+      : [
+          comment.line === undefined ? null : `line ${comment.line}`,
+          comment.from === undefined || comment.to === undefined
+            ? null
+            : `offsets ${comment.from}–${comment.to}`,
+        ]
+          .filter(Boolean)
+          .join(", ");
     return [
       "[Attached comment — snapshot]",
       `Label: ${comment.label ?? context.label.split(" · ")[0]}`,
@@ -26,6 +28,7 @@ function formatAttachment(context: ChatContextBadge): string {
         ? []
         : [`Status: ${comment.resolved ? "resolved" : "open"}`]),
       ...(location ? [`Location: ${location}`] : []),
+      ...(context.pdf ? [`Selected PDF text:\n${context.selectedText}`] : []),
       `Comment:\n${comment.text}`,
     ].join("\n");
   }

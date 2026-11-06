@@ -1,3 +1,9 @@
+import {
+  pdfFileCommentTargets,
+  validPdfCommentRegions,
+  emptyPdfCommentLookup,
+} from "./pdf-file-comments";
+import { PROJECT_COMMENTS_REFRESH_EVENT } from "@/lib/workspace-events";
 import { exportPdfSource, type PdfSource } from "@/lib/mupdf/pdf-source";
 import { pdfSelectionKey } from "@/lib/chat-context";
 import { CoalescedScrollTask } from "@/lib/coalesced-scroll-task";
@@ -264,7 +270,7 @@ export function PdfPreview({
   const [actionsOpen, setActionsOpen] = useState(false);
   const [fitMode, setFitMode] = useState<FitMode>(DEFAULT_FIT_MODE);
   const fitViewportRef = useRef<HTMLDivElement | null>(null);
-  const viewportScrollbarWidth = useRef(0);
+  const viewportWidthInset = useRef(0);
   const [containerSize, setContainerSize] = useState<{
     width: number;
     height: number;
@@ -272,10 +278,18 @@ export function PdfPreview({
   const handleContainerResize = useCallback(
     (_width: number, _height: number, viewport: HTMLDivElement) => {
       fitViewportRef.current = viewport;
+      const minimapInset =
+        Number.parseFloat(
+          getComputedStyle(viewport).getPropertyValue("--pdf-minimap-inset"),
+        ) || 0;
       if (viewport.offsetWidth > 1)
-        viewportScrollbarWidth.current =
-          viewport.offsetWidth - viewport.clientWidth;
-      const width = viewport.clientWidth;
+        viewportWidthInset.current = Math.max(
+          0,
+          (viewport.parentElement?.clientWidth ?? viewport.offsetWidth) -
+            viewport.clientWidth +
+            minimapInset,
+        );
+      const width = viewport.clientWidth - minimapInset;
       const height = viewport.clientHeight;
       const update = () =>
         setContainerSize((previous) =>
@@ -327,6 +341,42 @@ export function PdfPreview({
   // Isolation remains active during loading/error states, even with no bytes.
   const isStandalonePdf = isolatedSnapshot || standalonePdfData != null;
   const effectiveCompileError = isStandalonePdf ? null : compileError;
+  const [pdfFingerprintState, setPdfFingerprintState] = useState<{
+    source: PdfSource;
+    value: string;
+  } | null>(null);
+  const pdfFingerprint =
+    standalonePdfData && !ArrayBuffer.isView(standalonePdfData)
+      ? (standalonePdfData.fingerprint ?? null)
+      : pdfFingerprintState?.source === standalonePdfData
+        ? (pdfFingerprintState?.value ?? null)
+        : null;
+  useEffect(() => {
+    if (!standalonePdfData || !ArrayBuffer.isView(standalonePdfData)) return;
+    let cancelled = false;
+    void crypto.subtle
+      .digest("SHA-1", standalonePdfData.slice().buffer as ArrayBuffer)
+      .then((hash) => {
+        if (!cancelled)
+          setPdfFingerprintState({
+            source: standalonePdfData,
+            value: Array.from(new Uint8Array(hash), (byte) =>
+              byte.toString(16).padStart(2, "0"),
+            ).join(""),
+          });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [standalonePdfData]);
+  useEffect(() => {
+    if (pdfFingerprint && projectRoot && !isolatedSnapshot)
+      window.dispatchEvent(
+        new CustomEvent(PROJECT_COMMENTS_REFRESH_EVENT, {
+          detail: { projectRoot },
+        }),
+      );
+  }, [pdfFingerprint, projectRoot, isolatedSnapshot]);
 
   useEffect(() => {
     if (isolatedSnapshot) setPdfError(null);
@@ -409,7 +459,7 @@ export function PdfPreview({
   );
   const [projectComments, setProjectComments, , commentsLoaded] =
     useProjectComments(
-      isStandalonePdf || agentWorkspaceRoot ? null : projectRoot,
+      isolatedSnapshot || agentWorkspaceRoot ? null : projectRoot,
     );
   const pdfCommentsVisible = useSettingsStore(
     (s) => s.displayComments && s.showPdfComments,
@@ -435,13 +485,15 @@ export function PdfPreview({
   const saveCommentFilter = useSettingsStore((s) => s.setEditorCommentFilter);
   const activeFileComments = activeFile
     ? (projectComments[activeFile.relativePath] ?? []).filter(
-        (comment) => !comment.resolved,
+        (comment) =>
+          !comment.resolved &&
+          (!isStandalonePdf || comment.pdf?.fingerprint === pdfFingerprint),
       )
     : [];
   const showPdfCommentControls =
     pdfCommentsVisible &&
     !editorVisible &&
-    !isStandalonePdf &&
+    !isolatedSnapshot &&
     !agentWorkspaceRoot &&
     activeFileComments.length > 0;
   const selectedChatCommentsJson = useAgentChatStore((state) =>
@@ -547,8 +599,15 @@ export function PdfPreview({
     ],
   );
   const commentTargets = useMemo(
-    () => pdfCommentTargets(files, projectComments),
-    [files, projectComments],
+    () =>
+      isStandalonePdf
+        ? pdfFileCommentTargets(
+            pdfDocumentPath,
+            pdfFingerprint,
+            projectComments[pdfDocumentPath] ?? [],
+          )
+        : pdfCommentTargets(files, projectComments),
+    [files, projectComments, isStandalonePdf, pdfDocumentPath, pdfFingerprint],
   );
   const compiledMap = useMemo(
     () =>
@@ -568,10 +627,12 @@ export function PdfPreview({
   sourceLinesRef.current = sourceLines;
   const commentLookup = useMemo(
     () =>
-      projectRoot && compiledMap
-        ? createPdfCommentLookup(projectRoot, compiledMap.load)
-        : null,
-    [projectRoot, compiledMap],
+      isStandalonePdf
+        ? emptyPdfCommentLookup
+        : projectRoot && compiledMap
+          ? createPdfCommentLookup(projectRoot, compiledMap.load)
+          : null,
+    [projectRoot, compiledMap, isStandalonePdf],
   );
   useEffect(() => {
     if (
@@ -597,6 +658,14 @@ export function PdfPreview({
           target.filePath === activeFile?.relativePath,
       );
       if (!target || !commentLookup) return;
+      if (target.comment.pdf) {
+        const region = target.comment.pdf.regions[0];
+        scrollToPageRef.current?.(region.page, region.y);
+        setCenterRequestedComment(true);
+        setNewCommentId(commentId);
+        setCommentRequestRevision((revision) => revision + 1);
+        return;
+      }
       const controller = new AbortController();
       for (let page = 1; page <= numPages; page++) {
         const boxes = await commentLookup(page, controller.signal);
@@ -645,6 +714,10 @@ export function PdfPreview({
   const navigateComment = useCallback(
     (target: PdfCommentTarget) => {
       setPdfSelection(null);
+      if (isStandalonePdf) {
+        void navigateCommentInPdf(target.comment.id);
+        return;
+      }
       window.dispatchEvent(
         new CustomEvent(PDF_COMMENT_NAVIGATE_EVENT, {
           detail: {
@@ -655,15 +728,16 @@ export function PdfPreview({
         }),
       );
     },
-    [projectRoot],
+    [projectRoot, isStandalonePdf, navigateCommentInPdf],
   );
   const pdfComments = useMemo(
     () =>
       pdfCommentsVisible &&
-      !isStandalonePdf &&
+      !isolatedSnapshot &&
       !agentWorkspaceRoot &&
-      !isCompiling &&
-      compiledGeneration === contentGeneration &&
+      (isStandalonePdf
+        ? !!pdfFingerprint
+        : !isCompiling && compiledGeneration === contentGeneration) &&
       commentLookup
         ? {
             targets: commentTargets,
@@ -679,6 +753,8 @@ export function PdfPreview({
         : null,
     [
       isStandalonePdf,
+      isolatedSnapshot,
+      pdfFingerprint,
       agentWorkspaceRoot,
       isCompiling,
       compiledGeneration,
@@ -978,6 +1054,12 @@ export function PdfPreview({
   );
 
   const canMapPdfComment = Boolean(pdfComments && projectRoot);
+  const canCommentOnPdfFile =
+    isStandalonePdf &&
+    canMapPdfComment &&
+    !!pdfFingerprint &&
+    pdfSelection?.source === standalonePdfData &&
+    validPdfCommentRegions(pdfSelection?.regions);
   const [commentCheck, setCommentCheck] = useState<{
     selection: PdfTextSelection;
     files: typeof files;
@@ -996,25 +1078,34 @@ export function PdfPreview({
     commentCheck?.compiledGeneration === compiledGeneration
       ? commentCheck
       : null;
-  const commentStatus = !canMapPdfComment
-    ? "unavailable"
-    : !checkedSelection
-      ? "checking"
-      : checkedSelection.choice
-        ? "ready"
-        : "unavailable";
-  const commentReason = !canMapPdfComment
-    ? "Recompile to enable comments."
-    : commentStatus === "checking"
-      ? "Finding source…"
-      : commentStatus === "ready"
-        ? "Add comment"
-        : "Couldn’t locate the source. Select more surrounding text.";
+  const commentStatus = isStandalonePdf
+    ? canCommentOnPdfFile
+      ? "ready"
+      : "unavailable"
+    : !canMapPdfComment
+      ? "unavailable"
+      : !checkedSelection
+        ? "checking"
+        : checkedSelection.choice
+          ? "ready"
+          : "unavailable";
+  const commentReason = isStandalonePdf
+    ? canCommentOnPdfFile
+      ? "Add comment"
+      : "Select text in the current PDF to comment."
+    : !canMapPdfComment
+      ? "Recompile to enable comments."
+      : commentStatus === "checking"
+        ? "Finding source…"
+        : commentStatus === "ready"
+          ? "Add comment"
+          : "Couldn’t locate the source. Select more surrounding text.";
 
   // Selection detection is already debounced. Resolve once when its toolbar
   // opens, and discard results for an old selection or document snapshot.
   useEffect(() => {
-    if (isolatedSnapshot || !pdfSelection || !projectRoot) return;
+    if (isStandalonePdf || isolatedSnapshot || !pdfSelection || !projectRoot)
+      return;
     let cancelled = false;
     setCommentCheck(null);
     setResolvedSource(null);
@@ -1088,6 +1179,7 @@ export function PdfPreview({
       cancelled = true;
     };
   }, [
+    isStandalonePdf,
     isolatedSnapshot,
     pdfSelection,
     projectRoot,
@@ -1108,7 +1200,7 @@ export function PdfPreview({
   const pdfToolbarActions: ToolbarAction[] = useMemo(
     () => [
       ...(pdfCommentsVisible &&
-      !isStandalonePdf &&
+      !isolatedSnapshot &&
       !agentWorkspaceRoot &&
       projectRoot
         ? [
@@ -1130,7 +1222,7 @@ export function PdfPreview({
         : []),
     ],
     [
-      isStandalonePdf,
+      isolatedSnapshot,
       agentWorkspaceRoot,
       projectRoot,
       pdfCommentsVisible,
@@ -1144,18 +1236,34 @@ export function PdfPreview({
     async (actionId: string) => {
       if (!pdfSelection || actionId !== "comment") return;
       if (!commentsLoaded) return;
-      const choice =
-        commentStatus === "ready" ? checkedSelection?.choice : null;
+      const fileComment =
+        canCommentOnPdfFile && pdfSelection.regions && pdfFingerprint
+          ? {
+              fingerprint: pdfFingerprint,
+              text: pdfSelection.text,
+              regions: pdfSelection.regions,
+            }
+          : undefined;
+      const choice = fileComment
+        ? {
+            filePath: pdfDocumentPath,
+            range: { from: 0, to: 0, line: pdfSelection.pageNumber },
+            approximate: false,
+          }
+        : commentStatus === "ready"
+          ? checkedSelection?.choice
+          : null;
       const document = useDocumentStore.getState();
       if (
         !choice ||
-        !checkedSelection ||
+        (!fileComment && !checkedSelection) ||
         document.projectRoot !== projectRoot ||
         document.agentWorkspaceRoot ||
-        document.files !== checkedSelection.files ||
-        document.contentGeneration !== checkedSelection.generation ||
-        document.lastCompiledGenerations.get(currentRootFileId) !==
-          checkedSelection.compiledGeneration
+        (!fileComment &&
+          (document.files !== checkedSelection?.files ||
+            document.contentGeneration !== checkedSelection?.generation ||
+            document.lastCompiledGenerations.get(currentRootFileId) !==
+              checkedSelection?.compiledGeneration))
       )
         return;
       const filePath = choice.filePath;
@@ -1163,6 +1271,7 @@ export function PdfPreview({
       const id = crypto.randomUUID();
       const draftComment = {
         id,
+        pdf: fileComment,
         ...range,
         text: "",
         createdAt: new Date().toISOString(),
@@ -1210,6 +1319,9 @@ export function PdfPreview({
     },
     [
       pdfSelection,
+      canCommentOnPdfFile,
+      pdfFingerprint,
+      pdfDocumentPath,
       commentStatus,
       checkedSelection,
       currentRootFileId,
@@ -1337,7 +1449,7 @@ export function PdfPreview({
       ? fittedScale(
           columnLayoutAnimating && layoutTarget
             ? (openingPdf ? layoutTarget.width : layoutTarget.currentWidth) -
-                viewportScrollbarWidth.current
+                viewportWidthInset.current
             : containerSize.width,
           containerSize.height,
         )
@@ -1351,7 +1463,14 @@ export function PdfPreview({
     if (viewport && viewport.clientWidth <= 1) return;
     setScale(
       fittedScale(
-        viewport?.clientWidth ?? containerSize.width,
+        viewport
+          ? viewport.clientWidth -
+              (Number.parseFloat(
+                getComputedStyle(viewport).getPropertyValue(
+                  "--pdf-minimap-inset",
+                ),
+              ) || 0)
+          : containerSize.width,
         viewport?.clientHeight ?? containerSize.height,
       ),
     );
@@ -2907,7 +3026,7 @@ export function PdfPreview({
     <div
       ref={previewContainerRef}
       data-preview-pane
-      className="@container/pv relative flex h-full flex-col bg-muted/50"
+      className="@container/pv pdf-panel-surface relative flex h-full flex-col"
     >
       <WorkspacePanelHeader
         actionsLabel="PDF"

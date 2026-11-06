@@ -1547,7 +1547,11 @@ export function LatexEditor({
     const sourceFile = (
       documents.sourceViewSnapshot?.files ?? documents.files
     ).find((file) => file.relativePath === patch.filePath);
-    if (!sourceFile || sourceFile.content == null) return;
+    if (
+      !sourceFile ||
+      (sourceFile.content == null && sourceFile.type !== "pdf")
+    )
+      return;
     const key = JSON.stringify([projectRoot, null, sourceFile.id]);
     const cached = editorStateCache.get(key);
     const pending =
@@ -1555,7 +1559,7 @@ export function LatexEditor({
         ? pendingHistoryRef.current
         : null;
     const baseline = pending ?? cached?.review?.baseline;
-    const document = baseline?.document ?? sourceFile.content;
+    const document = baseline?.document ?? sourceFile.content ?? "";
     const retained =
       baseline?.retained ??
       (cached?.document === document ? cached.history : undefined);
@@ -4625,17 +4629,19 @@ export function LatexEditor({
       const source = useDocumentStore
         .getState()
         .files.find((file) => file.relativePath === filePath);
-      if (!source || source.content == null) return false;
+      if (!source || (source.content == null && source.type !== "pdf"))
+        return false;
+      const sourceContent = source.content ?? "";
       const key = JSON.stringify([projectRoot, null, source.id]);
       const cached = editorStateCache.get(key);
       if (
         !cached?.history ||
-        cached.document !== source.content ||
+        cached.document !== sourceContent ||
         cached.review
       )
         return false;
       const state = EditorState.create({
-        doc: source.content,
+        doc: sourceContent,
         extensions: [
           cached.history,
           commentHistory(() => {}),

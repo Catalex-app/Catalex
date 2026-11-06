@@ -6,6 +6,7 @@ export interface PdfFileSource {
   id: string;
   url: string;
   byteLength: number;
+  fingerprint?: string;
 }
 export type PdfSource = Uint8Array | PdfFileSource;
 

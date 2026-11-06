@@ -15,6 +15,7 @@ export const allowedClaudeTools = [
     "diagnostics",
     "workspace_state",
     "render_page",
+    "read_pdf",
     "ask_user",
     "create_comment",
     "list_comments",

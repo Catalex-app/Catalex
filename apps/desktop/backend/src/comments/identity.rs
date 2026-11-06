@@ -12,13 +12,33 @@ fn revision(source: &str) -> FileRevision {
 // Also used for prepared app saves and acceptance journals. No platform IDs.
 pub(crate) fn file_revision(path: &Path) -> Option<FileRevision> {
     let metadata = fs::symlink_metadata(path).ok()?;
+    if is_pdf(path) && metadata.is_file() {
+        return pdf_source(path).ok().map(|source| revision(&source));
+    }
     if !metadata.is_file() || metadata.len() > MAX_BYTES {
         return None;
     }
     Some(revision(&catalex_document_core::normalize_document_text(&fs::read_to_string(path).ok()?)))
 }
 
-fn project_source(root: &Path, path: &str) -> Result<Option<String>, String> {
+fn is_pdf(path: &Path) -> bool {
+    path.extension().is_some_and(|extension| extension.eq_ignore_ascii_case("pdf"))
+}
+
+fn pdf_source(path: &Path) -> Result<String, String> {
+    use std::io::Read;
+    let mut file = fs::File::open(path).map_err(|e| e.to_string())?;
+    let mut hash = Sha1::new();
+    let mut buffer = [0u8; 64 * 1024];
+    loop {
+        let length = file.read(&mut buffer).map_err(|e| e.to_string())?;
+        if length == 0 { break; }
+        hash.update(&buffer[..length]);
+    }
+    Ok(format!("pdf:{:x}", hash.finalize()))
+}
+
+pub(super) fn project_source(root: &Path, path: &str) -> Result<Option<String>, String> {
     let candidate = root.join(relative_path(path)?);
     let metadata = match fs::symlink_metadata(&candidate) {
         Ok(value) => value,
@@ -33,6 +53,7 @@ fn project_source(root: &Path, path: &str) -> Result<Option<String>, String> {
     if !canonical.starts_with(&canonical_root) {
         return Ok(None);
     }
+    if is_pdf(&canonical) { return pdf_source(&canonical).map(Some); }
     // Transient I/O failures preserve records and are retried, not disconnections.
     read_document(&canonical_root, &relative_path(path)?).map(Some)
 }
@@ -464,6 +485,15 @@ fn reconcile_selected(
                 .filter(|_| !trusted || owned.contains(&path))
                 .map(|(s, rev)| AnchorRecovery::new(&side.sources, s, &rev.0));
             for comment in comments {
+                if let Some(pdf) = &comment.pdf {
+                    // Binary replacement never remaps page coordinates as text.
+                    if source.as_deref() == Some(&format!("pdf:{}", pdf.fingerprint)) {
+                        connected.push(comment);
+                    } else {
+                        disconnected.push(comment);
+                    }
+                    continue;
+                }
                 if trusted && !owned.contains(&path) {
                     connected.push(comment);
                 } else if let Some(recovery) = recovery.as_mut() {

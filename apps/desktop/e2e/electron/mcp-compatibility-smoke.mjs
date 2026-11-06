@@ -55,6 +55,7 @@ const expected = [
   "edit_comment",
   "list_comments",
   "render_page",
+  "read_pdf",
   "resolve_comment",
   "workspace_state",
 ].sort();

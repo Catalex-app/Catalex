@@ -40,6 +40,7 @@ function recordMotion(scroller: Locator) {
         {
           width: number;
           viewport: number;
+          gutter: number;
           height: number;
           moving: boolean;
         }[]
@@ -47,6 +48,7 @@ function recordMotion(scroller: Locator) {
         const samples: {
           width: number;
           viewport: number;
+          gutter: number;
           height: number;
           moving: boolean;
         }[] = [];
@@ -57,6 +59,15 @@ function recordMotion(scroller: Locator) {
             width: rect.width,
             height: rect.height,
             viewport: el.clientWidth,
+            gutter:
+              Number.parseFloat(
+                getComputedStyle(el.querySelector("[data-pdf-scroll-content]")!)
+                  .paddingLeft,
+              ) +
+              Number.parseFloat(
+                getComputedStyle(el.querySelector("[data-pdf-scroll-content]")!)
+                  .paddingRight,
+              ),
             moving:
               document
                 .querySelector("[data-workspace-layout-animating]")
@@ -125,10 +136,20 @@ for (const width of [1440, 1024]) {
         );
         expect(moving.length).toBeGreaterThan(3);
         if (fit === "Fit width") {
+          if (
+            moving.some(
+              (frame) =>
+                Math.abs(frame.width - (frame.viewport - frame.gutter)) >= 4,
+            )
+          )
+            await test.info().attach(`fit-motion-${drawer}`, {
+              body: JSON.stringify(frames),
+              contentType: "application/json",
+            });
           expect(
             Math.max(
               ...moving.map((frame) =>
-                Math.abs(frame.width - (frame.viewport - 32)),
+                Math.abs(frame.width - (frame.viewport - frame.gutter)),
               ),
             ),
           ).toBeLessThan(4);
@@ -221,9 +242,15 @@ test("standalone PDF pop-outs retain fit, explicit zoom animation and manual zoo
             const rect = el
               .querySelector(".mupdf-page")!
               .getBoundingClientRect();
+            const contentStyle = getComputedStyle(
+              el.querySelector("[data-pdf-scroll-content]")!,
+            );
+            const horizontalPadding =
+              Number.parseFloat(contentStyle.paddingLeft) +
+              Number.parseFloat(contentStyle.paddingRight);
             return Math.abs(
               fit === "Fit width"
-                ? rect.width - el.clientWidth + 32
+                ? rect.width - el.clientWidth + horizontalPadding
                 : rect.height - el.clientHeight + 32,
             );
           }, fit),

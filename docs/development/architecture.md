@@ -245,6 +245,10 @@ The document path and page are included in the agent prompt even when mapping
 fails. Duplicate checks use document identity and selection position/text, so
 identical passages in different PDFs remain separate. Older excerpts without
 PDF identity are kept rather than guessed to match new captures.
+
+Directly opened PDF comments reuse the existing comment cards and project storage, with selected text, page rectangles in PDF coordinates, and a fingerprint of the exact immutable PDF snapshot. Native snapshot creation and comment storage hash bytes by streaming. Comments never modify the PDF binary. Replacement bytes disconnect old comments instead of mapping them through source-text offsets or placing highlights on a different document; historical and agent draft previews remain isolated. Compiled LaTeX comments retain their source-based mapping.
+
+Agents use `read_pdf({filePath, pages})` to obtain selectable text, page count, and a binary fingerprint, then `create_comment({filePath, passage, text, pdf: {page, fingerprint}})`. The owning renderer opens a private MuPDF snapshot and derives glyph rectangles without changing the visible document. Matching is case-sensitive, normalizes whitespace and Unicode compatibility forms (including ligatures), and requires a unique passage on one page. The backend validates project/session scope and matching source/draft fingerprints before reading and saving; replies are bound to their requesting window and pending requests expire or cancel. There is no OCR, fuzzy matching, or agent-supplied geometry. Existing revision-checked comment tools manage both PDF and source comments.
 Choosing a chat pins the excerpt in that chat's draft without submitting a
 prompt, switching chats, or replacing typed text. File pop-outs can explicitly
 send their local selections through this menu while their automatic selection
@@ -294,3 +298,24 @@ installer review. Pull requests and non-tag manual runs only build.
 Automatic updating is explicitly unavailable. The workflow does not consume
 signing secrets or create version tags. Signing/notarization, update delivery,
 and any future profile migration require separate release checks.
+
+### PDF minimap
+
+Text editors and PDF viewers share the `DocumentMinimap` presentation: layers,
+clustered comment hover cards, keyboard focus, and pixel-based scroll dragging.
+The existing Show minimap preference covers both. PDF views expose only human
+and agent comment layers, and retain their horizontal scrollbar. Their adapter
+measures rendered page bounds, so zoom, mixed page sizes, and panel motion use
+the actual viewport. Both minimaps share the same inset, rounded, shadow-free surface styling;
+only their background differs. The editor leaves a gutter for it, while the
+PDF minimap overlays the page with an opaque surface matching the panel. A right content gutter keeps fitted pages
+clear of it, while zoomed pages can extend underneath. Fit-width motion includes
+that gutter; the scroll viewport itself spans the whole panel.
+
+Standalone markers reuse fingerprint-validated PDF anchors; compiled markers
+use the current SyncTeX source map and full project-relative source paths. No
+extra page rasterization or whole-document text extraction is required. A
+changed comment context or compilation discards pending marker results; hidden,
+historical, draft, or stale previews retain navigation without live comment
+markers. Marker activation uses the existing PDF comment interaction, including
+source synchronization when the editor is visible.

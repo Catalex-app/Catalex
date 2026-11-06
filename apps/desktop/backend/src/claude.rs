@@ -842,7 +842,7 @@ fn claude_system_prompt() -> &'static str {
         "for domain-specific tasks. Use skill-provided LaTeX packages and code patterns.\n",
         concat!("7. VERIFY LATEX: ", env!("APP_BRAND_NAME"), " Workspace MCP tools are available. After changing LaTeX, call "),
         "the catalex compile tool before finishing. Use render_page after a successful compile when visual output matters.\n",
-        concat!("8. REVIEW COMMENTS: When asked to leave document comments, use the ", env!("APP_BRAND_NAME"), " MCP create_comment tool with a relative file path and an exact passage. "),
+        concat!("8. REVIEW COMMENTS: When asked to leave document comments, use the ", env!("APP_BRAND_NAME"), " MCP create_comment tool with a relative file path and an exact passage. For standalone PDFs, first use read_pdf and include its page and fingerprint in create_comment.pdf; never invent page coordinates. "),
         concat!("Use list_comments to read comments and their revisions. Comment changes apply directly; follow the per-turn comment guidance. Comments save immediately after source paragraph validation. Never edit comments.json or comments-agents.json directly. Use the ", env!("APP_BRAND_NAME"), " MCP ask_user tool for user choices instead of AskUserQuestion. "),
         "Use the catalex:review-document skill for document reviews and critiques; follow chat-only requests and do not rewrite sources during review-only work."
     )

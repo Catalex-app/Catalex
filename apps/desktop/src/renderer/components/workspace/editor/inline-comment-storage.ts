@@ -51,6 +51,7 @@ export interface CommentChangeEvent {
 function stored(comment: InlineEditorComment): InlineEditorComment {
   return {
     id: comment.id,
+    pdf: comment.pdf,
     number: comment.number,
     anchorRevision: comment.anchorRevision,
     positionReset: comment.positionReset || undefined,
@@ -355,6 +356,11 @@ async function readProjectCommentSnapshot(
       : undefined;
   };
   for (const [path, comments] of Object.entries(files)) {
+    if (comments.some((comment) => comment.pdf)) {
+      // Binary PDF anchors belong to an immutable snapshot, never a text buffer.
+      repaired[path] = comments;
+      continue;
+    }
     const buffer = localBuffer(path);
     buffers.set(path, buffer);
     // Only a known local buffer may advance beyond the native snapshot. A new
@@ -829,6 +835,7 @@ export function saveProjectInlineComments(
   if (state.projectRoot === projectRoot && !state.agentWorkspaceRoot)
     for (const file of state.files)
       if (
+        file.type !== "pdf" &&
         changedPaths.has(file.relativePath) &&
         file.content !== undefined &&
         sources[file.relativePath] === undefined

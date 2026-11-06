@@ -1,4 +1,6 @@
-import { pdfOpenArgument } from "@/lib/mupdf/pdf-source";
+import { PdfMinimap } from "./pdf-minimap";
+import { useSettingsStore } from "@/stores/settings-store";
+import { pdfOpenArgument, type PdfSource } from "@/lib/mupdf/pdf-source";
 import { findPdfPageAtY, PDF_PAGE_GAP } from "./pdf-reading-anchor";
 import { clampPdfScale } from "./pdf-zoom";
 import { canHandleEscape, consumeKey } from "@/lib/keyboard-events";
@@ -13,7 +15,10 @@ import { usePdfPinchZoom } from "./pdf-pinch-zoom";
 import { SELECTION_OWNER_EVENT } from "@/lib/workspace-events";
 import { usePdfSelectionDrag } from "./pdf-selection-drag";
 import { PdfSelectionHighlight } from "./pdf-selection-highlight";
-import { measurePdfSelection } from "./pdf-selection-geometry";
+import {
+  measurePdfSelection,
+  pdfSelectionFragments,
+} from "./pdf-selection-geometry";
 import { useCallback, useRef, useEffect, useState } from "react";
 import { LoaderIcon, ChevronLeftIcon } from "lucide-react";
 import { open as shellOpen } from "@/lib/desktop/shell";
@@ -54,6 +59,8 @@ export function clearScrollPositionCache(): void {
 
 export interface PdfTextSelection {
   text: string;
+  source?: PdfSource;
+  regions?: import("../editor/inline-comments").PdfCommentAnchor["regions"];
   context?: { before: string; after: string };
   pageNumber: number;
   position: { top: number; left: number };
@@ -128,6 +135,7 @@ export function PdfViewer({
   scrollToPageRef,
   readingAnchorRef,
 }: PdfViewerProps) {
+  const showMinimap = useSettingsStore((state) => state.showEditorMinimap);
   const [canvasCache] = useState(() => new PdfCanvasCache());
   const searchScope = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -630,7 +638,7 @@ export function PdfViewer({
     });
     ro.observe(container);
     return () => ro.disconnect();
-  }, [onContainerResize, readingAnchor]);
+  }, [onContainerResize, readingAnchor, showMinimap]);
 
   // Native dblclick listener for synctex
   useEffect(() => {
@@ -866,6 +874,19 @@ export function PdfViewer({
 
         cb({
           text,
+          source:
+            dataSource.kind === "standalone" ? dataSource.data : undefined,
+          regions: pdfSelectionFragments(range, container).map((fragment) => ({
+            page: Number(
+              fragment.element
+                .closest(".mupdf-page")
+                ?.getAttribute("data-page-number"),
+            ),
+            x: fragment.left,
+            y: fragment.top,
+            width: fragment.right - fragment.left,
+            height: fragment.bottom - fragment.top,
+          })),
           context: {
             before: startLine ? before.toString() : "",
             after: endLine ? after.toString() : "",
@@ -902,7 +923,11 @@ export function PdfViewer({
       );
       container.removeEventListener("mouseup", handleMouseUp);
     };
-  }, [isolatedSelection, retainSelectionPages]);
+  }, [
+    isolatedSelection,
+    retainSelectionPages,
+    dataSource.kind === "standalone" ? dataSource.data : null,
+  ]);
 
   // Track current visible page on scroll
   const currentPageChangeRef = useRef(onCurrentPageChange);
@@ -1069,7 +1094,7 @@ export function PdfViewer({
         style={{ overflowAnchor: "none" }}
         tabIndex={-1}
         {...{ [LOCAL_ZOOM_SHORTCUTS_ATTR]: "true" }}
-        className="app-scrollbar min-h-0 flex-1 overflow-auto outline-none"
+        className={`app-scrollbar isolate min-h-0 flex-1 overflow-auto outline-none ${showMinimap ? "pdf-with-minimap" : ""}`}
         onWheelCapture={onScrollIntent}
         onTouchStartCapture={onScrollIntent}
         onKeyDownCapture={(event) => {
@@ -1138,6 +1163,14 @@ export function PdfViewer({
           ))}
         </div>
       </div>
+      {showMinimap && (
+        <PdfMinimap
+          viewportRef={containerRef}
+          contentRef={contentRef}
+          pageSizes={pageSizes}
+          onScrollIntent={onScrollIntent}
+        />
+      )}
       <PdfSelectionHighlight
         viewportRef={containerRef}
         retainedSelection={retainedSelection}
@@ -1145,7 +1178,7 @@ export function PdfViewer({
       {linkReturn && (
         <button
           type="button"
-          className="absolute top-3 right-3 z-10 inline-flex items-center gap-1.5 rounded-lg border border-border bg-background/95 px-2.5 py-1.5 text-xs shadow-sm hover:bg-accent"
+          className={`absolute top-3 ${showMinimap ? "right-12" : "right-3"} z-10 inline-flex items-center gap-1.5 rounded-lg border border-border bg-background/95 px-2.5 py-1.5 text-xs shadow-sm hover:bg-accent`}
           onClick={() => {
             containerRef.current?.scrollTo({
               top: linkReturn.top,
