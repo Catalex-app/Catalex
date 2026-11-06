@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Keep PDF comment creation in the floating selection toolbar and remove its duplicate right-click menu action.
+
 - Extend the document minimap to standalone PDFs and LaTeX previews, with page navigation, a draggable viewport, and human/agent comment markers using the existing styling and settings.
 
 - Let agents read standalone PDF pages and create anchored review comments, using verified text and document fingerprints. Existing comment tools can edit, resolve, reopen, and delete PDF comments.

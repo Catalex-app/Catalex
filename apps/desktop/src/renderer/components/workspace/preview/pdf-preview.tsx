@@ -22,7 +22,6 @@ import { PdfZoomControl } from "./pdf-zoom-control";
 import { setCommentDraft } from "../editor/comment-draft-history";
 import { attachCommentToChat } from "@/lib/comment-chat-context";
 import { isReferencePanelWindow } from "@/lib/panel-window-runtime";
-import { registerSelectionContextActions } from "@/lib/context-menu";
 import { Hint } from "@/components/ui/tooltip";
 import {
   WorkspacePanelHeader,
@@ -1332,33 +1331,6 @@ export function PdfPreview({
       onRevealSource,
     ],
   );
-
-  useEffect(() => {
-    if (
-      isolatedSnapshot ||
-      !pdfSelection ||
-      !pdfToolbarActions.some((action) => action.id === "comment")
-    )
-      return;
-    return registerSelectionContextActions(pdfSelection.viewport, () => {
-      if (window.getSelection()?.toString().trim() !== pdfSelection.text)
-        return [];
-      return [
-        {
-          label: "Add Comment",
-          disabled: commentStatus !== "ready" || !commentsLoaded,
-          run: () => handlePdfToolbarAction("comment"),
-        },
-      ];
-    });
-  }, [
-    isolatedSnapshot,
-    pdfSelection,
-    pdfToolbarActions,
-    commentStatus,
-    handlePdfToolbarAction,
-    commentsLoaded,
-  ]);
 
   const handlePdfToolbarDismiss = useCallback(
     (reason?: "outside" | "escape") => {
