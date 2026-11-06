@@ -7,7 +7,10 @@ import {
   useSettingsStore,
 } from "./settings-store";
 import { DEFAULT_AGENT_MD } from "@/lib/default-agent-md";
-import { DEFAULT_PROMPT_LIBRARY } from "@/lib/prompt-library";
+import {
+  DEFAULT_PROMPT_LIBRARY,
+  visiblePromptLibrary,
+} from "@/lib/prompt-library";
 import { DEFAULT_MODE_THEMES } from "@/lib/ui-theme";
 import {
   GITHUB_DARK_MARKDOWN_THEME_ID,
@@ -941,4 +944,31 @@ describe("saved prompt library", () => {
     await useSettingsStore.persist.rehydrate();
     expect(store().promptLibrary).toEqual([]);
   });
+});
+
+it("reorders visible built-ins past hidden prompts while preserving saved custom content", () => {
+  const [writing, fix, review, layout] = DEFAULT_PROMPT_LIBRARY;
+  const edited = {
+    ...writing,
+    title: "Edited writing",
+    prompt: "Keep my text",
+  };
+  const custom = { ...writing, id: "custom", title: "My custom prompt" };
+  useSettingsStore.setState({ promptLibrary: [edited, custom, fix] });
+  const visible = visiblePromptLibrary(
+    useSettingsStore.getState().promptLibrary,
+  ).map((item) => item.id);
+  useSettingsStore.getState().moveLibraryPrompt(fix.id, -1, visible);
+  expect(
+    visiblePromptLibrary(useSettingsStore.getState().promptLibrary).map(
+      (item) => item.id,
+    ),
+  ).toEqual([fix.id, writing.id, review.id, layout.id]);
+  expect(useSettingsStore.getState().promptLibrary).toEqual([
+    fix,
+    custom,
+    edited,
+    review,
+    layout,
+  ]);
 });

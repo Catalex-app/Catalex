@@ -150,6 +150,27 @@ export const DEFAULT_PROMPT_LIBRARY: LibraryPrompt[] = [
   },
 ];
 
+// Keep the editor and storage APIs available until customization returns.
+export const PROMPT_CUSTOMIZATION_ENABLED: boolean = false;
+
+/** Release UI uses stock content, retaining only saved ordering and toggles. */
+export function visiblePromptLibrary(saved: LibraryPrompt[]): LibraryPrompt[] {
+  if (PROMPT_CUSTOMIZATION_ENABLED) return saved;
+  const remaining = new Map(
+    DEFAULT_PROMPT_LIBRARY.map((prompt) => [prompt.id, prompt]),
+  );
+  const prompts = saved.flatMap((prompt) => {
+    const stock = remaining.get(prompt.id);
+    if (!stock) return [];
+    remaining.delete(prompt.id);
+    return [{ ...stock, enabled: prompt.enabled }];
+  });
+  return [
+    ...prompts,
+    ...Array.from(remaining.values(), (prompt) => ({ ...prompt })),
+  ];
+}
+
 const LEGACY_WRITING_DEFAULTS = [
   {
     id: "improve-clarity",

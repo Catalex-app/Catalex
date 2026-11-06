@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Limit the prompt library UI to the four built-in prompts, with enable/disable and ordering controls. Retain customization code and saved custom data for a later release.
+
 - Share PDF-style fit and percentage zoom controls with image previews, and remove image cropping.
 
 - Collapse prompt suggestions by default for standalone PDFs, images, and binary files. New chats expand them again on editable files, while pinning keeps them open and manual choices last until the file or chat changes.

@@ -24,6 +24,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Hint } from "@/components/ui/tooltip";
 import {
   defaultPromptIconName,
+  PROMPT_CUSTOMIZATION_ENABLED,
+  visiblePromptLibrary,
   PROMPT_AVAILABILITY_OPTIONS,
   PROMPT_ICON_NAMES,
   resolvePromptIcon,
@@ -39,7 +41,8 @@ import { SettingsSwitch } from "./settings-switch";
 const ICONS_PER_PAGE = 36;
 
 export function PromptLibrarySettings() {
-  const prompts = useSettingsStore((state) => state.promptLibrary);
+  const savedPrompts = useSettingsStore((state) => state.promptLibrary);
+  const prompts = visiblePromptLibrary(savedPrompts);
   const save = useSettingsStore((state) => state.saveLibraryPrompt);
   const remove = useSettingsStore((state) => state.deleteLibraryPrompt);
   const move = useSettingsStore((state) => state.moveLibraryPrompt);
@@ -95,67 +98,82 @@ export function PromptLibrarySettings() {
       <SettingsGroup
         title="Prompt Library"
         titleAction={
-          <Button
-            size="sm"
-            variant="outline"
-            className="h-7 text-xs"
-            disabled={Boolean(draft)}
-            onClick={() => {
-              setDeleteId(null);
-              setDraft({
-                id: crypto.randomUUID(),
-                title: "",
-                prompt: "",
-                availability: "always",
-                enabled: true,
-              });
-            }}
-          >
-            Add prompt
-          </Button>
+          PROMPT_CUSTOMIZATION_ENABLED ? (
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 text-xs"
+              disabled={Boolean(draft)}
+              onClick={() => {
+                setDeleteId(null);
+                setDraft({
+                  id: crypto.randomUUID(),
+                  title: "",
+                  prompt: "",
+                  availability: "always",
+                  enabled: true,
+                });
+              }}
+            >
+              Add prompt
+            </Button>
+          ) : undefined
         }
       >
         {prompts.map((prompt, index) => {
           const Icon = libraryPromptIcon(prompt);
+          const label = (
+            <>
+              <span className="flex items-center gap-1.5">
+                {Icon && (
+                  <Icon
+                    aria-hidden="true"
+                    className="size-3.5 shrink-0 text-muted-foreground"
+                  />
+                )}
+                <span className="truncate">{prompt.title}</span>
+              </span>
+              <span className="block truncate text-muted-foreground text-xs">
+                {
+                  PROMPT_AVAILABILITY_OPTIONS.find(
+                    (option) => option.value === prompt.availability,
+                  )?.label
+                }
+              </span>
+            </>
+          );
           return (
             <div
               key={prompt.id}
               data-library-prompt-id={prompt.id}
               className="flex min-w-0 flex-wrap items-center gap-1 border-border/45 border-b py-2"
             >
-              <button
-                type="button"
-                className="min-w-0 flex-1 rounded-md px-1 py-1 text-left text-sm hover:bg-muted"
-                disabled={Boolean(draft)}
-                aria-label={`Edit ${prompt.title}`}
-                onClick={() => {
-                  setDeleteId(null);
-                  setDraft({ ...prompt });
-                }}
-              >
-                <span className="flex items-center gap-1.5">
-                  {Icon && (
-                    <Icon
-                      aria-hidden="true"
-                      className="size-3.5 shrink-0 text-muted-foreground"
-                    />
-                  )}
-                  <span className="truncate">{prompt.title}</span>
-                </span>
-                <span className="block truncate text-muted-foreground text-xs">
-                  {
-                    PROMPT_AVAILABILITY_OPTIONS.find(
-                      (option) => option.value === prompt.availability,
-                    )?.label
-                  }
-                </span>
-              </button>
+              {PROMPT_CUSTOMIZATION_ENABLED ? (
+                <button
+                  type="button"
+                  className="min-w-0 flex-1 rounded-md px-1 py-1 text-left text-sm hover:bg-muted"
+                  disabled={Boolean(draft)}
+                  aria-label={`Edit ${prompt.title}`}
+                  onClick={() => {
+                    setDeleteId(null);
+                    setDraft({ ...prompt });
+                  }}
+                >
+                  {label}
+                </button>
+              ) : (
+                <div className="min-w-0 flex-1 px-1 py-1 text-sm">{label}</div>
+              )}
               <SettingsSwitch
                 size="sm"
                 label={`Enable ${prompt.title}`}
                 checked={prompt.enabled}
                 onCheckedChange={(enabled) => {
-                  save({ ...prompt, enabled });
+                  save({
+                    ...(savedPrompts.find((item) => item.id === prompt.id) ??
+                      prompt),
+                    enabled,
+                  });
                   setDraft((current) =>
                     current?.id === prompt.id
                       ? { ...current, enabled }
@@ -169,7 +187,15 @@ export function PromptLibrarySettings() {
                   size="icon-sm"
                   aria-label={`Move ${prompt.title} up`}
                   disabled={index === 0}
-                  onClick={() => move(prompt.id, -1)}
+                  onClick={() =>
+                    move(
+                      prompt.id,
+                      -1,
+                      PROMPT_CUSTOMIZATION_ENABLED
+                        ? undefined
+                        : prompts.map((item) => item.id),
+                    )
+                  }
                 >
                   <ArrowUpIcon className="size-3.5" />
                 </Button>
@@ -180,46 +206,55 @@ export function PromptLibrarySettings() {
                   size="icon-sm"
                   aria-label={`Move ${prompt.title} down`}
                   disabled={index === prompts.length - 1}
-                  onClick={() => move(prompt.id, 1)}
+                  onClick={() =>
+                    move(
+                      prompt.id,
+                      1,
+                      PROMPT_CUSTOMIZATION_ENABLED
+                        ? undefined
+                        : prompts.map((item) => item.id),
+                    )
+                  }
                 >
                   <ArrowDownIcon className="size-3.5" />
                 </Button>
               </Hint>
-              {deleteId === prompt.id ? (
-                <>
-                  <Button
-                    variant="destructive"
-                    size="sm"
-                    className="h-7 text-xs"
-                    onClick={() => {
-                      remove(prompt.id);
-                      setDeleteId(null);
-                    }}
-                  >
-                    Delete
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-7 text-xs"
-                    onClick={() => setDeleteId(null)}
-                  >
-                    Cancel
-                  </Button>
-                </>
-              ) : (
-                <Hint content="Delete">
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    aria-label={`Delete ${prompt.title}`}
-                    disabled={Boolean(draft)}
-                    onClick={() => setDeleteId(prompt.id)}
-                  >
-                    <Trash2Icon className="size-3.5" />
-                  </Button>
-                </Hint>
-              )}
+              {PROMPT_CUSTOMIZATION_ENABLED &&
+                (deleteId === prompt.id ? (
+                  <>
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      className="h-7 text-xs"
+                      onClick={() => {
+                        remove(prompt.id);
+                        setDeleteId(null);
+                      }}
+                    >
+                      Delete
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 text-xs"
+                      onClick={() => setDeleteId(null)}
+                    >
+                      Cancel
+                    </Button>
+                  </>
+                ) : (
+                  <Hint content="Delete">
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      aria-label={`Delete ${prompt.title}`}
+                      disabled={Boolean(draft)}
+                      onClick={() => setDeleteId(prompt.id)}
+                    >
+                      <Trash2Icon className="size-3.5" />
+                    </Button>
+                  </Hint>
+                ))}
             </div>
           );
         })}
@@ -228,7 +263,7 @@ export function PromptLibrarySettings() {
             No saved prompts.
           </p>
         )}
-        {draft && (
+        {PROMPT_CUSTOMIZATION_ENABLED && draft && (
           <form
             className="space-y-2 py-3"
             aria-label="Edit library prompt"

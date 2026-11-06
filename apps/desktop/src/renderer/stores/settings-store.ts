@@ -20,6 +20,7 @@ import { type CustomModel, normalizeCustomModels } from "@/lib/custom-models";
 import { persist } from "zustand/middleware";
 import {
   migrateStockPromptIcons,
+  DEFAULT_PROMPT_LIBRARY,
   normalizePromptLibrary,
   type LibraryPrompt,
 } from "@/lib/prompt-library";
@@ -142,7 +143,11 @@ export interface SettingsState {
   setKeepMiniPromptsOpen: (pinned: boolean) => void;
   saveLibraryPrompt: (prompt: LibraryPrompt) => void;
   deleteLibraryPrompt: (id: string) => void;
-  moveLibraryPrompt: (id: string, direction: -1 | 1) => void;
+  moveLibraryPrompt: (
+    id: string,
+    direction: -1 | 1,
+    visibleIds?: string[],
+  ) => void;
   editorColorScheme: EditorColorScheme;
   editorFontSize: number;
   spellCheck: boolean;
@@ -970,13 +975,29 @@ export const useSettingsStore = create<SettingsState>()(
         set((state) => ({
           promptLibrary: state.promptLibrary.filter((item) => item.id !== id),
         })),
-      moveLibraryPrompt: (id, direction) =>
+      moveLibraryPrompt: (id, direction, visibleIds) =>
         set((state) => {
           const prompts = [...state.promptLibrary];
-          const index = prompts.findIndex((item) => item.id === id);
+          // Include restored stock rows and move past hidden custom entries
+          // without deleting or rewriting their saved content.
+          for (const visibleId of visibleIds ?? []) {
+            if (prompts.some((item) => item.id === visibleId)) continue;
+            const stock = DEFAULT_PROMPT_LIBRARY.find(
+              (item) => item.id === visibleId,
+            );
+            if (stock) prompts.push({ ...stock });
+          }
+          const indexes = prompts.flatMap((item, index) =>
+            !visibleIds || visibleIds.includes(item.id) ? [index] : [],
+          );
+          const index = indexes.findIndex(
+            (position) => prompts[position].id === id,
+          );
           const next = index + direction;
-          if (index < 0 || next < 0 || next >= prompts.length) return state;
-          [prompts[index], prompts[next]] = [prompts[next], prompts[index]];
+          if (index < 0 || next < 0 || next >= indexes.length) return state;
+          const from = indexes[index];
+          const to = indexes[next];
+          [prompts[from], prompts[to]] = [prompts[to], prompts[from]];
           return { promptLibrary: prompts };
         }),
       setGlobalAgentPrompt: (prompt) =>

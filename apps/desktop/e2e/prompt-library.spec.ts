@@ -986,7 +986,7 @@ for (const display of ["Expanded", "Workspace"]) {
       cards.getByRole("button", { name: /^Improve writing/ }),
     ).toBeEnabled();
     const scroll = cards.locator("[data-prompt-scroll]");
-    await expect(scroll.getByRole("button")).toHaveCount(5);
+    await expect(scroll.getByRole("button")).toHaveCount(4);
     const cardTops = await scroll
       .getByRole("button")
       .evaluateAll((elements) =>
@@ -1026,7 +1026,7 @@ for (const display of ["Expanded", "Workspace"]) {
       .poll(() => scroll.evaluate((element) => element.scrollLeft))
       .toBeGreaterThan(0);
     await expect(
-      scroll.getByRole("button", { name: /^Check terminology/ }),
+      scroll.getByRole("button", { name: /^Tighten layout/ }),
     ).toBeInViewport();
     await page.screenshot({
       path: test.info().outputPath(`prompt-cards-${display}-scrolled.png`),
@@ -1134,7 +1134,7 @@ for (const display of ["Expanded", "Workspace"]) {
     await allPrompts.click();
     await expect(
       page.getByRole("menuitem", { name: "Check terminology", exact: true }),
-    ).toBeVisible();
+    ).toHaveCount(0);
     await page.keyboard.press("Escape");
     await scroll.hover();
     await page.mouse.wheel(0, 1200);
@@ -1363,11 +1363,144 @@ for (const display of ["Expanded", "Workspace"]) {
   });
 }
 
+test("release prompt settings expose four built-ins with persistent toggles and ordering", async ({
+  page,
+  context,
+}) => {
+  await page.goto("/?debug=markdown-settings&section=agent");
+  await page.evaluate(async () => {
+    const { useSettingsStore } = await import(
+      /* @vite-ignore */ "/src/renderer/stores/settings-store.ts"
+    );
+    const { DEFAULT_PROMPT_LIBRARY: defaults } = await import(
+      /* @vite-ignore */ "/src/renderer/lib/prompt-library.ts"
+    );
+    useSettingsStore.setState({
+      promptLibrary: [
+        {
+          ...defaults[0],
+          title: "Edited writing",
+          prompt: "Keep my customized text",
+          icon: "telescope",
+        },
+        { ...defaults[0], id: "custom", title: "Hidden custom" },
+        { ...defaults[1], enabled: false },
+        defaults[3],
+      ],
+    });
+  });
+  const library = page.locator('[data-settings-row-id="agent-prompt-library"]');
+  await library.scrollIntoViewIfNeeded();
+  const rows = library.locator("[data-library-prompt-id]");
+  const ids = () =>
+    rows.evaluateAll((elements) =>
+      elements.map((element) => element.getAttribute("data-library-prompt-id")),
+    );
+  await expect(rows).toHaveCount(4);
+  await expect(
+    library.getByRole("button", { name: /^(Add prompt|Edit |Delete)/ }),
+  ).toHaveCount(0);
+  await expect(library.getByText("Hidden custom", { exact: true })).toHaveCount(
+    0,
+  );
+  await expect(
+    library.getByText("Edited writing", { exact: true }),
+  ).toHaveCount(0);
+  await library.getByText("Improve writing", { exact: true }).click();
+  await expect(
+    page.getByRole("form", { name: "Edit library prompt" }),
+  ).toHaveCount(0);
+  await expect(
+    library.getByRole("switch", { name: "Enable Fix issues" }),
+  ).toHaveAttribute("aria-checked", "false");
+  await library.getByRole("switch", { name: "Enable Improve writing" }).click();
+  await library.getByRole("button", { name: "Move Fix issues up" }).click();
+  await library
+    .getByRole("button", { name: "Move Review & comment up" })
+    .click();
+  await expect
+    .poll(ids)
+    .toEqual([
+      "fix-issues",
+      "improve-writing",
+      "review-and-comment",
+      "tighten-layout",
+    ]);
+  await expect(
+    library.getByRole("button", { name: "Move Fix issues up" }),
+  ).toBeDisabled();
+  await expect(
+    library.getByRole("button", { name: "Move Tighten layout down" }),
+  ).toBeDisabled();
+  const saved = await page.evaluate(
+    () =>
+      JSON.parse(localStorage.getItem("catalex-settings")!).state.promptLibrary,
+  );
+  expect(
+    saved.find((prompt: any) => prompt.id === "improve-writing"),
+  ).toMatchObject({
+    title: "Edited writing",
+    prompt: "Keep my customized text",
+    icon: "telescope",
+    enabled: false,
+  });
+  expect(saved.some((prompt: any) => prompt.id === "custom")).toBe(true);
+  const other = await context.newPage();
+  await other.goto("/?debug=markdown-settings&section=agent");
+  const otherLibrary = other.locator(
+    '[data-settings-row-id="agent-prompt-library"]',
+  );
+  await otherLibrary.scrollIntoViewIfNeeded();
+  await expect(
+    otherLibrary.getByRole("switch", { name: "Enable Improve writing" }),
+  ).toHaveAttribute("aria-checked", "false");
+  await library.getByRole("switch", { name: "Enable Improve writing" }).click();
+  await expect(
+    otherLibrary.getByRole("switch", { name: "Enable Improve writing" }),
+  ).toHaveAttribute("aria-checked", "true");
+  await page.reload();
+  await library.scrollIntoViewIfNeeded();
+  await expect
+    .poll(ids)
+    .toEqual([
+      "fix-issues",
+      "improve-writing",
+      "review-and-comment",
+      "tighten-layout",
+    ]);
+  await expect(
+    library.getByRole("switch", { name: "Enable Fix issues" }),
+  ).toHaveAttribute("aria-checked", "false");
+  await library.screenshot({
+    path: test.info().outputPath("built-in-prompts-light.png"),
+  });
+  await page.evaluate(() => localStorage.setItem("theme", "dark"));
+  await page.reload();
+  await library.scrollIntoViewIfNeeded();
+  await expect(
+    library.getByRole("switch", { name: "Enable Improve writing" }),
+  ).toHaveAttribute("aria-checked", "true");
+  await library.screenshot({
+    path: test.info().outputPath("built-in-prompts-dark.png"),
+  });
+  await other.close();
+});
+
 test("prompt settings add, edit, reorder, disable, delete, and synchronize across windows", async ({
   page,
   context,
 }) => {
   await page.goto("/?debug=markdown-settings&section=agent");
+  test.skip(
+    !(await page.evaluate(async () => {
+      const library = await import(
+        /* @vite-ignore */ "/src/renderer/lib/prompt-library.ts"
+      );
+      return library.PROMPT_CUSTOMIZATION_ENABLED;
+    })),
+    "Customization is retained for the deferred restoration issue.",
+  );
+
   const library = page.locator('[data-settings-row-id="agent-prompt-library"]');
   await library.scrollIntoViewIfNeeded();
   await library.getByRole("button", { name: "Add prompt" }).click();

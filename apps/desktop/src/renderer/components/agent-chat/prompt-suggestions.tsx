@@ -13,6 +13,7 @@ import { Hint } from "@/components/ui/tooltip";
 import { invoke } from "@/lib/desktop/core";
 import {
   resolveLibraryPromptContext,
+  visiblePromptLibrary,
   type LibraryPrompt,
 } from "@/lib/prompt-library";
 import { libraryPromptIcon } from "@/lib/prompt-icons";
@@ -73,7 +74,9 @@ export function PromptSuggestions({
   );
   const diagnostics = useDocumentStore((state) => state.promptDiagnostics);
   const projectRoot = useDocumentStore((state) => state.projectRoot);
-  const prompts = library.filter((prompt) => prompt.enabled);
+  const prompts = visiblePromptLibrary(library).filter(
+    (prompt) => prompt.enabled,
+  );
   const scrollRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const strip = scrollRef.current;

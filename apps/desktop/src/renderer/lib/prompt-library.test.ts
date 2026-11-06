@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_PROMPT_LIBRARY,
+  visiblePromptLibrary,
   normalizePromptLibrary,
   resolveLibraryPromptContext,
   resolvePromptIcon,
@@ -363,5 +364,31 @@ describe("issue prompt availability", () => {
       comment: { id: "c", text: "Comment", agent: false },
     };
     expect(resolveIssues([comment]).context?.diagnostics).toHaveLength(3);
+  });
+});
+
+describe("release prompt library", () => {
+  it("shows four stock prompts with saved order and toggles without changing stored edits", () => {
+    const [writing, fix, review, layout] = DEFAULT_PROMPT_LIBRARY;
+    const saved = [
+      {
+        ...layout,
+        title: "My layout",
+        prompt: "Custom instructions",
+        icon: null,
+        enabled: false,
+      },
+      { ...writing, id: "custom", title: "My custom prompt" },
+      writing,
+    ];
+    const before = structuredClone(saved);
+    expect(visiblePromptLibrary(saved)).toEqual([
+      { ...layout, enabled: false },
+      writing,
+      fix,
+      review,
+    ]);
+    expect(saved).toEqual(before);
+    expect(visiblePromptLibrary([])).toEqual(DEFAULT_PROMPT_LIBRARY);
   });
 });

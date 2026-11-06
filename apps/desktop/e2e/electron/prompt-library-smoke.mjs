@@ -52,67 +52,110 @@ try {
   let main = await launch();
   let editor = await settings(main);
   let library = editor.locator('[data-settings-row-id="agent-prompt-library"]');
-  await library.getByRole("button", { name: "Add prompt" }).click();
-  await editor
-    .getByLabel("Prompt title", { exact: true })
-    .fill("Restart check");
-  await editor
-    .getByLabel("Prompt text", { exact: true })
-    .fill("Remember this custom prompt.");
-  await editor
-    .getByRole("button", { name: "Prompt icon: Default icon" })
-    .click();
-  await editor.getByRole("textbox", { name: "Search icons" }).fill("telescope");
-  const telescope = editor.getByRole("button", {
-    name: "Telescope",
-    exact: true,
-  });
-  await expect(telescope.locator("svg.lucide-telescope")).toBeVisible();
-  await telescope.click();
-  await editor.getByRole("button", { name: "Save prompt" }).click();
-  for (let index = 0; index < 4; index++)
-    await library
-      .getByRole("button", { name: "Move Restart check up" })
+  // Keep the customization scenario ready for the deferred restoration issue.
+  if (await library.getByRole("button", { name: "Add prompt" }).count()) {
+    await library.getByRole("button", { name: "Add prompt" }).click();
+    await editor
+      .getByLabel("Prompt title", { exact: true })
+      .fill("Restart check");
+    await editor
+      .getByLabel("Prompt text", { exact: true })
+      .fill("Remember this custom prompt.");
+    await editor
+      .getByRole("button", { name: "Prompt icon: Default icon" })
       .click();
-  await library.getByRole("switch", { name: "Enable Restart check" }).click();
-  await expect
-    .poll(async () => (await saved(main))?.[0])
-    .toMatchObject({
-      title: "Restart check",
-      prompt: "Remember this custom prompt.",
-      icon: "telescope",
-      enabled: false,
+    await editor
+      .getByRole("textbox", { name: "Search icons" })
+      .fill("telescope");
+    const telescope = editor.getByRole("button", {
+      name: "Telescope",
+      exact: true,
     });
-  const expected = await saved(main);
-  const opened = app.waitForEvent("window");
-  await main.evaluate(() => window.catalex.invoke("create_new_window"));
-  const second = await ready(await opened);
-  await expect.poll(() => saved(second)).toEqual(expected);
-  await quit();
+    await expect(telescope.locator("svg.lucide-telescope")).toBeVisible();
+    await telescope.click();
+    await editor.getByRole("button", { name: "Save prompt" }).click();
+    for (let index = 0; index < 4; index++)
+      await library
+        .getByRole("button", { name: "Move Restart check up" })
+        .click();
+    await library.getByRole("switch", { name: "Enable Restart check" }).click();
+    await expect
+      .poll(async () => (await saved(main))?.[0])
+      .toMatchObject({
+        title: "Restart check",
+        prompt: "Remember this custom prompt.",
+        icon: "telescope",
+        enabled: false,
+      });
+    const expected = await saved(main);
+    const opened = app.waitForEvent("window");
+    await main.evaluate(() => window.catalex.invoke("create_new_window"));
+    const second = await ready(await opened);
+    await expect.poll(() => saved(second)).toEqual(expected);
+    await quit();
 
-  main = await launch();
-  await expect.poll(() => saved(main)).toEqual(expected);
-  editor = await settings(main);
-  library = editor.locator('[data-settings-row-id="agent-prompt-library"]');
-  await expect(
-    library.locator("[data-library-prompt-id]").first(),
-  ).toContainText("Restart check");
-  await expect(
-    library.getByRole("switch", { name: "Enable Restart check" }),
-  ).toHaveAttribute("aria-checked", "false");
-  await library.getByRole("button", { name: "Edit Restart check" }).click();
-  await expect(
-    editor
-      .getByRole("button", { name: "Prompt icon: Telescope" })
-      .locator("svg.lucide-telescope"),
-  ).toBeVisible();
-  await expect(editor.getByLabel("Prompt text", { exact: true })).toHaveValue(
-    "Remember this custom prompt.",
-  );
-  await quit();
+    main = await launch();
+    await expect.poll(() => saved(main)).toEqual(expected);
+    editor = await settings(main);
+    library = editor.locator('[data-settings-row-id="agent-prompt-library"]');
+    await expect(
+      library.locator("[data-library-prompt-id]").first(),
+    ).toContainText("Restart check");
+    await expect(
+      library.getByRole("switch", { name: "Enable Restart check" }),
+    ).toHaveAttribute("aria-checked", "false");
+    await library.getByRole("button", { name: "Edit Restart check" }).click();
+    await expect(
+      editor
+        .getByRole("button", { name: "Prompt icon: Telescope" })
+        .locator("svg.lucide-telescope"),
+    ).toBeVisible();
+    await expect(editor.getByLabel("Prompt text", { exact: true })).toHaveValue(
+      "Remember this custom prompt.",
+    );
+    await quit();
+  } else {
+    await expect(library.locator("[data-library-prompt-id]")).toHaveCount(4);
+    await expect(
+      library.getByRole("button", { name: /^(Edit |Delete)/ }),
+    ).toHaveCount(0);
+    await library
+      .getByRole("button", { name: "Move Review & comment up" })
+      .click();
+    await library
+      .getByRole("button", { name: "Move Review & comment up" })
+      .click();
+    await library
+      .getByRole("switch", { name: "Enable Review & comment" })
+      .click();
+    await expect
+      .poll(async () => (await saved(main))?.[0])
+      .toMatchObject({ id: "review-and-comment", enabled: false });
+    const expected = await saved(main);
+    const opened = app.waitForEvent("window");
+    await main.evaluate(() => window.catalex.invoke("create_new_window"));
+    const second = await ready(await opened);
+    await expect.poll(() => saved(second)).toEqual(expected);
+    await quit();
+    main = await launch();
+    await expect.poll(() => saved(main)).toEqual(expected);
+    editor = await settings(main);
+    library = editor.locator('[data-settings-row-id="agent-prompt-library"]');
+    await expect(library.locator("[data-library-prompt-id]")).toHaveCount(4);
+    await expect(
+      library.locator("[data-library-prompt-id]").first(),
+    ).toContainText("Review & comment");
+    await expect(
+      library.getByRole("switch", { name: "Enable Review & comment" }),
+    ).toHaveAttribute("aria-checked", "false");
+    await expect(
+      library.getByRole("button", { name: /^(Add prompt|Edit |Delete)/ }),
+    ).toHaveCount(0);
+    await quit();
+  }
   assert.deepEqual(errors, []);
   console.log(
-    "Prompt text, icon, ordering, and enabled state synchronized across native windows and survived a full production-app restart.",
+    "Prompt library preferences synchronized across native windows and survived a full production-app restart.",
   );
 } finally {
   await app?.close();
