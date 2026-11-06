@@ -1,7 +1,11 @@
 import { afterEach, beforeEach, expect, it } from "vitest";
 import { useAgentChatStore } from "@/stores/agent-chat-store";
 import { useDocumentStore } from "@/stores/document-store";
-import { pinSelectionToChat, selectionChatTargets } from "@/lib/selection-chat";
+import {
+  pinFileToChat,
+  pinSelectionToChat,
+  selectionChatTargets,
+} from "@/lib/selection-chat";
 import type { PanelWindowSession } from "@/lib/panel-window-runtime";
 
 const initialChat = useAgentChatStore.getState();
@@ -117,4 +121,53 @@ it("keeps same-named PDF documents separate and updates only the repeated excerp
     { ...b, selectionPinned: true },
     { ...mappedA, selectionPinned: true },
   ]);
+});
+
+it("pins whole-file references to the chosen chat, including empty PDFs, and refreshes only that file", () => {
+  expect(pinFileToChat("popout", "paper.pdf", "", "/project")).toBe(true);
+  expect(pinFileToChat("popout", "notes.tex", "First draft", "/project")).toBe(
+    true,
+  );
+  expect(
+    pinFileToChat("popout", "notes.tex", "Unsaved revision", "/project"),
+  ).toBe(true);
+  const state = useAgentChatStore.getState();
+  expect(state.activeTabId).toBe("main");
+  expect(state.tabs[0].draft.pinnedContexts).toEqual([]);
+  expect(state.tabs[1].draft).toEqual({
+    input: "Draft popout",
+    pinnedContexts: [
+      {
+        label: "@paper.pdf",
+        filePath: "paper.pdf",
+        selectedText: "",
+        selectionKey: "file:paper.pdf",
+        selectionPinned: true,
+      },
+      {
+        label: "@notes.tex",
+        filePath: "notes.tex",
+        selectedText: "Unsaved revision",
+        selectionKey: "file:notes.tex",
+        selectionPinned: true,
+      },
+    ],
+  });
+  expect(
+    pinSelectionToChat("main", { ...context, selectedText: "" }, "/project"),
+  ).toBe(false);
+});
+
+it("refuses whole-file sends to stale projects or chats that are no longer available", () => {
+  const before = useAgentChatStore.getState().tabs;
+  expect(pinFileToChat("closed", "paper.pdf", "", "/project")).toBe(false);
+  expect(pinFileToChat("archived", "paper.pdf", "", "/project")).toBe(false);
+  expect(pinFileToChat("main", "paper.pdf", "", "/previous-project")).toBe(
+    false,
+  );
+  window.__catalexPanelSessions!.get("popout")!.window = {
+    closed: true,
+  } as Window;
+  expect(pinFileToChat("popout", "paper.pdf", "", "/project")).toBe(false);
+  expect(useAgentChatStore.getState().tabs).toBe(before);
 });

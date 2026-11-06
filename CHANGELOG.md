@@ -4,6 +4,8 @@
 
 - Keep PDF comment creation in the floating selection toolbar and remove its duplicate right-click menu action.
 
+- Let the Files menu send a file directly to the main chat or an open chat pop-out, with shared status badges and an inline chat chooser. Preserve existing drafts and whole-file references.
+
 - Extend the document minimap to standalone PDFs and LaTeX previews, with page navigation, a draggable viewport, and human/agent comment markers using the existing styling and settings.
 
 - Let agents read standalone PDF pages and create anchored review comments, using verified text and document fingerprints. Existing comment tools can edit, resolve, reopen, and delete PDF comments.

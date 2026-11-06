@@ -34,6 +34,36 @@ export function pinSelectionToChat(
   context: ChatContextBadge,
   projectRoot: string,
 ): boolean {
+  return (
+    Boolean(context.selectedText) &&
+    pinContextToChat(tabId, context, projectRoot)
+  );
+}
+
+/** Whole-file references also support PDFs, binary files, and empty documents. */
+export function pinFileToChat(
+  tabId: string,
+  filePath: string,
+  content: string,
+  projectRoot: string,
+): boolean {
+  return pinContextToChat(
+    tabId,
+    {
+      label: `@${filePath}`,
+      filePath,
+      selectedText: content,
+      selectionKey: `file:${filePath}`,
+    },
+    projectRoot,
+  );
+}
+
+function pinContextToChat(
+  tabId: string,
+  context: ChatContextBadge,
+  projectRoot: string,
+): boolean {
   const state = useAgentChatStore.getState();
   if (
     useDocumentStore.getState().projectRoot !== projectRoot ||
@@ -45,7 +75,7 @@ export function pinSelectionToChat(
     state.activeTabId,
     openChatPanelSnapshot(),
   ).find(({ tab }) => tab.id === tabId)?.tab;
-  if (!target || !context.selectedText) return false;
+  if (!target) return false;
   state.saveDraft(tabId, {
     ...target.draft,
     pinnedContexts: [
