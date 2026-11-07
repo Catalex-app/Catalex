@@ -4,6 +4,14 @@
 
 ## [0.2.0]
 
+### TL;DR
+
+- Expand workspace panels with a double-click on the header, or open them in a pop-out window with Option + double-click.
+- Add comments and navigate with the minimap in PDF files.
+- Access built-in prompts from the new prompt bar.
+
+### Full Changelog
+
 - Open editor, preview, and chat panels in synchronized native pop-out windows. Keep file windows pinned to their documents and reuse existing windows, including one LaTeX preview per root document.
 - Expand panels across the workspace, with shared controls, discoverable header gestures, and smooth restore transitions.
 - Send selected text, PDF passages, or whole files to the main chat or an open chat pop-out without submitting a prompt or replacing its draft. Identify PDF selections by document and page, including PDFs with the same name.
