@@ -7,6 +7,7 @@ See [Contributing](CONTRIBUTING.md), [the repository map](docs/development/archi
 - Use the project-local [$github-issue-manager-catalex](.agents/skills/github-issue-manager-catalex/SKILL.md) to select, start, continue, or complete GitHub issues, including completion commits. Prefer this copy over the global issue-manager skill for this project.
 - Read `.githubissues.json` at the repository root for the task repository; follow the skill's setup instructions if it is missing. Keep this machine-local configuration ignored by Git.
 - Keep project checks, branch rules, and version commands in this file.
+- Target routing override: select 'target:dev' if not specified.
 
 ## Implementation Guidelines
 
