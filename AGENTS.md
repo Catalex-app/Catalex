@@ -34,7 +34,7 @@ Subissues require the existing non-build checks. Parent and standalone completio
 
 - Before closing a GitHub issue as completed or creating a completion commit, run `npx --yes corepack pnpm exec biome ci`.
 - Verify frontend TypeScript and production Vite output with `npx --yes corepack pnpm -C apps/desktop build`.
-- For parent and standalone completion, run `npx --yes corepack pnpm build:desktop` and `npx --yes corepack pnpm package:desktop` for final verification.
+- For parent and standalone completion, run `npx --yes corepack pnpm build:desktop` and `npx --yes corepack pnpm package:desktop` for final verification. For stable releases, use the signed packaging command below instead of `package:desktop`.
 - Verify Electron main/preload types with `npx --yes corepack pnpm -C apps/desktop electron:typecheck`. Browser harnesses do not establish native IPC, subprocess, or packaged-resource behavior; check the actual Electron application for changes to those surfaces.
 - For UI changes, inspect rendered behavior and visual fit yourself before asking the user to verify. Code checks and builds alone are insufficient. Prefer Playwright against Vite; use Computer Use only when explicitly requested.
 - During visual iteration, skip repeated full production builds before user checks unless diagnosing compile, import, or runtime issues.
@@ -54,10 +54,12 @@ Subissues require the existing non-build checks. Parent and standalone completio
 - Use subagents only for independent, parallelizable work whose speed or quality gain justifies coordination and token costs. Handle small, tightly coupled, exploratory, and UI-polish tasks directly.
 - When delegating, the primary agent owns task breakdown, review, integration, and final verification.
 
-## Release Signing
+## Releases
 
+- Before creating or updating a draft release, or pushing a tag that creates one, show the full proposed release notes in chat and wait for user approval. Include a short **TL;DR** followed by **Full Changelog**, and keep the approved text in the version's `CHANGELOG.md` entry.
+- Stable macOS releases must use `npx --yes corepack pnpm package:mac:signed`. This signs with Developer ID, submits to Apple for notarization, and staples the ticket. Verify with `codesign --verify --deep --strict`, `xcrun stapler validate`, and `spctl --assess --type execute --verbose`; Gatekeeper must report `Notarized Developer ID`. Mount the final DMG and test its app, then upload that exact installer from `apps/desktop/release/signed/` to the draft. If signing or notarization fails, resolve it before uploading a stable installer.
 - Electron automatic updates are disabled pending signing, notarization, installer-transition, and update-feed configuration. Do not claim update compatibility until it is implemented and verified.
-- The desktop workflow prepares draft GitHub releases from pushed `v*` tags only after validation and the macOS ARM64 build/tests pass. Publishing and selecting Latest are manual steps after installer review. Pull requests to `main` and manual branch runs build without preparing a release; branch pushes alone do not trigger the release workflow. It does not publish updater manifests or consume signing secrets.
+- The desktop workflow creates preview drafts only for prerelease tags (`v*-*`), after validation and macOS ARM64 build/tests pass. Stable releases use the local signed build and manual draft upload described in [Releases](docs/development/releases.md). Regular `package:desktop` and CI builds use ad-hoc signing and do not notarize. Publishing and selecting Latest require separate user approval.
 - `.release-env.sh` remains local and gitignored. Keep private signing keys outside the repo. Never print, commit, or paste private keys, signing passwords, or tokens; No signing material belongs in source control.
 - Report platform coverage precisely: Windows/Linux workflow targets are not proof of runtime or installer parity. Electron uses a separate browser profile; preserving Rust domain data does not migrate browser-stored settings or preferences.
 - Preserve and verify app state across windows and full application restarts. Do not add profile migrations without an explicit task.
