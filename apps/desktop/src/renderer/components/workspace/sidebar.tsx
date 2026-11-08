@@ -1,9 +1,11 @@
+import "./sidebar-status-motion.css";
 import {
   insertMarkdownFileLinksAtPoint,
   updateMarkdownFileDropCaret,
 } from "./editor/markdown-file-drop";
 import { useUpdater } from "@/hooks/use-updater";
 import { PRODUCT_NAME } from "../../../branding";
+import { useProjectComments } from "./editor/use-project-comments";
 import { CommentDeleteButtons } from "./editor/comment-delete-buttons";
 import { PROJECT_COMMENTS_REFRESH_EVENT } from "@/lib/workspace-events";
 import { toast } from "sonner";
@@ -43,6 +45,7 @@ import {
   useRef,
   useEffect,
   useLayoutEffect,
+  useId,
 } from "react";
 import {
   FileTextIcon,
@@ -485,32 +488,206 @@ const CONFLICT_TEXT_CLASS = "text-violet-700 dark:text-violet-300";
 const CONFLICT_SELECTED_CLASS =
   "bg-violet-100 hover:bg-violet-200 dark:bg-violet-600/20 dark:hover:bg-violet-600/30";
 
-function FileCompileStatus({ fileId }: { fileId: string }) {
-  const diagnostics = useFileCompileDiagnostics(fileId);
-  const hasError = diagnostics.some((item) => item.severity === "error");
-  if (!diagnostics.length) return null;
-  const label = hasError
-    ? "LaTeX compilation error"
-    : "LaTeX compilation warning";
-  const details = diagnostics.map((item) => item.message).join("\n");
-  const Icon = hasError ? CircleXIcon : TriangleAlertIcon;
+interface FileCommentCounts {
+  human: number;
+  agent: number;
+}
 
-  return (
-    <Hint content={`${label} (last compile)\n${details}`}>
+function FileStatus({
+  fileId,
+  commentCounts,
+}: {
+  fileId: string;
+  commentCounts?: FileCommentCounts;
+}) {
+  const diagnostics = useFileCompileDiagnostics(fileId);
+  const maskId = useId();
+  const stacked = useSettingsStore((s) => s.sidebarStatusStacked);
+  const setStacked = useSettingsStore((s) => s.setSidebarStatusStacked);
+  const indicators = [
+    ...(["human", "agent"] as const).flatMap((author) => {
+      const count = commentCounts?.[author] ?? 0;
+      if (!count) return [];
+      const label = `${count} unresolved ${author} ${count === 1 ? "comment" : "comments"}`;
+      return [
+        {
+          key: author,
+          label,
+          className: author === "human" ? "text-[#eab308]" : "text-[#7252b5]",
+          Icon: MessageSquareTextIcon,
+        },
+      ];
+    }),
+    ...(["warning", "error"] as const).flatMap((severity) => {
+      const items = diagnostics.filter((item) => item.severity === severity);
+      if (!items.length) return [];
+      const label = `LaTeX compilation ${severity}`;
+      return [
+        {
+          key: severity,
+          label,
+          className:
+            severity === "error"
+              ? "text-red-600 dark:text-red-400"
+              : "text-yellow-600 dark:text-yellow-400",
+          Icon: severity === "error" ? CircleXIcon : TriangleAlertIcon,
+        },
+      ];
+    }),
+  ];
+  // Retain disappearing icons just long enough for their inert bubble burst.
+  const signature = indicators.map((indicator) => indicator.key).join(",");
+  const [presence, setPresence] = useState(() => ({
+    signature,
+    items: indicators.map((indicator) => ({ indicator, exiting: false })),
+  }));
+  if (presence.signature !== signature) {
+    const order = ["human", "agent", "warning", "error"];
+    setPresence({
+      signature,
+      items: [
+        ...indicators.map((indicator) => ({ indicator, exiting: false })),
+        ...presence.items
+          .filter(
+            ({ indicator }) =>
+              !indicators.some((item) => item.key === indicator.key),
+          )
+          .map((item) => ({ ...item, exiting: true })),
+      ].sort(
+        (a, b) =>
+          order.indexOf(a.indicator.key) - order.indexOf(b.indicator.key),
+      ),
+    });
+  }
+  useEffect(() => {
+    if (!presence.items.some((item) => item.exiting)) return;
+    const reducedMotion = matchMedia(
+      "(prefers-reduced-motion: reduce)",
+    ).matches;
+    const timeout = window.setTimeout(
+      () => {
+        setPresence((current) => ({
+          ...current,
+          items: current.items.filter((item) => !item.exiting),
+        }));
+      },
+      reducedMotion ? 0 : 240,
+    );
+    return () => window.clearTimeout(timeout);
+  }, [presence]);
+  if (!presence.items.length) return null;
+  const canToggle = indicators.length >= 2;
+  const action = stacked ? "Unstack file indicators" : "Stack file indicators";
+  const icons = (
+    <span className="relative inline-flex shrink-0">
       <span
-        className={cn(
-          "inline-flex shrink-0",
-          hasError
-            ? "text-red-600 dark:text-red-400"
-            : "text-yellow-600 dark:text-yellow-400",
-        )}
-        role="img"
-        aria-label={label}
+        className="file-status-strip relative inline-block shrink-0"
+        style={{ width: 14 + (presence.items.length - 1) * (stacked ? 8 : 18) }}
+        data-file-status-stack={stacked && canToggle ? "true" : "false"}
       >
-        <Icon className="size-3.5" aria-hidden="true" />
+        {presence.items.map(({ indicator, exiting }, index) => {
+          const { key, label, className, Icon } =
+            indicators.find((item) => item.key === indicator.key) ?? indicator;
+          const NextIcon = stacked
+            ? presence.items[index + 1]?.indicator.Icon
+            : undefined;
+          const id = `${maskId}-${key}`;
+          return (
+            <span
+              key={key}
+              className={cn(
+                "file-status-indicator inline-flex shrink-0",
+                className,
+              )}
+              style={{
+                right: (presence.items.length - 1 - index) * (stacked ? 8 : 18),
+              }}
+              data-status-key={key}
+              data-exiting={exiting}
+              role="img"
+              aria-hidden={exiting || undefined}
+              aria-label={label}
+            >
+              <span className="file-status-glyph">
+                {NextIcon ? (
+                  <svg
+                    className="size-3.5 overflow-visible"
+                    viewBox="0 0 24 24"
+                    aria-hidden="true"
+                  >
+                    <defs>
+                      <mask
+                        id={id}
+                        maskUnits="userSpaceOnUse"
+                        x="-4"
+                        y="-4"
+                        width="32"
+                        height="32"
+                        style={{ maskType: "luminance" }}
+                      >
+                        <rect
+                          x="-4"
+                          y="-4"
+                          width="32"
+                          height="32"
+                          fill="white"
+                        />
+                        {/* Six-pixel overlap, with a transparent halo following the next icon's silhouette. */}
+                        <NextIcon
+                          className="size-6"
+                          x={(8 * 24) / 14}
+                          y={0}
+                          width={24}
+                          height={24}
+                          fill="black"
+                          stroke="black"
+                          strokeWidth={5}
+                        />
+                      </mask>
+                    </defs>
+                    <g mask={`url(#${id})`}>
+                      <Icon className="size-6" width={24} height={24} />
+                    </g>
+                  </svg>
+                ) : (
+                  <Icon className="size-3.5" aria-hidden="true" />
+                )}
+              </span>
+            </span>
+          );
+        })}
       </span>
-    </Hint>
+      {canToggle && (
+        <Hint content={stacked ? "Click to unstack" : "Click to stack"}>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="absolute inset-0 h-auto w-full rounded-sm p-0 hover:bg-transparent focus-visible:ring-2 focus-visible:ring-sidebar-ring dark:hover:bg-transparent"
+            aria-label={action}
+            aria-pressed={stacked}
+            onPointerDown={(event) => event.stopPropagation()}
+            onPointerMove={(event) => event.stopPropagation()}
+            onFocus={(event) => event.stopPropagation()}
+            onBlur={(event) => event.stopPropagation()}
+            onClick={(event) => {
+              event.stopPropagation();
+              setStacked(!stacked);
+            }}
+            onAuxClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+            }}
+            onDoubleClick={(event) => event.stopPropagation()}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" || event.key === " ")
+                event.stopPropagation();
+            }}
+          />
+        </Hint>
+      )}
+    </span>
   );
+  return icons;
 }
 
 function clampSectionHeight(height: number) {
@@ -928,6 +1105,30 @@ function SidebarDefault({
   const renameFolder = useDocumentStore((s) => s.renameFolder);
   const refreshFiles = useDocumentStore((s) => s.refreshFiles);
   const projectRoot = useDocumentStore((s) => s.projectRoot);
+  const agentWorkspaceRoot = useDocumentStore((s) => s.agentWorkspaceRoot);
+  const [commentFiles, , , commentsLoaded] = useProjectComments(
+    agentWorkspaceRoot ? null : projectRoot,
+  );
+  const commentCountsByPath = useMemo(
+    () =>
+      new Map(
+        commentsLoaded
+          ? Object.entries(commentFiles).map(([path, comments]) => [
+              path,
+              comments.reduce<FileCommentCounts>(
+                (counts, comment) => {
+                  if (!comment.resolved && comment.text.trim()) {
+                    counts[comment.origin ? "agent" : "human"] += 1;
+                  }
+                  return counts;
+                },
+                { human: 0, agent: 0 },
+              ),
+            ])
+          : [],
+      ),
+    [commentFiles, commentsLoaded],
+  );
   const folders = useDocumentStore((s) => s.folders);
   const zoteroAuthenticated = useZoteroStore((s) => s.isAuthenticated);
   const zoteroUsername = useZoteroStore((s) => s.username);
@@ -2334,7 +2535,10 @@ function SidebarDefault({
     );
     return (
       <>
-        <FileCompileStatus fileId={file.id} />
+        <FileStatus
+          fileId={file.id}
+          commentCounts={commentCountsByPath.get(file.relativePath)}
+        />
         {lineStats?.added ? (
           <span className="font-mono text-[11px] text-green-600">
             +{lineStats.added}
@@ -2508,6 +2712,7 @@ function SidebarDefault({
                         gitIgnoredPaths={gitIgnoredPaths}
                         gitConflictPaths={gitConflictPaths}
                         gitLineStatsByPath={gitLineStatsByPath}
+                        commentCountsByPath={commentCountsByPath}
                         pendingReviewFilePaths={pendingReviewFilePaths}
                         unsavedLineStatsByPath={unsavedLineStatsByPath}
                         nativeDragOver={nativeDragOver}
@@ -3164,6 +3369,7 @@ interface FileTreeNodeProps {
   gitIgnoredPaths: Set<string>;
   gitConflictPaths: ReadonlySet<string>;
   gitLineStatsByPath: Map<string, GitFileLineStats>;
+  commentCountsByPath: ReadonlyMap<string, FileCommentCounts>;
   pendingReviewFilePaths: ReadonlySet<string>;
   unsavedLineStatsByPath: Map<string, GitFileLineStats>;
   nativeDragOver?: string | null;
@@ -3202,6 +3408,7 @@ function FileTreeNode({
   gitIgnoredPaths,
   gitConflictPaths,
   gitLineStatsByPath,
+  commentCountsByPath,
   pendingReviewFilePaths,
   unsavedLineStatsByPath,
   nativeDragOver,
@@ -3366,6 +3573,7 @@ function FileTreeNode({
               gitIgnoredPaths={gitIgnoredPaths}
               gitConflictPaths={gitConflictPaths}
               gitLineStatsByPath={gitLineStatsByPath}
+              commentCountsByPath={commentCountsByPath}
               pendingReviewFilePaths={pendingReviewFilePaths}
               unsavedLineStatsByPath={unsavedLineStatsByPath}
               nativeDragOver={nativeDragOver}
@@ -3420,6 +3628,35 @@ function FileTreeNode({
                       : "bg-sidebar-accent text-sidebar-accent-foreground"
                   : "hover:bg-sidebar-accent/50",
               )}
+              trailing={
+                <div className="ml-auto flex shrink-0 items-center gap-1.5">
+                  <FileStatus
+                    fileId={file.id}
+                    commentCounts={commentCountsByPath.get(file.relativePath)}
+                  />
+                  {lineStats?.added ? (
+                    <span className="font-mono text-[11px] text-green-600">
+                      +{lineStats.added}
+                    </span>
+                  ) : null}
+                  {lineStats?.deleted ? (
+                    <span className="font-mono text-[11px] text-red-600">
+                      -{lineStats.deleted}
+                    </span>
+                  ) : null}
+                  {isConflicted && (
+                    <GitMergeIcon
+                      aria-label="Unresolved Git conflict"
+                      className={cn("size-2.5 shrink-0", CONFLICT_TEXT_CLASS)}
+                    />
+                  )}
+                  {file.isDirty ? (
+                    <Hint content="Modified">
+                      <span className="size-2 rounded-full bg-blue-500" />
+                    </Hint>
+                  ) : null}
+                </div>
+              }
               depth={depth}
               onClick={() => {
                 useHistoryStore.getState().stopReview();
@@ -3456,30 +3693,6 @@ function FileTreeNode({
               >
                 {node.name}
               </span>
-              <div className="ml-auto flex shrink-0 items-center gap-1.5">
-                <FileCompileStatus fileId={file.id} />
-                {lineStats?.added ? (
-                  <span className="font-mono text-[11px] text-green-600">
-                    +{lineStats.added}
-                  </span>
-                ) : null}
-                {lineStats?.deleted ? (
-                  <span className="font-mono text-[11px] text-red-600">
-                    -{lineStats.deleted}
-                  </span>
-                ) : null}
-                {isConflicted && (
-                  <GitMergeIcon
-                    aria-label="Unresolved Git conflict"
-                    className={cn("size-2.5 shrink-0", CONFLICT_TEXT_CLASS)}
-                  />
-                )}
-                {file.isDirty ? (
-                  <Hint content="Modified">
-                    <span className="size-2 rounded-full bg-blue-500" />
-                  </Hint>
-                ) : null}
-              </div>
             </SidebarRow>
           </ContextMenuTrigger>
         </Hint>

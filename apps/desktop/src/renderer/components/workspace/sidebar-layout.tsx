@@ -23,12 +23,20 @@ export function SidebarRow({
   className,
   style,
   type = "button",
+  children,
+  trailing,
   ...props
-}: ComponentProps<"button"> & { asChild?: boolean; depth?: number }) {
-  const Comp = asChild ? Slot.Root : "button";
+}: ComponentProps<"button"> & {
+  asChild?: boolean;
+  depth?: number;
+  trailing?: ReactNode;
+}) {
+  // Keep the file-selection button and interactive status controls as siblings.
+  const hasTrailing = trailing != null;
+  const Comp = asChild || hasTrailing ? Slot.Root : "button";
   return (
     <Comp
-      type={asChild ? undefined : type}
+      type={asChild || hasTrailing ? undefined : type}
       data-sidebar-row
       className={cn(
         "flex min-h-7 w-full min-w-0 items-center gap-2 rounded-md px-2 py-1 text-left text-sm transition-colors hover:bg-sidebar-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring focus-visible:ring-inset disabled:cursor-not-allowed disabled:opacity-45",
@@ -36,7 +44,22 @@ export function SidebarRow({
       )}
       style={{ paddingLeft: 8 + depth * 16, ...style }}
       {...props}
-    />
+    >
+      {hasTrailing ? (
+        <div>
+          <button
+            type={type}
+            disabled={props.disabled}
+            className="flex min-w-0 flex-1 items-center gap-2 rounded-sm text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring"
+          >
+            {children}
+          </button>
+          {trailing}
+        </div>
+      ) : (
+        children
+      )}
+    </Comp>
   );
 }
 

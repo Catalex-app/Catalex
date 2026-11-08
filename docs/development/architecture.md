@@ -322,6 +322,21 @@ historical, draft, or stale previews retain navigation without live comment
 markers. Marker activation uses the existing PDF comment interaction, including
 source synchronization when the editor is visible.
 
+Sidebar file indicators show unresolved human and agent comments in their existing
+yellow and violet colors, followed by compilation warnings and errors. The
+app-wide `sidebarStatusStacked` preference defaults to stacked icons. Clicking a
+row's indicator area toggles one combined stack across windows; only rows with
+two or more indicators expose this button. The saved preference survives restarts.
+The toggle and file-selection button are siblings, so mouse and keyboard activation
+do not select a file or start a drag. Indicators have accessible labels and a standard action-only
+tooltip on rows that can toggle. Stacked icons use silhouette masks so their transparent gaps
+follow the row's current background. The shared indicator component animates new
+icons with a small spring-like pop and retains removed icons for a 220ms bubble
+burst. Exiting icons are hidden from accessibility immediately and never count
+toward the two-icon toggle threshold. A stable icon subtree prevents replay when
+that threshold changes. Icon positions and strip width use a 160ms slide as space
+opens or closes; reduced motion skips these effects.
+
 Sidebar file and session context menus use explicit targets with `openPanelWindow`; they do not change the main file or chat selection. Small text files load on demand, and saved sessions restore through `loadChatInBackground` with project and duplicate checks before opening a window. Archived sessions must be restored first.
 
 Prompt expansion uses one shared file-aware rule across Mini, Half, Full, and chat pop-outs. Standalone PDF, image, and binary files suppress only the new-chat automatic expansion; editable source files (including LaTeX with a PDF preview) keep that default. Manual expansion or collapse overrides the default for the current file visit; changing the active file or project clears it in the owner window, and chat entry also resets it. Pinning remains persistent across file and chat changes. Prompt availability and library settings are unchanged.

@@ -201,6 +201,13 @@ export function SidebarFileTree<TFile extends SidebarFile>({
               : "hover:bg-sidebar-accent/50",
             className,
           )}
+          trailing={
+            badge ? (
+              <div className="ml-auto flex shrink-0 items-center gap-1.5">
+                {badge}
+              </div>
+            ) : undefined
+          }
           depth={depth}
           onClick={() => onSelectFile(file.id)}
           onAuxClick={(event) => {
@@ -214,11 +221,6 @@ export function SidebarFileTree<TFile extends SidebarFile>({
           <span className={cn("min-w-0 flex-1 truncate", textClassName)}>
             {node.name}
           </span>
-          {badge ? (
-            <div className="ml-auto flex shrink-0 items-center gap-1.5">
-              {badge}
-            </div>
-          ) : null}
         </SidebarRow>
       </Hint>
     );

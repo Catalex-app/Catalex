@@ -1,0 +1,83 @@
+.file-status-strip {
+  height: 14px;
+  transition: width 160ms ease-out;
+}
+
+.file-status-indicator {
+  position: absolute;
+  top: 0;
+  transition: right 160ms ease-out;
+  width: 14px;
+  height: 14px;
+  pointer-events: none;
+}
+
+.file-status-glyph {
+  display: inline-flex;
+  transform-origin: center;
+  animation: file-status-appear 300ms ease-out both;
+}
+
+.file-status-indicator[data-exiting="true"] .file-status-glyph {
+  animation: file-status-pop 180ms ease-out both;
+}
+
+.file-status-indicator[data-exiting="true"]::before,
+.file-status-indicator[data-exiting="true"]::after {
+  content: "";
+  position: absolute;
+  pointer-events: none;
+  animation: file-status-burst 220ms ease-out both;
+}
+
+.file-status-indicator[data-exiting="true"]::before {
+  inset: 1px;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+}
+
+.file-status-indicator[data-exiting="true"]::after {
+  top: 6px;
+  left: 6px;
+  width: 2px;
+  height: 2px;
+  border-radius: 50%;
+  box-shadow: 0 -6px currentColor, 6px 0 currentColor, 0 6px currentColor, -6px 0 currentColor;
+}
+
+@keyframes file-status-appear {
+  0% { transform: scale(0.15); opacity: 0; }
+  55% { transform: scale(1.2); opacity: 1; }
+  78% { transform: scale(0.94); }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+@keyframes file-status-pop {
+  0% { transform: scale(1); opacity: 1; }
+  35% { transform: scale(1.1); opacity: 0.85; }
+  100% { transform: scale(1.2); opacity: 0; }
+}
+
+@keyframes file-status-burst {
+  0% { transform: scale(0.5); opacity: 0; }
+  30% { opacity: 0.65; }
+  100% { transform: scale(1.25); opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .file-status-strip,
+  .file-status-indicator {
+    transition: none;
+  }
+
+  .file-status-glyph,
+  .file-status-indicator[data-exiting="true"] .file-status-glyph,
+  .file-status-indicator::before,
+  .file-status-indicator::after {
+    animation: none !important;
+  }
+
+  .file-status-indicator[data-exiting="true"] {
+    visibility: hidden;
+  }
+}

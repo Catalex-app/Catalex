@@ -2,6 +2,7 @@
 
 ## [Unreleased]
 
+- Sidebar: Yellow human-comment and violet agent-comment icons mark unresolved comments, alongside warning and error indicators. Indicators default to a stack. Click a file’s indicators to switch between separate icons and one stack across the app; the preference persists. Only rows with two or more indicators offer the toggle. Resolving all comments from an author hides that icon. Indicators pop in and burst softly when removed, with reduced-motion support.
 - Project navigation: Recent-project rows move right and fade with staggered timing as a project opens; the clicked row moves faster and farther. The workspace fades rightward into place. Returning home reverses leftward, revealing the closed project's row first, then its neighbours, with visible movement as they settle. Reduced motion is respected.
 
 ## [0.2.1]

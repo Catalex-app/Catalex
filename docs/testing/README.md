@@ -136,3 +136,12 @@ before its neighbours without an outline, even in the
 middle of the list, reduced motion, missing View Transition support, failed
 loading and saving, recovery, and interrupted navigation. Mid-transition
 screenshots are saved under `output/playwright/project-handoff-*.png`.
+
+The `sidebar-status` browser suite checks the app-wide stacked/separate indicator
+preference, mouse and keyboard toggling without file selection, non-interactive
+single indicators, action-only indicator tooltips, sibling button semantics, cross-window sync,
+and reload persistence. Bubble animation checks sample rendered entrance frames,
+resolve comments, remove the final icon, exercise rapid reappearance, and cover
+stacked/separate layouts and reduced motion. Frame samples also verify that
+neighboring icons slide when a middle indicator is added or removed. Native verification uses isolated Electron profiles and
+temporary projects to check synchronization and full application restarts.
