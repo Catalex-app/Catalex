@@ -44,6 +44,7 @@ export default defineConfig({
     format: "es",
   },
   optimizeDeps: {
+    include: ["rehype-mathjax/svg"],
     exclude: ["mupdf"],
   },
   esbuild: {

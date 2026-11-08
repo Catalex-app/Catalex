@@ -215,6 +215,7 @@ import {
 import { openPdfSource, type PdfSource } from "@/lib/mupdf/pdf-source";
 import { createLogger } from "@/lib/debug/logger";
 import { isMarkdownFile } from "@/lib/markdown";
+import { markdownFileDrop } from "./markdown-file-drop";
 import { isIncludedLatexFile } from "@/lib/latex-project";
 import {
   createEditorColorSchemeExtensions,
@@ -3441,6 +3442,7 @@ export function LatexEditor({
       doc: currentContent,
       extensions: [
         compileKeymap,
+        isMarkdownDocument ? markdownFileDrop : [],
         lineNumbers(),
         highlightActiveLine(),
         highlightActiveLineGutter(),

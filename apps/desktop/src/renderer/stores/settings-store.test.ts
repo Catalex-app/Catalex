@@ -30,6 +30,10 @@ beforeEach(() => {
     compilerEngine: "xelatex",
     compilerChoicesByRoot: {},
     markdownLoadTyporaThemes: true,
+    defaultMarkdownMathEngine: "katex",
+    markdownMathEnginesByFile: {},
+    recentMarkdownThemePaths: [],
+    recentMarkdownThemeOrder: [],
     markdownThemeDirectory: null,
     markdownSeparateLightDarkThemes: true,
     markdownPreviewTheme: GITHUB_LIGHT_MARKDOWN_THEME_ID,
@@ -481,6 +485,7 @@ describe("settings-store cat display settings", () => {
 
     const defaults = migrateSettingsState({});
     expect(defaults.markdownLoadTyporaThemes).toBe(true);
+    expect(defaults.markdownMathEnginesByFile).toEqual({});
     expect(defaults.markdownPreviewTheme).toBe(GITHUB_LIGHT_MARKDOWN_THEME_ID);
     expect(defaults.markdownPreviewLightTheme).toBe(
       GITHUB_LIGHT_MARKDOWN_THEME_ID,
@@ -614,6 +619,156 @@ describe("settings-store cat display settings", () => {
         .getState()
         .getCompilerChoiceForRoot("/project", "main.tex"),
     ).toEqual({ backend: "latexmk", engine: "pdflatex" });
+  });
+});
+
+describe("recent Markdown themes", () => {
+  it("preserves rows while evicting the least recently used theme and appending replacements", async () => {
+    const store = useSettingsStore.getState;
+    for (const path of ["A", "B", "C", "D", "E", "A", "C"])
+      store().recordRecentMarkdownTheme(path);
+    expect(store().recentMarkdownThemeOrder).toEqual(["A", "B", "C", "D", "E"]);
+    store().recordRecentMarkdownTheme("F");
+    expect(store().recentMarkdownThemeOrder).toEqual(["A", "C", "D", "E", "F"]);
+    expect(store().recentMarkdownThemePaths).toEqual(["F", "C", "A", "E", "D"]);
+    await useSettingsStore.persist.rehydrate();
+    expect(store().recentMarkdownThemeOrder).toEqual(["A", "C", "D", "E", "F"]);
+    store().recordRecentMarkdownTheme("G");
+    expect(store().recentMarkdownThemeOrder).toEqual(["A", "C", "E", "F", "G"]);
+  });
+
+  it("restores older history and removes stale or duplicate display entries", () => {
+    expect(
+      migrateSettingsState({ recentMarkdownThemePaths: ["B", "A"] })
+        .recentMarkdownThemeOrder,
+    ).toEqual(["B", "A"]);
+    expect(
+      migrateSettingsState({
+        recentMarkdownThemePaths: ["D", "C", "B", "A"],
+        recentMarkdownThemeOrder: ["A", "missing", "A", "B", null],
+      }).recentMarkdownThemeOrder,
+    ).toEqual(["A", "B", "D", "C"]);
+  });
+
+  it("keeps at most five distinct paths in most-recently-used order", () => {
+    for (let i = 1; i <= 7; i++)
+      useSettingsStore.getState().recordRecentMarkdownTheme(`/themes/${i}.css`);
+    useSettingsStore.getState().recordRecentMarkdownTheme("/themes/4.css");
+    expect(useSettingsStore.getState().recentMarkdownThemePaths).toEqual([
+      "/themes/4.css",
+      "/themes/7.css",
+      "/themes/6.css",
+      "/themes/5.css",
+      "/themes/3.css",
+    ]);
+    expect(
+      migrateSettingsState({
+        recentMarkdownThemePaths: ["/a.css", null, "/a.css", "", 3, "/b.css"],
+      }).recentMarkdownThemePaths,
+    ).toEqual(["/a.css", "/b.css"]);
+  });
+});
+
+describe("per-file Markdown math engines", () => {
+  it("applies the default only to files without an explicit engine choice", () => {
+    const store = useSettingsStore.getState;
+    store().setMarkdownMathEngineForFile("/one", "explicit.md", "katex");
+    store().setDefaultMarkdownMathEngine("mathjax");
+    expect(store().getMarkdownMathEngineForFile("/one", "inherited.md")).toBe(
+      "mathjax",
+    );
+    expect(store().getMarkdownMathEngineForFile("/two", "inherited.md")).toBe(
+      "mathjax",
+    );
+    expect(store().getMarkdownMathEngineForFile(null, null)).toBe("mathjax");
+    expect(store().getMarkdownMathEngineForFile("/one", "explicit.md")).toBe(
+      "katex",
+    );
+    store().setMarkdownMathEngineForFile("/one", "mathjax.md", "mathjax");
+    store().setDefaultMarkdownMathEngine("katex");
+    expect(store().getMarkdownMathEngineForFile("/one", "inherited.md")).toBe(
+      "katex",
+    );
+    expect(store().getMarkdownMathEngineForFile("/one", "mathjax.md")).toBe(
+      "mathjax",
+    );
+  });
+
+  it("persists the default and falls back to KaTeX for missing or invalid values", async () => {
+    expect(migrateSettingsState({}).defaultMarkdownMathEngine).toBe("katex");
+    expect(
+      migrateSettingsState({ defaultMarkdownMathEngine: "unknown" })
+        .defaultMarkdownMathEngine,
+    ).toBe("katex");
+    expect(
+      migrateSettingsState({ defaultMarkdownMathEngine: "mathjax" })
+        .defaultMarkdownMathEngine,
+    ).toBe("mathjax");
+    useSettingsStore.getState().setDefaultMarkdownMathEngine("mathjax");
+    await useSettingsStore.persist.rehydrate();
+    expect(useSettingsStore.getState().defaultMarkdownMathEngine).toBe(
+      "mathjax",
+    );
+    const name = useSettingsStore.persist.getOptions().name!;
+    const saved = JSON.parse(localStorage.getItem(name)!);
+    saved.state.defaultMarkdownMathEngine = "unknown";
+    localStorage.setItem(name, JSON.stringify(saved));
+    await useSettingsStore.persist.rehydrate();
+    expect(useSettingsStore.getState().defaultMarkdownMathEngine).toBe("katex");
+  });
+
+  it("defaults to KaTeX and isolates choices by project and file", () => {
+    const store = useSettingsStore.getState;
+    expect(store().getMarkdownMathEngineForFile("/one", "notes.md")).toBe(
+      "katex",
+    );
+    store().setMarkdownMathEngineForFile("/one", "notes.md", "mathjax");
+    expect(store().getMarkdownMathEngineForFile("/one", "notes.md")).toBe(
+      "mathjax",
+    );
+    expect(store().getMarkdownMathEngineForFile("/one", "other.md")).toBe(
+      "katex",
+    );
+    expect(store().getMarkdownMathEngineForFile("/two", "notes.md")).toBe(
+      "katex",
+    );
+    expect(store().getMarkdownMathEngineForFile(null, "notes.md")).toBe(
+      "katex",
+    );
+    store().setMarkdownMathEngineForFile("/one", "other.md", "mathjax");
+    store().setMarkdownMathEngineForFile("/one", "notes.md", "katex");
+    expect(store().getMarkdownMathEngineForFile("/one", "notes.md")).toBe(
+      "katex",
+    );
+    expect(store().getMarkdownMathEngineForFile("/one", "other.md")).toBe(
+      "mathjax",
+    );
+  });
+
+  it("rehydrates saved file choices and filters invalid entries", async () => {
+    const key = JSON.stringify(["/project", "notes.md"]);
+    const choices = { [key]: "mathjax", invalid: "unknown" };
+    expect(
+      migrateSettingsState({ markdownMathEnginesByFile: choices })
+        .markdownMathEnginesByFile,
+    ).toEqual({ [key]: "mathjax" });
+    expect(
+      migrateSettingsState({ markdownMathEngine: "mathjax" })
+        .markdownMathEnginesByFile,
+    ).toEqual({});
+    const name = useSettingsStore.persist.getOptions().name!;
+    const saved = JSON.parse(localStorage.getItem(name)!);
+    saved.state.markdownMathEnginesByFile = choices;
+    localStorage.setItem(name, JSON.stringify(saved));
+    await useSettingsStore.persist.rehydrate();
+    expect(
+      useSettingsStore
+        .getState()
+        .getMarkdownMathEngineForFile("/project", "notes.md"),
+    ).toBe("mathjax");
+    expect(useSettingsStore.getState().markdownMathEnginesByFile).toEqual({
+      [key]: "mathjax",
+    });
   });
 });
 

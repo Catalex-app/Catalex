@@ -96,3 +96,36 @@ export function rewriteMarkdownCssAssetUrls(
     },
   );
 }
+
+/** A portable link from the source file's folder, including URL-sensitive names. */
+export function markdownFileLink(
+  sourcePath: string,
+  targetPath: string,
+): string | null {
+  const normalize = (path: string) => path.replace(/\\/g, "/");
+  const source = normalize(sourcePath).split("/").slice(0, -1);
+  const target = normalize(targetPath).split("/");
+  if (
+    /^[a-z]:$/i.test(source[0]) &&
+    source[0].toLowerCase() !== target[0]?.toLowerCase()
+  )
+    return null;
+  while (source.length && target.length && source[0] === target[0]) {
+    source.shift();
+    target.shift();
+  }
+  const path = [...source.map(() => ".."), ...target]
+    .map((part) =>
+      encodeURIComponent(part).replace(
+        /[!'()*]/g,
+        (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`,
+      ),
+    )
+    .join("/");
+  const name = normalize(targetPath)
+    .split("/")
+    .pop()
+    ?.replace(/([\\[\]])/g, "\\$1")
+    .replace(/[\r\n]/g, " ");
+  return path && name ? `[${name}](${path})` : null;
+}

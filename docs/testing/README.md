@@ -119,3 +119,11 @@ The `pdf-minimap` browser suite checks standalone and compiled PDF navigation,
 dragging, zoom, author filters, page labels, comment activation and preview
 pop-outs. Run it alongside `editor-minimap-harness`, `pdf-file-comments`, and
 `standalone-pdf-layout` when changing the shared minimap or PDF viewport inset.
+
+The Markdown preview/comment browser suites cover heading, HTML-anchor and line navigation, sanitized HTML formatting, sidebar file drops with undo, insertion-caret positioning across wrapped lines and scrolling, drag cancellation, preview synchronization, and comment mapping. `node apps/desktop/e2e/electron/markdown-links-smoke.mjs` uses a temporary project and isolated Electron profile to exercise native file paths through preload, the insertion caret, relative-link insertion, cross-file heading navigation, saving, and a full restart.
+
+The Markdown highlighting checks cover common language aliases and LaTeX, literal HTML escaping, math, plain-text fallbacks, exact code whitespace, live edits, light/dark preview colors, and imported theme overrides. Screenshots are saved under `output/playwright/markdown-code-*.png`.
+
+Math-engine checks cover KaTeX/MathJax switching, inline and aligned display equations, horizontal scrolling for wide displays, malformed-input recovery, document macros and recursion limits, independent theme selection, keyboard navigation between Typora menu levels, and preference rehydration. The production chunk check blocks external network requests. The native Markdown smoke exports a MathJax PDF, checks that prose around inline math stays on one line, and saves a rendered PDF screenshot for inspection. File-choice checks cover separate documents, identical file IDs in different projects, defaults, and rehydration. The native Markdown smoke verifies engine changes for the same file across a preview pop-out and the main window, global-default synchronization without replacing explicit file choices, a different file inheriting the default, and saved choices after a full Electron restart.
+
+Typora menu checks use a long theme list to verify the five-item recent limit, duplicate promotion, missing-file filtering, the right-side check layout, selected-theme centering, top-of-list fallback, and back navigation. Native checks verify recent themes across windows and a full restart.

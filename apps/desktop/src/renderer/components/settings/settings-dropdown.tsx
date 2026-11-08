@@ -1,5 +1,5 @@
 import { type LucideIcon, XIcon } from "lucide-react";
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -59,7 +59,9 @@ export function SettingsDropdown<T extends string>({
   ariaLabel,
   placeholder,
   onRemoveOption,
+  renderIcon,
 }: {
+  renderIcon?: (value: T) => ReactNode;
   ariaLabel?: string;
   placeholder?: string;
   onRemoveOption?: (value: T) => void;
@@ -104,7 +106,9 @@ export function SettingsDropdown<T extends string>({
         >
           {selectedOption ? (
             <span className="flex min-w-0 items-center gap-1.5">
-              {SelectedIcon ? (
+              {renderIcon ? (
+                renderIcon(selectedOption.value)
+              ) : SelectedIcon ? (
                 <SelectedIcon
                   className={cn(
                     "size-3.5 shrink-0",
@@ -149,7 +153,9 @@ export function SettingsDropdown<T extends string>({
                 }}
               >
                 <span className="flex min-w-0 items-center gap-1.5">
-                  {OptionIcon ? (
+                  {renderIcon ? (
+                    renderIcon(option.value)
+                  ) : OptionIcon ? (
                     <OptionIcon
                       className={cn("size-3.5 shrink-0", option.labelClassName)}
                     />

@@ -34,6 +34,11 @@ export {
 import { LatexInstallationControl } from "@/components/latex-installation";
 import { StorageSettings } from "./storage-settings";
 import { SettingsGroup, SettingsRow } from "./settings-layout";
+import { MarkdownThemeSwatch } from "@/components/workspace/preview/markdown-theme-swatch";
+import {
+  GITHUB_LIGHT_MARKDOWN_THEME_COLORS,
+  GITHUB_DARK_MARKDOWN_THEME_COLORS,
+} from "@/lib/markdown-theme-colors";
 import { useAppZoomShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import {
   DEFAULT_APP_ZOOM,
@@ -58,7 +63,6 @@ import {
   ChevronDownIcon,
   CircleHelpIcon,
   CodeXmlIcon,
-  FileCodeIcon,
   ExternalLinkIcon,
   FolderOpenIcon,
   CircleArrowUpIcon,
@@ -136,6 +140,7 @@ import {
   type CodexReasoningEffort,
   type DefaultAgent,
   type EditorColorScheme,
+  type MarkdownMathEngine,
   type SolarModeLevel,
   useSettingsStore,
 } from "@/stores/settings-store";
@@ -199,18 +204,31 @@ const UI_THEME_OPTIONS = UI_THEMES.map(({ id, label }) => ({
 const BUILT_IN_MARKDOWN_THEME_OPTIONS: Array<{
   value: string;
   label: string;
-  icon: LucideIcon;
 }> = [
   {
     value: GITHUB_LIGHT_MARKDOWN_THEME_ID,
     label: "GitHub Light",
-    icon: SunIcon,
   },
   {
     value: GITHUB_DARK_MARKDOWN_THEME_ID,
     label: "GitHub Dark",
-    icon: MoonIcon,
   },
+];
+
+function renderMarkdownThemeIcon(value: string) {
+  if (value === GITHUB_LIGHT_MARKDOWN_THEME_ID)
+    return <MarkdownThemeSwatch palette={GITHUB_LIGHT_MARKDOWN_THEME_COLORS} />;
+  if (value === GITHUB_DARK_MARKDOWN_THEME_ID)
+    return <MarkdownThemeSwatch palette={GITHUB_DARK_MARKDOWN_THEME_COLORS} />;
+  return <MarkdownThemeSwatch key={value} path={value} />;
+}
+
+const MARKDOWN_MATH_ENGINE_OPTIONS: Array<{
+  value: MarkdownMathEngine;
+  label: string;
+}> = [
+  { value: "katex", label: "KaTeX (fast)" },
+  { value: "mathjax", label: "MathJax (OpenReview)" },
 ];
 
 export const COMPILER_OPTIONS: Array<{
@@ -1012,6 +1030,12 @@ export function SettingsWindow() {
   const markdownLoadTyporaThemes = useSettingsStore(
     (s) => s.markdownLoadTyporaThemes,
   );
+  const defaultMarkdownMathEngine = useSettingsStore(
+    (s) => s.defaultMarkdownMathEngine,
+  );
+  const setDefaultMarkdownMathEngine = useSettingsStore(
+    (s) => s.setDefaultMarkdownMathEngine,
+  );
   const setMarkdownLoadTyporaThemes = useSettingsStore(
     (s) => s.setMarkdownLoadTyporaThemes,
   );
@@ -1206,13 +1230,11 @@ export function SettingsWindow() {
     const options: Array<{
       value: string;
       label: string;
-      icon?: LucideIcon;
     }> = [
       ...BUILT_IN_MARKDOWN_THEME_OPTIONS,
       ...installedMarkdownThemes.map((theme) => ({
         value: theme.path,
         label: theme.label,
-        icon: FileCodeIcon,
       })),
     ];
     const configuredThemes = markdownLoadTyporaThemes
@@ -1232,7 +1254,6 @@ export function SettingsWindow() {
       options.push({
         value: configuredTheme,
         label: `${markdownThemeLabel(markdownThemeFileName(configuredTheme))} (unavailable)`,
-        icon: FileCodeIcon,
       });
     }
     return options;
@@ -1379,6 +1400,20 @@ export function SettingsWindow() {
           ...getOptionSearchText(EDITOR_FONT_SIZE_OPTIONS),
         ],
         searchOptions: getSearchOptions(EDITOR_FONT_SIZE_OPTIONS),
+      },
+      {
+        id: "rendering-markdown-math-engine",
+        section: "rendering",
+        label: "Default math engine",
+        valueLabel: getOptionLabel(
+          MARKDOWN_MATH_ENGINE_OPTIONS,
+          defaultMarkdownMathEngine,
+        ),
+        searchText: [
+          "Markdown LaTeX default math engine",
+          ...getOptionSearchText(MARKDOWN_MATH_ENGINE_OPTIONS),
+        ],
+        searchOptions: getSearchOptions(MARKDOWN_MATH_ENGINE_OPTIONS),
       },
       {
         id: "rendering-markdown-load-typora-themes",
@@ -1842,6 +1877,7 @@ export function SettingsWindow() {
     markdownDarkThemeValueLabel,
     markdownLightThemeValueLabel,
     markdownLoadTyporaThemes,
+    defaultMarkdownMathEngine,
     markdownSeparateLightDarkThemes,
     markdownThemeDirectory,
     markdownThemeOptions,
@@ -2894,6 +2930,20 @@ export function SettingsWindow() {
                       </SettingsGroup>
                       <SettingsGroup title="Markdown">
                         <SettingsRow
+                          id="rendering-markdown-math-engine"
+                          title="Default math engine"
+                        >
+                          <SettingsDropdown
+                            ariaLabel="Default Markdown math engine"
+                            value={defaultMarkdownMathEngine}
+                            options={MARKDOWN_MATH_ENGINE_OPTIONS}
+                            onChange={(engine) => {
+                              setDefaultMarkdownMathEngine(engine);
+                              broadcastSettingsChanged();
+                            }}
+                          />
+                        </SettingsRow>
+                        <SettingsRow
                           id="rendering-markdown-load-typora-themes"
                           title="Load Typora Themes"
                         >
@@ -3000,6 +3050,7 @@ export function SettingsWindow() {
                               <SettingsDropdown
                                 value={effectiveMarkdownPreviewLightTheme}
                                 options={markdownThemeOptions}
+                                renderIcon={renderMarkdownThemeIcon}
                                 onChange={(value) => {
                                   setMarkdownPreviewLightTheme(value);
                                   broadcastSettingsChanged();
@@ -3013,6 +3064,7 @@ export function SettingsWindow() {
                               <SettingsDropdown
                                 value={effectiveMarkdownPreviewDarkTheme}
                                 options={markdownThemeOptions}
+                                renderIcon={renderMarkdownThemeIcon}
                                 onChange={(value) => {
                                   setMarkdownPreviewDarkTheme(value);
                                   broadcastSettingsChanged();
@@ -3028,6 +3080,7 @@ export function SettingsWindow() {
                             <SettingsDropdown
                               value={effectiveMarkdownPreviewTheme}
                               options={markdownThemeOptions}
+                              renderIcon={renderMarkdownThemeIcon}
                               onChange={(value) => {
                                 setMarkdownPreviewTheme(value);
                                 broadcastSettingsChanged();

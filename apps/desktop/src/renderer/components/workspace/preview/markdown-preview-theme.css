@@ -180,6 +180,100 @@ body[data-preview-theme="github"] #write pre code {
   word-wrap: normal;
 }
 
+/* Low-specificity token styles let imported themes override highlighting. */
+:where(body) {
+  --code-keyword: #cf222e;
+  --code-string: #0a3069;
+  --code-literal: #0550ae;
+  --code-title: #8250df;
+  --code-comment: #6e7781;
+  --code-tag: #116329;
+  --code-addition: #116329;
+  --code-deletion: #82071e;
+}
+
+body[data-color-scheme="dark"] {
+  --code-keyword: #ff7b72;
+  --code-string: #a5d6ff;
+  --code-literal: #79c0ff;
+  --code-title: #d2a8ff;
+  --code-comment: #8b949e;
+  --code-tag: #7ee787;
+  --code-addition: #aff5b4;
+  --code-deletion: #ffdcd7;
+}
+
+/* Custom themes own their surfaces: blend with their text color for contrast. */
+:where(body[data-preview-theme="typora"]) {
+  --code-keyword: color-mix(in srgb, currentColor 55%, #d64b62);
+  --code-string: color-mix(in srgb, currentColor 55%, #339971);
+  --code-literal: color-mix(in srgb, currentColor 55%, #4285dc);
+  --code-title: color-mix(in srgb, currentColor 55%, #a065d8);
+  --code-comment: color-mix(in srgb, currentColor 65%, #888888);
+  --code-tag: color-mix(in srgb, currentColor 55%, #339971);
+  --code-addition: color-mix(in srgb, currentColor 55%, #339971);
+  --code-deletion: color-mix(in srgb, currentColor 55%, #d64b62);
+}
+
+:where(#write pre code) .hljs-keyword,
+:where(#write pre code) .hljs-selector-tag,
+:where(#write pre code) .hljs-doctag {
+  color: var(--code-keyword);
+}
+
+:where(#write pre code) .hljs-string,
+:where(#write pre code) .hljs-regexp,
+:where(#write pre code) .hljs-meta .hljs-string {
+  color: var(--code-string);
+}
+
+:where(#write pre code) .hljs-number,
+:where(#write pre code) .hljs-literal,
+:where(#write pre code) .hljs-built_in,
+:where(#write pre code) .hljs-type,
+:where(#write pre code) .hljs-attr,
+:where(#write pre code) .hljs-attribute,
+:where(#write pre code) .hljs-variable,
+:where(#write pre code) .hljs-symbol,
+:where(#write pre code) .hljs-bullet,
+:where(#write pre code) .hljs-meta {
+  color: var(--code-literal);
+}
+
+:where(#write pre code) .hljs-title,
+:where(#write pre code) .hljs-section,
+:where(#write pre code) .hljs-selector-class,
+:where(#write pre code) .hljs-selector-id {
+  color: var(--code-title);
+}
+
+:where(#write pre code) .hljs-comment,
+:where(#write pre code) .hljs-quote {
+  color: var(--code-comment);
+}
+
+:where(#write pre code) .hljs-name,
+:where(#write pre code) .hljs-selector-pseudo,
+:where(#write pre code) .hljs-selector-attr {
+  color: var(--code-tag);
+}
+
+:where(#write pre code) .hljs-addition {
+  color: var(--code-addition);
+}
+
+:where(#write pre code) .hljs-deletion {
+  color: var(--code-deletion);
+}
+
+:where(#write pre code) .hljs-emphasis {
+  font-style: italic;
+}
+
+:where(#write pre code) .hljs-strong {
+  font-weight: bold;
+}
+
 body[data-preview-theme="github"] #write table {
   display: block;
   width: max-content;
@@ -237,12 +331,22 @@ body[data-preview-theme="github"][data-color-scheme="dark"] #write hr {
   background: #30363d;
 }
 
+body[data-preview-theme="github"] #write li.task-list-item {
+  list-style-type: none;
+}
+
 body[data-preview-theme="github"] #write input[type="checkbox"] {
   margin: 0 0.35em 0.25em -1.6em;
   vertical-align: middle;
 }
 
-body[data-preview-theme="github"] #write .katex-display {
+/* Native export clones the preview into the app, whose reset makes SVG block-level. */
+#write mjx-container > svg {
+  display: inline-block;
+}
+
+body[data-preview-theme="github"] #write .katex-display,
+#write mjx-container[display="true"] {
   overflow-x: auto;
   overflow-y: hidden;
   padding: 0.35rem 0;

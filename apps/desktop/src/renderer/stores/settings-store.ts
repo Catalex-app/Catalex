@@ -49,6 +49,7 @@ import {
   normalizeKeyboardShortcutOverrides,
 } from "@/lib/keyboard-shortcuts";
 
+export type MarkdownMathEngine = "katex" | "mathjax";
 export type CompilerBackend = "tectonic" | "latexmk";
 export type EditorCommentFilter = "all" | "human" | "agent";
 export type ConcreteCompilerEngine = "pdflatex" | "xelatex" | "lualatex";
@@ -170,6 +171,11 @@ export interface SettingsState {
   editorCommentsPanelOpenByProject: Record<string, boolean>;
   editorCommentFilterByProject: Record<string, EditorCommentFilter>;
   markdownLoadTyporaThemes: boolean;
+  defaultMarkdownMathEngine: MarkdownMathEngine;
+  markdownMathEnginesByFile: Record<string, MarkdownMathEngine>;
+  recentMarkdownThemePaths: string[]; // Most recent first, used for eviction.
+  recentMarkdownThemeOrder: string[]; // Stable display order.
+  recordRecentMarkdownTheme: (path: string) => void;
   markdownThemeDirectory: string | null;
   markdownSeparateLightDarkThemes: boolean;
   markdownPreviewTheme: string;
@@ -227,6 +233,16 @@ export interface SettingsState {
     filter: EditorCommentFilter,
   ) => void;
   setMarkdownLoadTyporaThemes: (enabled: boolean) => void;
+  setDefaultMarkdownMathEngine: (engine: MarkdownMathEngine) => void;
+  getMarkdownMathEngineForFile: (
+    projectRoot: string | null,
+    fileId: string | null,
+  ) => MarkdownMathEngine;
+  setMarkdownMathEngineForFile: (
+    projectRoot: string,
+    fileId: string,
+    engine: MarkdownMathEngine,
+  ) => void;
   setMarkdownThemeDirectory: (directory: string | null) => void;
   setMarkdownSeparateLightDarkThemes: (enabled: boolean) => void;
   setMarkdownPreviewTheme: (theme: string) => void;
@@ -279,7 +295,7 @@ function normalizeCompilerEngine(value: unknown): CompilerEngine {
   return "xelatex";
 }
 
-function getCompilerChoiceKey(projectRoot: string, rootFileId: string): string {
+function getProjectFileKey(projectRoot: string, rootFileId: string): string {
   return JSON.stringify([projectRoot, rootFileId]);
 }
 
@@ -307,6 +323,39 @@ function normalizeCompilerChoicesByRoot(
     if (normalized) result[key] = normalized;
   }
   return result;
+}
+
+function normalizeRecentMarkdownThemes(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return [
+    ...new Set(
+      value.filter(
+        (path): path is string => typeof path === "string" && path.length > 0,
+      ),
+    ),
+  ].slice(0, 5);
+}
+
+function normalizeRecentMarkdownThemeOrder(
+  order: unknown,
+  recent: unknown,
+): string[] {
+  const paths = normalizeRecentMarkdownThemes(recent);
+  const kept = normalizeRecentMarkdownThemes(order).filter((path) =>
+    paths.includes(path),
+  );
+  return [...kept, ...paths.filter((path) => !kept.includes(path))];
+}
+
+function normalizeMarkdownMathEngines(
+  value: unknown,
+): Record<string, MarkdownMathEngine> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  return Object.fromEntries(
+    Object.entries(value).filter(
+      ([, engine]) => engine === "katex" || engine === "mathjax",
+    ),
+  );
 }
 
 function normalizeBooleanMap(value: unknown): Record<string, boolean> {
@@ -512,6 +561,10 @@ export function migrateSettingsState(persistedState: unknown, version = 0) {
         editorCommentsPanelOpenByProject?: Record<string, boolean>;
         editorCommentFilterByProject?: Record<string, EditorCommentFilter>;
         markdownLoadTyporaThemes?: boolean;
+        defaultMarkdownMathEngine?: unknown;
+        markdownMathEnginesByFile?: unknown;
+        recentMarkdownThemePaths?: unknown;
+        recentMarkdownThemeOrder?: unknown;
         markdownThemeDirectory?: string | null;
         markdownPreviewThemePath?: string | null;
         markdownSeparateLightDarkThemes?: boolean;
@@ -659,6 +712,18 @@ export function migrateSettingsState(persistedState: unknown, version = 0) {
     markdownLoadTyporaThemes: normalizeBoolean(
       persisted?.markdownLoadTyporaThemes,
       true,
+    ),
+    recentMarkdownThemePaths: normalizeRecentMarkdownThemes(
+      persisted?.recentMarkdownThemePaths,
+    ),
+    recentMarkdownThemeOrder: normalizeRecentMarkdownThemeOrder(
+      persisted?.recentMarkdownThemeOrder,
+      persisted?.recentMarkdownThemePaths,
+    ),
+    defaultMarkdownMathEngine:
+      persisted?.defaultMarkdownMathEngine === "mathjax" ? "mathjax" : "katex",
+    markdownMathEnginesByFile: normalizeMarkdownMathEngines(
+      persisted?.markdownMathEnginesByFile,
     ),
     markdownThemeDirectory: normalizeOptionalPath(
       persisted?.markdownThemeDirectory,
@@ -845,6 +910,26 @@ export const useSettingsStore = create<SettingsState>()(
       editorCommentsPanelOpenByProject: {},
       editorCommentFilterByProject: {},
       markdownLoadTyporaThemes: true,
+      defaultMarkdownMathEngine: "katex",
+      markdownMathEnginesByFile: {},
+      recentMarkdownThemePaths: [],
+      recentMarkdownThemeOrder: [],
+      recordRecentMarkdownTheme: (path) => {
+        if (!path || get().recentMarkdownThemePaths[0] === path) return;
+        set((state) => {
+          const recentMarkdownThemePaths = normalizeRecentMarkdownThemes([
+            path,
+            ...state.recentMarkdownThemePaths,
+          ]);
+          return {
+            recentMarkdownThemePaths,
+            recentMarkdownThemeOrder: normalizeRecentMarkdownThemeOrder(
+              state.recentMarkdownThemeOrder,
+              recentMarkdownThemePaths,
+            ),
+          };
+        });
+      },
       markdownThemeDirectory: null,
       markdownSeparateLightDarkThemes: true,
       markdownPreviewTheme: GITHUB_LIGHT_MARKDOWN_THEME_ID,
@@ -867,15 +952,13 @@ export const useSettingsStore = create<SettingsState>()(
       setCompilerEngine: (engine) =>
         set({ compilerEngine: normalizeCompilerEngine(engine) }),
       getCompilerChoiceForRoot: (projectRoot, rootFileId) =>
-        get().compilerChoicesByRoot[
-          getCompilerChoiceKey(projectRoot, rootFileId)
-        ],
+        get().compilerChoicesByRoot[getProjectFileKey(projectRoot, rootFileId)],
       initializeCompilerChoiceForRoot: (
         projectRoot,
         rootFileId,
         detectedEngine,
       ) => {
-        const key = getCompilerChoiceKey(projectRoot, rootFileId);
+        const key = getProjectFileKey(projectRoot, rootFileId);
         const existing = get().compilerChoicesByRoot[key];
         if (existing) return existing;
 
@@ -894,7 +977,7 @@ export const useSettingsStore = create<SettingsState>()(
         return choice;
       },
       setCompilerChoiceForRoot: (projectRoot, rootFileId, choice) => {
-        const key = getCompilerChoiceKey(projectRoot, rootFileId);
+        const key = getProjectFileKey(projectRoot, rootFileId);
         const normalized = normalizeRootCompilerChoice(choice);
         if (!normalized) return;
         set((current) => ({
@@ -1030,6 +1113,26 @@ export const useSettingsStore = create<SettingsState>()(
         })),
       setMarkdownLoadTyporaThemes: (enabled) =>
         set({ markdownLoadTyporaThemes: Boolean(enabled) }),
+      setDefaultMarkdownMathEngine: (engine) =>
+        set({
+          defaultMarkdownMathEngine: engine === "mathjax" ? "mathjax" : "katex",
+        }),
+      getMarkdownMathEngineForFile: (projectRoot, fileId) =>
+        projectRoot && fileId
+          ? (get().markdownMathEnginesByFile[
+              getProjectFileKey(projectRoot, fileId)
+            ] ?? get().defaultMarkdownMathEngine)
+          : get().defaultMarkdownMathEngine,
+      setMarkdownMathEngineForFile: (projectRoot, fileId, engine) => {
+        if (!projectRoot || !fileId) return;
+        set((current) => ({
+          markdownMathEnginesByFile: {
+            ...current.markdownMathEnginesByFile,
+            [getProjectFileKey(projectRoot, fileId)]:
+              engine === "mathjax" ? "mathjax" : "katex",
+          },
+        }));
+      },
       setMarkdownThemeDirectory: (directory) =>
         set({ markdownThemeDirectory: normalizeOptionalPath(directory) }),
       setMarkdownSeparateLightDarkThemes: (enabled) =>
@@ -1109,6 +1212,20 @@ export const useSettingsStore = create<SettingsState>()(
         return {
           ...current,
           ...saved,
+          recentMarkdownThemePaths: normalizeRecentMarkdownThemes(
+            saved?.recentMarkdownThemePaths,
+          ),
+          recentMarkdownThemeOrder: normalizeRecentMarkdownThemeOrder(
+            saved?.recentMarkdownThemeOrder,
+            saved?.recentMarkdownThemePaths,
+          ),
+          defaultMarkdownMathEngine:
+            saved?.defaultMarkdownMathEngine === "mathjax"
+              ? "mathjax"
+              : "katex",
+          markdownMathEnginesByFile: normalizeMarkdownMathEngines(
+            saved?.markdownMathEnginesByFile,
+          ),
           promptLibrary: normalizePromptLibrary(saved?.promptLibrary),
           keepMiniPromptsOpen: normalizeBoolean(
             saved?.keepMiniPromptsOpen,

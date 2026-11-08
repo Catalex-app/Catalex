@@ -8,6 +8,11 @@ import { installContextMenus } from "@/lib/context-menu";
 import { installMouseBoundary } from "@/lib/mouse-events";
 import { Hint } from "@/components/ui/tooltip";
 import { MarkdownComments } from "./markdown-comments";
+import { MarkdownThemeSwatch } from "./markdown-theme-swatch";
+import {
+  GITHUB_LIGHT_MARKDOWN_THEME_COLORS,
+  GITHUB_DARK_MARKDOWN_THEME_COLORS,
+} from "@/lib/markdown-theme-colors";
 import { markdownCommentSource } from "./markdown-comment-source";
 import {
   cancelNavigationScroll,
@@ -24,18 +29,32 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import ReactMarkdown from "react-markdown";
+import { markdownCodeHighlighting } from "@/lib/markdown-code-highlighting";
 import { invoke } from "@/lib/desktop/core";
 import { isDesktop } from "@/lib/desktop/bridge";
 import rehypeKatex from "rehype-katex";
+import rehypeRaw from "rehype-raw";
+import rehypeSanitize from "rehype-sanitize";
+import {
+  markdownAnchorId,
+  markdownFormatting,
+  markdownFragment,
+  markdownHtmlSchema,
+  markdownLinkPosition,
+} from "@/lib/markdown-rendering";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import {
+  CheckIcon,
+  ChevronLeftIcon,
+  ChevronDownIcon,
+  ChevronRightIcon,
   DownloadIcon,
-  FileCodeIcon,
   LoaderIcon,
   MoonIcon,
   PaletteIcon,
   SunIcon,
+  XIcon,
 } from "lucide-react";
 import { useTheme } from "next-themes";
 import { save } from "@/lib/desktop/dialog";
@@ -65,16 +84,17 @@ import { useDocumentStore } from "@/stores/document-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import { broadcastSettingsChanged } from "@/components/settings/solar-mode-effect";
 import { Button } from "@/components/ui/button";
+import { DialogResizeTransition } from "@/components/ui/dialog-resize-transition";
 import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectLabel,
-  SelectSeparator,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 const PROJECT_MARKDOWN_THEME_PREFIX = "__catalex_project_theme__:";
 const FRAME_SOURCE =
@@ -483,6 +503,24 @@ export function MarkdownPreview({
 } = {}) {
   const searchScope = useRef<HTMLDivElement>(null);
   const frameRef = useRef<HTMLIFrameElement>(null);
+  const linkRequestRef = useRef(0);
+  const [linkNavigation, setLinkNavigation] = useState<{
+    fileId: string;
+    position: number;
+    fragment?: string;
+    scroll?: { top: number; left: number };
+  } | null>(null);
+  const [linkReturn, setLinkReturn] = useState<{
+    fileId: string;
+    name: string;
+    content: string | undefined;
+    top: number;
+    left: number;
+    position: number;
+    projectRoot: string | null;
+    sessionId: string | null;
+    selectionRevision: number;
+  } | null>(null);
   const [commentToolbar, setCommentToolbar] = useState<HTMLDivElement | null>(
     null,
   );
@@ -517,6 +555,62 @@ export function MarkdownPreview({
     };
   }, [frameDocument]);
   const [isExportingPdf, setIsExportingPdf] = useState(false);
+  const [themeMenuOpen, setThemeMenuOpen] = useState(false);
+  const [showAllTyporaThemes, setShowAllTyporaThemes] = useState(false);
+  useEffect(() => {
+    if (!themeMenuOpen || !frameDocument) return;
+    // Pointer events inside the preview iframe do not reach Radix's outside listener.
+    const dismiss = () => {
+      setThemeMenuOpen(false);
+      setShowAllTyporaThemes(false);
+    };
+    frameDocument.addEventListener("pointerdown", dismiss);
+    return () => frameDocument.removeEventListener("pointerdown", dismiss);
+  }, [themeMenuOpen, frameDocument]);
+  const themeListRef = useRef<HTMLDivElement>(null);
+  const allThemesButtonRef = useRef<HTMLDivElement>(null);
+  const recentThemePaths = useSettingsStore(
+    (state) => state.recentMarkdownThemeOrder,
+  );
+  const recordRecentTheme = useSettingsStore(
+    (state) => state.recordRecentMarkdownTheme,
+  );
+  const activeFileId = useDocumentStore((state) => state.activeFileId);
+  const projectRoot = useDocumentStore((state) => state.projectRoot);
+  const mathEngine = useSettingsStore((state) =>
+    state.getMarkdownMathEngineForFile(projectRoot, activeFileId),
+  );
+  const setFileMathEngine = useSettingsStore(
+    (state) => state.setMarkdownMathEngineForFile,
+  );
+  const setMathEngine = useCallback(
+    (engine: "katex" | "mathjax") => {
+      if (projectRoot && activeFileId)
+        setFileMathEngine(projectRoot, activeFileId, engine);
+    },
+    [projectRoot, activeFileId, setFileMathEngine],
+  );
+  const [mathjax, setMathjax] = useState<
+    typeof import("@/lib/markdown-mathjax").default | null
+  >(null);
+  const loadingMath = mathEngine === "mathjax" && !mathjax;
+  useEffect(() => {
+    if (mathEngine !== "mathjax" || mathjax) return;
+    let cancelled = false;
+    import("@/lib/markdown-mathjax")
+      .then(({ default: plugin }) => {
+        if (!cancelled) setMathjax(() => plugin);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        toast.error("Could not load MathJax");
+        setMathEngine("katex");
+        broadcastSettingsChanged();
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [mathEngine, mathjax, setMathEngine]);
   const [commentToolbarVisible, setCommentToolbarVisible] = useState(false);
   const markdownLoadTyporaThemes = useSettingsStore(
     (state) => state.markdownLoadTyporaThemes,
@@ -570,7 +664,24 @@ export function MarkdownPreview({
     color: string;
   } | null>(null);
   const files = useDocumentStore((state) => state.files);
-  const activeFileId = useDocumentStore((state) => state.activeFileId);
+  const sessionId = useDocumentStore((state) => state.agentWorkspaceSessionId);
+  const selectionRevision = useDocumentStore(
+    (state) => state.fileSelectionRevision,
+  );
+  useEffect(() => {
+    if (
+      linkReturn &&
+      (linkReturn.projectRoot !== projectRoot ||
+        linkReturn.sessionId !== sessionId ||
+        linkReturn.selectionRevision !== selectionRevision ||
+        !files.some(
+          (file) =>
+            file.id === linkReturn.fileId &&
+            file.content === linkReturn.content,
+        ))
+    )
+      setLinkReturn(null);
+  }, [files, linkReturn, projectRoot, sessionId, selectionRevision]);
   const setActiveFile = useDocumentStore((state) => state.setActiveFile);
   const openFileInBackground = useDocumentStore(
     (state) => state.openFileInBackground,
@@ -605,6 +716,83 @@ export function MarkdownPreview({
   );
   const selectedExternalThemePath =
     pathFromExternalMarkdownThemeId(selectedThemeId);
+  const typoraThemes = useMemo(() => {
+    const seen = new Set<string>();
+    return [
+      ...installedMarkdownThemes.map((theme) => ({
+        id: externalMarkdownThemeId(theme.path),
+        path: theme.path,
+        label: theme.label,
+        group: "Theme folder",
+        css: undefined,
+      })),
+      ...themeFiles.map((file) => ({
+        id: projectMarkdownThemeId(file.id),
+        path: file.absolutePath,
+        label: file.relativePath,
+        group: "Project CSS",
+        css: file.content ?? undefined,
+      })),
+    ].filter((theme) => {
+      if (seen.has(theme.path)) return false;
+      seen.add(theme.path);
+      return true;
+    });
+  }, [installedMarkdownThemes, themeFiles]);
+  const typoraThemeIds = typoraThemes.map((theme) => theme.id).join("\0");
+  const recentThemes = recentThemePaths
+    .flatMap((path) => {
+      const theme = typoraThemes.find((theme) => theme.path === path);
+      return theme ? [theme] : [];
+    })
+    .slice(0, 5);
+  const selectedCustomThemePath =
+    selectedThemeFile?.absolutePath ?? selectedExternalThemePath;
+  useEffect(() => {
+    if (!selectedCustomThemePath) return;
+    recordRecentTheme(selectedCustomThemePath);
+    broadcastSettingsChanged();
+  }, [recordRecentTheme, selectedCustomThemePath]);
+  useEffect(() => {
+    if (!themeMenuOpen || !showAllTyporaThemes) return;
+    const frame = requestAnimationFrame(() => {
+      const list = themeListRef.current;
+      if (!list) return;
+      const selected = list.querySelector<HTMLElement>(
+        '[role="menuitemradio"][data-state="checked"]',
+      );
+      const target =
+        selected ?? list.querySelector<HTMLElement>('[role="menuitemradio"]');
+      target?.focus({ preventScroll: true });
+      if (selected) {
+        list.scrollTop +=
+          selected.getBoundingClientRect().top -
+          list.getBoundingClientRect().top -
+          (list.clientHeight - selected.offsetHeight) / 2;
+      } else list.scrollTop = 0;
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [themeMenuOpen, showAllTyporaThemes, selectedThemeId, typoraThemeIds]);
+  const showThemeMenuRoot = () => {
+    setShowAllTyporaThemes(false);
+    requestAnimationFrame(() =>
+      allThemesButtonRef.current?.focus({ preventScroll: true }),
+    );
+  };
+  const selectedThemeLabel =
+    selectedThemeId === GITHUB_DARK_MARKDOWN_THEME_ID
+      ? "GitHub Dark"
+      : selectedThemeId === GITHUB_LIGHT_MARKDOWN_THEME_ID
+        ? "GitHub Light"
+        : (selectedThemeFile?.relativePath ??
+          installedMarkdownThemes.find(
+            (theme) => theme.path === selectedExternalThemePath,
+          )?.label ??
+          selectedExternalThemePath
+            ?.split(/[\\/]/)
+            .pop()
+            ?.replace(/\.css$/i, "") ??
+          "Custom theme");
   const customThemeCss = useMemo(
     () =>
       selectedThemeFile?.content
@@ -976,6 +1164,7 @@ export function MarkdownPreview({
       ) {
         return;
       }
+      if ((target as Element).closest("a[href], summary")) return;
       const element = (target as Element).closest<HTMLElement>(
         SOURCE_ELEMENT_SELECTOR,
       );
@@ -1049,7 +1238,14 @@ export function MarkdownPreview({
       ? createPortal(
           <ReactMarkdown
             remarkPlugins={[remarkGfm, remarkMath]}
-            rehypePlugins={[markdownCommentSource, rehypeKatex]}
+            rehypePlugins={[
+              rehypeRaw,
+              [rehypeSanitize, markdownHtmlSchema],
+              markdownFormatting,
+              markdownCommentSource,
+              mathEngine === "mathjax" && mathjax ? mathjax : rehypeKatex,
+              markdownCodeHighlighting,
+            ]}
             components={{
               h1({ node, ...props }) {
                 return <h1 {...props} {...sourcePositionProps(node)} />;
@@ -1094,11 +1290,9 @@ export function MarkdownPreview({
                 return <hr {...props} {...sourcePositionProps(node)} />;
               },
               a({ node: _node, href, children, ...props }) {
-                const resolved = resolveMarkdownProjectFile(
-                  href,
-                  activeFile,
-                  files,
-                );
+                const resolved = href?.startsWith("#")
+                  ? { file: activeFile, suffix: href }
+                  : resolveMarkdownProjectFile(href, activeFile, files);
                 if (resolved) {
                   return (
                     <a
@@ -1106,7 +1300,75 @@ export function MarkdownPreview({
                       {...props}
                       onClick={(event) => {
                         event.preventDefault();
-                        setActiveFile(resolved.file.id);
+                        const request = ++linkRequestRef.current;
+                        const fragment = markdownFragment(resolved.suffix);
+                        if (fragment === null) {
+                          setActiveFile(resolved.file.id);
+                          return;
+                        }
+                        void (async () => {
+                          const before = useDocumentStore.getState();
+                          const scroll = frameDocument?.scrollingElement;
+                          const origin =
+                            scroll && frameDocument
+                              ? {
+                                  fileId: activeFile.id,
+                                  name: activeFile.name,
+                                  content: activeFile.content,
+                                  top: scroll.scrollTop,
+                                  left: scroll.scrollLeft,
+                                  position:
+                                    sourcePositionAtPreviewCenter(
+                                      frameDocument,
+                                    ) ?? 0,
+                                  projectRoot: before.projectRoot,
+                                  sessionId: before.agentWorkspaceSessionId,
+                                }
+                              : null;
+                          if (
+                            resolved.file.content === undefined &&
+                            !resolved.file.isBinary &&
+                            resolved.file.type !== "image" &&
+                            resolved.file.type !== "pdf"
+                          )
+                            await before.loadFileContent(resolved.file.id);
+                          const state = useDocumentStore.getState();
+                          if (
+                            request !== linkRequestRef.current ||
+                            state.projectRoot !== before.projectRoot ||
+                            state.agentWorkspaceSessionId !==
+                              before.agentWorkspaceSessionId ||
+                            state.fileSelectionRevision !==
+                              before.fileSelectionRevision
+                          )
+                            return;
+                          const target = state.files.find(
+                            (file) => file.id === resolved.file.id,
+                          );
+                          if (!target) return;
+                          const position =
+                            target.content === undefined
+                              ? null
+                              : markdownLinkPosition(target.content, fragment);
+                          setActiveFile(target.id);
+                          if (position !== null) {
+                            if (origin)
+                              setLinkReturn({
+                                ...origin,
+                                selectionRevision:
+                                  useDocumentStore.getState()
+                                    .fileSelectionRevision,
+                              });
+                            state.requestJumpToPosition(position);
+                            setLinkNavigation({
+                              fileId: target.id,
+                              position,
+                              fragment,
+                            });
+                          }
+                        })().catch(() =>
+                          toast.error("Could not open linked location"),
+                        );
                       }}
                       onAuxClick={(event) => {
                         if (event.button !== 1) return;
@@ -1149,7 +1411,73 @@ export function MarkdownPreview({
     lineStartOffsets,
     setActiveFile,
     openFileInBackground,
+    mathEngine,
+    mathjax,
   ]);
+
+  useEffect(() => {
+    if (
+      !linkNavigation ||
+      !frameDocument ||
+      activeFile?.id !== linkNavigation.fileId
+    )
+      return;
+    const frame = requestAnimationFrame(() => {
+      const scroll = frameDocument.scrollingElement as HTMLElement | null;
+      if (scroll) {
+        lastPreviewScrollPositionRef.current = linkNavigation.position;
+        ignorePreviewScrollUntilRef.current = performance.now() + 250;
+        if (linkNavigation.scroll) {
+          cancelNavigationScroll(scroll);
+          scroll.scrollTo({ ...linkNavigation.scroll, behavior: "instant" });
+        } else {
+          const fragment = linkNavigation.fragment ?? "";
+          const element =
+            frameDocument.getElementById(markdownAnchorId(fragment)) ??
+            frameDocument.getElementsByName(markdownAnchorId(fragment))[0] ??
+            sourceElementForPosition(frameDocument, linkNavigation.position);
+          if (element)
+            scrollForNavigation(scroll, {
+              top: scroll.scrollTop + element.getBoundingClientRect().top - 24,
+            });
+        }
+      }
+      setLinkNavigation(null);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [activeFile?.id, frameDocument, linkNavigation, renderedMarkdown]);
+
+  useEffect(() => {
+    if (
+      !frameDocument ||
+      !linkReturn ||
+      linkNavigation ||
+      linkReturn.fileId !== activeFileId
+    )
+      return;
+    const scroll = frameDocument.scrollingElement as HTMLElement | null;
+    if (!scroll) return;
+    let previousTop = scroll.scrollTop;
+    const clearPassedReturn = () => {
+      const top = scroll.scrollTop;
+      const previousDistance = previousTop - linkReturn.top;
+      previousTop = top;
+      // The outgoing jump starts at the return point; only later scrolling
+      // back to (or across) that point should dismiss it.
+      if (isNavigationScrolling(scroll) || Math.abs(previousDistance) <= 1)
+        return;
+      if (
+        previousDistance > 0
+          ? top <= linkReturn.top + 1
+          : top >= linkReturn.top - 1
+      )
+        setLinkReturn(null);
+    };
+    frameDocument.addEventListener("scroll", clearPassedReturn, {
+      passive: true,
+    });
+    return () => frameDocument.removeEventListener("scroll", clearPassedReturn);
+  }, [activeFileId, frameDocument, linkNavigation, linkReturn]);
 
   if (!activeFile || !isMarkdownFile(activeFile)) {
     return (
@@ -1175,72 +1503,222 @@ export function MarkdownPreview({
         data-testid="markdown-preview-toolbar"
       >
         <div className="flex min-w-0 items-center gap-1">
-          <Select value={selectedThemeId} onValueChange={handleThemeChange}>
-            <SelectTrigger
-              aria-label="Markdown preview theme"
-              size="sm"
-              className="h-7! w-auto min-w-28 max-w-64 bg-background text-xs"
-            >
-              <ThemeModeIcon
-                aria-hidden="true"
-                className="size-3.5 shrink-0 text-muted-foreground"
-                data-theme-mode-icon={themeModeIcon}
-                data-testid="markdown-theme-icon"
-              />
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent
-              position="popper"
-              side="bottom"
-              sideOffset={4}
-              align="start"
-            >
-              <SelectItem value={GITHUB_LIGHT_MARKDOWN_THEME_ID}>
-                GitHub Light
-              </SelectItem>
-              <SelectItem value={GITHUB_DARK_MARKDOWN_THEME_ID}>
-                GitHub Dark
-              </SelectItem>
-              {installedMarkdownThemes.length > 0 ? (
-                <>
-                  <SelectSeparator />
-                  <SelectGroup>
-                    <SelectLabel>Typora theme folder</SelectLabel>
-                    {installedMarkdownThemes.map((theme) => (
-                      <SelectItem
-                        key={theme.path}
-                        value={externalMarkdownThemeId(theme.path)}
+          <DropdownMenu
+            modal={false}
+            open={themeMenuOpen}
+            onOpenChange={(open) => {
+              setThemeMenuOpen(open);
+              if (!open) setShowAllTyporaThemes(false);
+            }}
+          >
+            <DropdownMenuTrigger asChild>
+              <Button
+                aria-label="Markdown preview settings"
+                variant="outline"
+                size="sm"
+                className="h-7 w-auto min-w-28 max-w-64 gap-2 bg-background px-3 font-normal text-xs"
+              >
+                <ThemeModeIcon
+                  aria-hidden="true"
+                  className="size-3.5 shrink-0 text-muted-foreground"
+                  data-theme-mode-icon={themeModeIcon}
+                  data-testid="markdown-theme-icon"
+                />
+                <span className="truncate">{selectedThemeLabel}</span>
+                {loadingMath ? (
+                  <LoaderIcon
+                    className="size-3.5 shrink-0 animate-spin"
+                    aria-label="Loading MathJax"
+                  />
+                ) : (
+                  <ChevronDownIcon className="size-3.5 shrink-0 opacity-50" />
+                )}
+              </Button>
+            </DropdownMenuTrigger>
+            <DialogResizeTransition animateWidth>
+              {(resizeRef) => (
+                <DropdownMenuContent
+                  ref={resizeRef}
+                  side="bottom"
+                  sideOffset={8}
+                  align="start"
+                  className="w-max max-w-[min(20rem,calc(100vw-2rem))]"
+                >
+                  {showAllTyporaThemes ? (
+                    <>
+                      <DropdownMenuItem
+                        aria-label="Back to preview settings"
+                        onSelect={(event) => {
+                          event.preventDefault();
+                          showThemeMenuRoot();
+                        }}
                       >
-                        <span className="flex min-w-0 items-center gap-2">
-                          <FileCodeIcon className="size-3.5 shrink-0" />
-                          <span className="truncate">{theme.label}</span>
-                        </span>
-                      </SelectItem>
-                    ))}
-                  </SelectGroup>
-                </>
-              ) : null}
-              {themeFiles.length > 0 ? (
-                <>
-                  <SelectSeparator />
-                  <SelectGroup>
-                    <SelectLabel>Project CSS</SelectLabel>
-                    {themeFiles.map((file) => (
-                      <SelectItem
-                        key={file.id}
-                        value={projectMarkdownThemeId(file.id)}
+                        <ChevronLeftIcon className="size-3.5" />
+                        All Typora themes
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      <div
+                        ref={themeListRef}
+                        data-testid="markdown-all-typora-themes"
+                        className="app-scrollbar overflow-y-auto"
+                        style={{
+                          maxHeight:
+                            "min(24rem, calc(var(--radix-dropdown-menu-content-available-height) - 3rem))",
+                        }}
+                        onKeyDown={(event) => {
+                          if (event.key === "ArrowLeft") {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            showThemeMenuRoot();
+                          }
+                        }}
                       >
-                        <span className="flex min-w-0 items-center gap-2">
-                          <FileCodeIcon className="size-3.5 shrink-0" />
-                          <span className="truncate">{file.relativePath}</span>
-                        </span>
-                      </SelectItem>
-                    ))}
-                  </SelectGroup>
-                </>
-              ) : null}
-            </SelectContent>
-          </Select>
+                        <DropdownMenuRadioGroup
+                          value={selectedThemeId}
+                          onValueChange={handleThemeChange}
+                        >
+                          {["Theme folder", "Project CSS"].map((group) => {
+                            const themes = typoraThemes.filter(
+                              (theme) => theme.group === group,
+                            );
+                            return themes.length ? (
+                              <div key={group}>
+                                <DropdownMenuLabel>{group}</DropdownMenuLabel>
+                                {themes.map((theme) => (
+                                  <DropdownMenuRadioItem
+                                    onSelect={(event) => event.preventDefault()}
+                                    key={theme.path}
+                                    value={theme.id}
+                                    indicatorPosition="end"
+                                    indicator={<CheckIcon className="size-4" />}
+                                  >
+                                    <MarkdownThemeSwatch
+                                      path={theme.path}
+                                      css={theme.css}
+                                    />
+                                    <span className="truncate">
+                                      {theme.label}
+                                    </span>
+                                  </DropdownMenuRadioItem>
+                                ))}
+                              </div>
+                            ) : null;
+                          })}
+                        </DropdownMenuRadioGroup>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <DropdownMenuLabel>Math engine</DropdownMenuLabel>
+                      <DropdownMenuRadioGroup
+                        value={mathEngine}
+                        onValueChange={(value) => {
+                          setMathEngine(
+                            value === "mathjax" ? "mathjax" : "katex",
+                          );
+                          broadcastSettingsChanged();
+                        }}
+                      >
+                        <DropdownMenuRadioItem
+                          onSelect={(event) => event.preventDefault()}
+                          indicatorPosition="end"
+                          indicator={<CheckIcon className="size-4" />}
+                          value="katex"
+                        >
+                          <span>
+                            KaTeX{" "}
+                            <span className="text-muted-foreground">
+                              (fast)
+                            </span>
+                          </span>
+                        </DropdownMenuRadioItem>
+                        <DropdownMenuRadioItem
+                          onSelect={(event) => event.preventDefault()}
+                          indicatorPosition="end"
+                          indicator={<CheckIcon className="size-4" />}
+                          value="mathjax"
+                        >
+                          <span>
+                            MathJax{" "}
+                            <span className="text-muted-foreground">
+                              (OpenReview)
+                            </span>
+                          </span>
+                        </DropdownMenuRadioItem>
+                      </DropdownMenuRadioGroup>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuLabel>Theme</DropdownMenuLabel>
+                      <DropdownMenuRadioGroup
+                        value={selectedThemeId}
+                        onValueChange={handleThemeChange}
+                      >
+                        <DropdownMenuRadioItem
+                          onSelect={(event) => event.preventDefault()}
+                          indicatorPosition="end"
+                          indicator={<CheckIcon className="size-4" />}
+                          value={GITHUB_LIGHT_MARKDOWN_THEME_ID}
+                        >
+                          <MarkdownThemeSwatch
+                            palette={GITHUB_LIGHT_MARKDOWN_THEME_COLORS}
+                          />
+                          GitHub Light
+                        </DropdownMenuRadioItem>
+                        <DropdownMenuRadioItem
+                          onSelect={(event) => event.preventDefault()}
+                          indicatorPosition="end"
+                          indicator={<CheckIcon className="size-4" />}
+                          value={GITHUB_DARK_MARKDOWN_THEME_ID}
+                        >
+                          <MarkdownThemeSwatch
+                            palette={GITHUB_DARK_MARKDOWN_THEME_COLORS}
+                          />
+                          GitHub Dark
+                        </DropdownMenuRadioItem>
+                        {recentThemes.length > 0 && (
+                          <>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuLabel>
+                              Recent Typora themes
+                            </DropdownMenuLabel>
+                            {recentThemes.map((theme) => (
+                              <DropdownMenuRadioItem
+                                onSelect={(event) => event.preventDefault()}
+                                key={theme.path}
+                                value={theme.id}
+                                indicatorPosition="end"
+                                indicator={<CheckIcon className="size-4" />}
+                              >
+                                <MarkdownThemeSwatch
+                                  path={theme.path}
+                                  css={theme.css}
+                                />
+                                <span className="truncate">{theme.label}</span>
+                              </DropdownMenuRadioItem>
+                            ))}
+                          </>
+                        )}
+                        {typoraThemes.length > 0 && (
+                          <>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              ref={allThemesButtonRef}
+                              onSelect={(event) => {
+                                event.preventDefault();
+                                setShowAllTyporaThemes(true);
+                              }}
+                            >
+                              All Typora themes
+                              <ChevronRightIcon className="ml-auto size-3.5" />
+                            </DropdownMenuItem>
+                          </>
+                        )}
+                      </DropdownMenuRadioGroup>
+                    </>
+                  )}
+                </DropdownMenuContent>
+              )}
+            </DialogResizeTransition>
+          </DropdownMenu>
           <Hint content={isExportingPdf ? "Exporting PDF…" : "Export PDF"}>
             <Button
               type="button"
@@ -1249,7 +1727,7 @@ export function MarkdownPreview({
               className="size-7"
               aria-label="Export Markdown as PDF"
               onClick={handleExportPdf}
-              disabled={!frameDocument || isExportingPdf}
+              disabled={!frameDocument || isExportingPdf || loadingMath}
             >
               {isExportingPdf ? (
                 <LoaderIcon className="size-3.5 animate-spin" />
@@ -1275,6 +1753,42 @@ export function MarkdownPreview({
             setFrameDocument(frameRef.current?.contentDocument ?? null)
           }
         />
+        {linkReturn && (
+          <div className="absolute top-3 right-3 z-10 inline-flex items-center rounded-lg border border-border bg-background/95 text-xs shadow-sm">
+            <button
+              type="button"
+              className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              onClick={() => {
+                ++linkRequestRef.current;
+                setActiveFile(linkReturn.fileId);
+                useDocumentStore
+                  .getState()
+                  .requestJumpToPosition(linkReturn.position);
+                setLinkNavigation({
+                  fileId: linkReturn.fileId,
+                  position: linkReturn.position,
+                  scroll: { top: linkReturn.top, left: linkReturn.left },
+                });
+                setLinkReturn(null);
+              }}
+            >
+              <ChevronLeftIcon className="size-3.5" aria-hidden="true" />
+              {linkReturn.fileId === activeFileId
+                ? "Jump back"
+                : `Jump back to ${linkReturn.name}`}
+            </button>
+            <Hint content="Dismiss">
+              <button
+                type="button"
+                aria-label="Dismiss jump back"
+                className="mr-1 inline-flex size-6 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                onClick={() => setLinkReturn(null)}
+              >
+                <XIcon className="size-3" aria-hidden="true" />
+              </button>
+            </Hint>
+          </div>
+        )}
         {frameDocument && (
           <MarkdownComments
             key={activeFile.id}

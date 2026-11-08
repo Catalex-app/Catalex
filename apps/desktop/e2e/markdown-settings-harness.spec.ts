@@ -1,5 +1,54 @@
 import { expect, test } from "@playwright/test";
 
+test("sets the default Markdown math engine without replacing file choices", async ({
+  page,
+}) => {
+  await page.goto("/?debug=markdown-settings");
+  await page.getByRole("button", { name: "Rendering", exact: true }).click();
+  const engine = page.getByRole("combobox", {
+    name: "Default Markdown math engine",
+  });
+  await expect(engine).toContainText("KaTeX (fast)");
+  await page.evaluate(async () => {
+    const { useSettingsStore } = await import(
+      "/src/renderer/stores/settings-store.ts"
+    );
+    useSettingsStore
+      .getState()
+      .setMarkdownMathEngineForFile("/project", "explicit.md", "katex");
+  });
+  await engine.click();
+  await page
+    .getByRole("option", { name: "MathJax (OpenReview)", exact: true })
+    .click();
+  await expect(engine).toContainText("MathJax (OpenReview)");
+  expect(
+    await page.evaluate(async () => {
+      const { useSettingsStore } = await import(
+        "/src/renderer/stores/settings-store.ts"
+      );
+      const state = useSettingsStore.getState();
+      return [
+        state.getMarkdownMathEngineForFile("/project", "inherited.md"),
+        state.getMarkdownMathEngineForFile("/project", "explicit.md"),
+      ];
+    }),
+  ).toEqual(["mathjax", "katex"]);
+  await page.screenshot({
+    path: "../../output/playwright/markdown-default-math-engine.png",
+    animations: "disabled",
+  });
+  await page.reload();
+  await page.getByRole("button", { name: "Rendering", exact: true }).click();
+  await expect(engine).toContainText("MathJax (OpenReview)");
+  await page
+    .getByRole("searchbox", { name: "Search settings" })
+    .fill("math engine");
+  await expect(
+    page.getByRole("button", { name: /^Default math engine MathJax/ }),
+  ).toBeVisible();
+});
+
 test("configures separate light and dark Markdown themes", async ({ page }) => {
   await page.goto("/?debug=markdown-settings", {
     waitUntil: "domcontentloaded",
@@ -50,10 +99,47 @@ test("configures separate light and dark Markdown themes", async ({ page }) => {
     "GitHub Light",
   );
   await expect(darkThemeRow.getByRole("combobox")).toContainText("GitHub Dark");
+  await expect(lightThemeRow.locator('[data-theme-color="accent"]')).toHaveCSS(
+    "background-color",
+    "rgb(9, 105, 218)",
+  );
+  await expect(
+    darkThemeRow.locator('[data-theme-color="background"]'),
+  ).toHaveCSS("background-color", "rgb(13, 17, 23)");
 
   await lightThemeRow.getByRole("combobox").click();
+  const academicSwatch = page
+    .getByRole("option", { name: "Academic", exact: true })
+    .getByTestId("markdown-theme-swatch");
+  await expect(
+    academicSwatch.locator('[data-theme-color="background"]'),
+  ).toHaveCSS("background-color", "rgb(248, 250, 252)");
+  await expect(academicSwatch.locator('[data-theme-color="accent"]')).toHaveCSS(
+    "background-color",
+    "rgb(35, 99, 235)",
+  );
+  await page.screenshot({
+    path: "../../output/playwright/markdown-settings-swatches-light.png",
+    animations: "disabled",
+  });
+  await page.evaluate(() => document.documentElement.classList.add("dark"));
+  await expect(
+    academicSwatch.locator('[data-theme-color="background"]'),
+  ).toHaveCSS(
+    "box-shadow",
+    /rgba\(255, 255, 255, 0\.45\) 0px 0px 0px 0\.75px inset/,
+  );
+  await page.screenshot({
+    path: "../../output/playwright/markdown-settings-swatches-dark.png",
+    animations: "disabled",
+  });
+  await page.evaluate(() => document.documentElement.classList.remove("dark"));
   await page.getByRole("option", { name: "Academic" }).click();
   await expect(lightThemeRow.getByRole("combobox")).toContainText("Academic");
+  await expect(lightThemeRow.locator('[data-theme-color="accent"]')).toHaveCSS(
+    "background-color",
+    "rgb(35, 99, 235)",
+  );
 
   await loadTyporaThemesSwitch.click();
   await expect(folderRow).toHaveCount(0);
@@ -114,11 +200,15 @@ test("configures separate light and dark Markdown themes", async ({ page }) => {
   await expect(sharedThemeRow.getByRole("combobox")).toContainText(
     "GitHub Dark",
   );
+  await expect(
+    sharedThemeRow.locator('[data-theme-color="background"]'),
+  ).toHaveCSS("background-color", "rgb(13, 17, 23)");
+  // Exercise the keyboard toggle while the theme control's tooltip is open.
   await separateThemesRow
     .getByRole("switch", {
       name: "Separate light and dark Markdown themes",
     })
-    .click();
+    .press("Space");
   await expect(lightThemeRow.getByRole("combobox")).toContainText("Academic");
   await expect(darkThemeRow.getByRole("combobox")).toContainText("GitHub Dark");
 

@@ -1,3 +1,7 @@
+import {
+  insertMarkdownFileLinksAtPoint,
+  updateMarkdownFileDropCaret,
+} from "./editor/markdown-file-drop";
 import { useUpdater } from "@/hooks/use-updater";
 import { PRODUCT_NAME } from "../../../branding";
 import { CommentDeleteButtons } from "./editor/comment-delete-buttons";
@@ -1089,6 +1093,9 @@ function SidebarDefault({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [disableInteractiveIntegrations, importFiles, pasteTargetFolder]);
 
+  const fileDragPointRef = useRef<{ x: number; y: number } | null>(null);
+  const [fileDragOverEditor, setFileDragOverEditor] = useState(false);
+
   // dnd-kit drag-and-drop with pointer events
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -1098,6 +1105,34 @@ function SidebarDefault({
     type: "file" | "folder";
     name: string;
   } | null>(null);
+  useEffect(() => {
+    if (activeDrag?.type !== "file") return;
+    const move = (event: PointerEvent) => {
+      fileDragPointRef.current = { x: event.clientX, y: event.clientY };
+      setFileDragOverEditor(
+        updateMarkdownFileDropCaret(fileDragPointRef.current),
+      );
+    };
+    const scroll = () =>
+      setFileDragOverEditor(
+        updateMarkdownFileDropCaret(fileDragPointRef.current),
+      );
+    const clear = () => {
+      updateMarkdownFileDropCaret(null);
+      setFileDragOverEditor(false);
+    };
+    document.addEventListener("pointermove", move, true);
+    document.addEventListener("scroll", scroll, true);
+    window.addEventListener("blur", clear);
+    return () => {
+      document.removeEventListener("pointermove", move, true);
+      document.removeEventListener("scroll", scroll, true);
+      window.removeEventListener("blur", clear);
+      fileDragPointRef.current = null;
+      clear();
+    };
+  }, [activeDrag]);
+
   useEffect(() => {
     if (!activeDrag) return;
     const cancelOnContextMenu = (event: MouseEvent) => {
@@ -1214,7 +1249,25 @@ function SidebarDefault({
   const handleDragEnd = useCallback(
     async (event: DragEndEvent) => {
       setActiveDrag(null);
+      updateMarkdownFileDropCaret(null);
       const { active, over } = event;
+      const pointer = event.activatorEvent;
+      const draggedFile = useDocumentStore
+        .getState()
+        .files.find((file) => file.id === active.id);
+      if (
+        draggedFile &&
+        "clientX" in pointer &&
+        "clientY" in pointer &&
+        insertMarkdownFileLinksAtPoint(
+          [draggedFile.absolutePath],
+          fileDragPointRef.current ?? {
+            x: Number(pointer.clientX) + event.delta.x,
+            y: Number(pointer.clientY) + event.delta.y,
+          },
+        )
+      )
+        return;
       if (!over) return;
 
       const draggedPath = active.id as string;
@@ -2372,7 +2425,7 @@ function SidebarDefault({
               <DropdownMenuContent align="end">
                 <DropdownMenuItem onClick={() => openNewFileDialog()}>
                   <FileTextIcon className="mr-2 size-4" />
-                  New LaTeX File
+                  New File
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => openNewFolderDialog()}>
                   <FolderPlusIcon className="mr-2 size-4" />
@@ -2478,8 +2531,11 @@ function SidebarDefault({
                   </ContextMenuItem>
                 </ContextMenuContent>
               </ContextMenu>
-              <DragOverlay dropAnimation={null}>
-                {activeDrag && (
+              <DragOverlay
+                dropAnimation={null}
+                style={{ pointerEvents: "none" }}
+              >
+                {activeDrag && !fileDragOverEditor && (
                   <div className="flex items-center gap-2 rounded-md bg-sidebar px-2 py-1 text-sm shadow-lg ring-1 ring-ring">
                     {activeDrag.type === "folder" ? (
                       <FolderIcon className="size-4 shrink-0" />
@@ -3228,7 +3284,7 @@ function FileTreeNode({
                         onClick={() => onNewFile(node.relativePath)}
                       >
                         <FileTextIcon className="mr-2 size-4" />
-                        New LaTeX File
+                        New File
                       </DropdownMenuItem>
                       <DropdownMenuItem
                         onClick={() => onNewFolder(node.relativePath)}
