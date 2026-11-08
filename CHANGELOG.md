@@ -6,16 +6,16 @@
 
 ### TL;DR
 
-Markdown previews gain MathJax, syntax highlighting, richer HTML, and easier navigation. Preview settings now offer per-file math engines and theme color previews.
+Better markdown preview support, for MathJax, richer HTML, and easier navigation.
 
 ### Full Changelog
 
-- Follow Markdown links to headings, HTML anchors, and source lines. Use Jump back to return to the previous preview position, dismiss it manually, or clear it by scrolling past the return location.
-- Drag files into the Markdown editor to insert relative links, with an insertion caret showing the drop position. Rename the sidebar's creation action to New File.
-- Render sanitized HTML snippets with text formatting and colors. Highlight fenced code blocks by language, including LaTeX, with light, dark, and custom-theme colors. Fix checklist markers in GitHub Light.
-- Choose KaTeX or MathJax per file, with a configurable default under Rendering settings. Preserve explicit file choices and synchronize preferences across windows and restarts. Keep wide MathJax equations scrollable and inline equations inline in PDF exports.
-- Keep preview settings open while selecting options, and animate the content-sized menu between levels. Show up to five recent Typora themes in a stable order and open the full theme list at the current selection.
-- Preview theme colors as three outlined squares in both preview and settings dropdowns, with neutral colors when a theme's palette cannot be recognized.
+- Markdown navigation: Follow links to headings, HTML anchors, and source lines. Use Jump back to return, dismiss it manually, or clear it by scrolling past the return position.
+- File drag and drop: Insert relative file links into Markdown, with a caret showing where they will land. Renamed the sidebar action to “New File.”
+- Richer rendering: Support sanitized HTML formatting and colors, plus language-aware code highlighting, including LaTeX. Fixed checklist markers in GitHub Light.
+- Math engines: Choose KaTeX or MathJax per file and configure the default in Rendering settings. Preferences persist across windows and restarts. Wide MathJax equations scroll horizontally, and inline equations remain inline in PDF exports.
+- Preview settings: Keep the menu open while making selections, with content-sized layouts and animated transitions. Show up to five recent Typora themes without reordering existing rows, and open the full theme list at the current selection.
+- Theme previews: Show three outlined color squares for GitHub and Typora themes in both preview and settings menus, with neutral fallback colors.
 
 ## [0.2.0]
 
