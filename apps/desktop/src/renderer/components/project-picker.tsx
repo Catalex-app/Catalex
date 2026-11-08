@@ -664,7 +664,16 @@ export function ProjectPicker() {
                                   Currently open
                                 </span>
                               ) : (
-                                formatRecentProjectTimestamp(project.lastOpened)
+                                <>
+                                  <span data-project-opened-at>
+                                    {formatRecentProjectTimestamp(
+                                      project.lastOpened,
+                                    )}
+                                  </span>
+                                  <span data-project-opening-label>
+                                    Opening…
+                                  </span>
+                                </>
                               )}
                             </td>
                             <td className="whitespace-nowrap rounded-r-xl border border-transparent border-l-0 bg-background px-5 py-3 text-center transition-colors group-hover:border-border/60 group-hover:border-l-0">

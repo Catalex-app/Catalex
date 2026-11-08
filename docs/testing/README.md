@@ -127,3 +127,12 @@ The Markdown highlighting checks cover common language aliases and LaTeX, litera
 Math-engine checks cover KaTeX/MathJax switching, inline and aligned display equations, horizontal scrolling for wide displays, malformed-input recovery, document macros and recursion limits, independent theme selection, keyboard navigation between Typora menu levels, and preference rehydration. The production chunk check blocks external network requests. The native Markdown smoke exports a MathJax PDF, checks that prose around inline math stays on one line, and saves a rendered PDF screenshot for inspection. File-choice checks cover separate documents, identical file IDs in different projects, defaults, and rehydration. The native Markdown smoke verifies engine changes for the same file across a preview pop-out and the main window, global-default synchronization without replacing explicit file choices, a different file inheriting the default, and saved choices after a full Electron restart.
 
 Typora menu checks use a long theme list to verify the five-item recent limit, duplicate promotion, missing-file filtering, the right-side check layout, selected-theme centering, top-of-list fallback, and back navigation. Native checks verify recent themes across windows and a full restart.
+
+The `project-navigation` harness renders the real App with an in-memory project.
+Its browser suite checks rightward opening, leftward return, and fading in both directions, independent
+row movement and opacity, stationary loading feedback, duplicate-open protection,
+light/dark appearance, a reversed screen transition with the closed project appearing and settling
+before its neighbours without an outline, even in the
+middle of the list, reduced motion, missing View Transition support, failed
+loading and saving, recovery, and interrupted navigation. Mid-transition
+screenshots are saved under `output/playwright/project-handoff-*.png`.

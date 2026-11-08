@@ -5,6 +5,15 @@ export async function renderDebugWindow(
   root: Pick<Root, "render">,
   debugMode: string | null,
 ) {
+  if (debugMode === "project-navigation") {
+    const { initializeProjectNavigationHarness } = await import(
+      "./harnesses/project-navigation-harness"
+    );
+    initializeProjectNavigationHarness();
+    const { App } = await import("../App");
+    root.render(<App />);
+    return;
+  }
   if (debugMode === "updater") {
     const { UpdaterHarness } = await import("./harnesses/updater-harness");
     root.render(<UpdaterHarness />);

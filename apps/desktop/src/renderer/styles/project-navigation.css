@@ -1,0 +1,50 @@
+/* Capture the main screen and recent-project rows, leaving dialogs independent. */
+[data-project-screen] { view-transition-name: project-screen; }
+html[data-project-navigation] { view-transition-name: none; }
+html[data-project-navigation]::view-transition { overflow: clip; }
+html[data-project-navigation]::view-transition-group(project-screen) {
+  animation-duration: 430ms;
+}
+html[data-project-navigation]::view-transition-old(project-screen),
+html[data-project-navigation]::view-transition-new(project-screen) {
+  mix-blend-mode: normal;
+  animation: 430ms cubic-bezier(.3,.7,.3,1) both;
+}
+html[data-project-navigation="open"]::view-transition-old(project-screen) {
+  animation: project-handoff-fade-out 180ms cubic-bezier(.4,0,.6,1) both;
+}
+html[data-project-navigation="open"]::view-transition-new(project-screen) {
+  /* Clear Welcome and its row snapshots before revealing the workspace. */
+  animation: project-handoff-enter-right 250ms cubic-bezier(.3,.7,.3,1) 180ms both;
+}
+html[data-project-navigation="close"]::view-transition-group(project-screen) {
+  animation-duration: 490ms;
+}
+html[data-project-navigation="close"]::view-transition-old(project-screen) {
+  animation: project-handoff-enter-right 190ms cubic-bezier(.3,.7,.3,1) reverse both;
+}
+html[data-project-navigation="close"]::view-transition-new(project-screen) {
+  animation: project-handoff-fade-out 160ms cubic-bezier(.4,0,.6,1) 190ms reverse both;
+}
+/* Per-row Web Animations own their independent movement and opacity clocks. */
+html[data-project-navigation]::view-transition-group(*.project-row),
+html[data-project-navigation]::view-transition-old(*.project-row),
+html[data-project-navigation]::view-transition-new(*.project-row) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+[data-project-opening-label] { display: none; }
+[data-project-opening="true"] [data-project-opening-label] { display: inline; }
+[data-project-opening="true"] [data-project-opened-at] { display: none; }
+@keyframes project-handoff-enter-right {
+  from { transform: translateX(-28px); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+@keyframes project-handoff-fade-out { from { opacity: 1; } to { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  html[data-project-navigation]::view-transition-group(*),
+  html[data-project-navigation]::view-transition-old(*),
+  html[data-project-navigation]::view-transition-new(*) {
+    animation: none;
+  }
+}

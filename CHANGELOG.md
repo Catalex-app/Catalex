@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Project navigation: Recent-project rows move right and fade with staggered timing as a project opens; the clicked row moves faster and farther. The workspace fades rightward into place. Returning home reverses leftward, revealing the closed project's row first, then its neighbours, with visible movement as they settle. Reduced motion is respected.
+
 ## [0.2.1]
 
 ### TL;DR

@@ -2,6 +2,7 @@
 @import "tw-animate-css";
 @import "./ui-themes.css";
 @import "./focus.css";
+@import "./project-navigation.css";
 
 @custom-variant dark (&:is(.dark *));
 

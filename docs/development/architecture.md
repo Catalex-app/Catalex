@@ -333,3 +333,24 @@ Markdown previews parse HTML snippets before sanitizing them and rendering math.
 Markdown fenced code uses `rehype-highlight` with the common language grammars plus LaTeX, after sanitization and KaTeX. Only explicit, supported language labels are highlighted; unknown languages, unlabeled blocks, and inline code remain plain. Raw HTML code markup retains its existing source annotations. Token styles follow the built-in light/dark preview palettes; imported themes receive a text-color-based fallback and can override the low-specificity `.hljs-*` rules. Code text, whitespace, and block source positions remain unchanged.
 
 The Markdown preview menu separates the math engine from the visual theme. KaTeX remains the default; MathJax is loaded on demand and renders bundled SVG without remote fonts or iframe scripts. Its TeX package list covers notation while excluding HTML/link injection and dynamic package loading. `markdownMathEnginesByFile` uses the existing settings persistence and window synchronization, keyed by the project root and file ID like LaTeX compiler choices. Files without a saved choice follow `defaultMarkdownMathEngine`, configured in Settings → Rendering → Markdown and initially KaTeX. Changing the default preserves explicit per-file choices; selecting an engine in the preview affects only that file. Both engines share Markdown parsing, sanitization, and theme selection; this is not an OpenReview compatibility mode. Installed Typora and project CSS choices share a two-level menu using the existing dropdown components. The first level shows up to five available recent themes, identified by absolute path. Persisted recency determines membership while a separate persisted display order keeps retained rows in place. Selecting an existing theme only updates recency and the checkmark; a new theme evicts the least recently used entry and is appended at the bottom immediately. All Typora themes opens the second level in the same menu, with a back row and a separately scrolling list. It centers the selected custom theme on entry, or starts at the top for a built-in theme. Missing theme files are omitted from recents. Theme rows show background/text/accent colors as three squares in the existing 16px icon slot. GitHub themes use their built-in colors; custom themes use approximate palettes with neutral colors for unrecognized values. Each square has a thin dark outline in light menus and a light outline in dark menus so matching colors remain visible. Visible installed-theme rows read and cache local palettes without rendering theme CSS or loading its imports; project CSS edits update swatches directly.
+
+While a project loads, Welcome stays still, is temporarily inert, and shows
+“Opening…” on the selected row. A failed open restores interaction. Once loading
+succeeds, the selected row moves right faster and farther than the other rows,
+which follow with distinct movement and fade timings. Welcome and its rows clear
+in the first 180 ms; the workspace then fades in and moves right from a 28 px
+offset over 250 ms, keeping the screen handoff at 430 ms without ghosting the
+outgoing screen. A gentler movement curve keeps the motion readable.
+After saving, the workspace fades and moves left for 190 ms, then Welcome returns
+over 160 ms. Rows fade in over 100–134 ms and begin moving 20 ms after their
+fade starts, so they are clearly visible while still travelling. The closed
+project's row appears 45 ms before the other rows and settles first; its
+neighbours follow softly, with all rows in place by 490 ms. No outline or
+persistent selection is added. There is no artificial loading delay or scale
+change.
+`lib/project-navigation.ts` uses the browser View Transition API with separate row
+snapshots, keeping only the current React screen mounted. It waits for the state
+update rather than the animation, cleans up interrupted transitions, and skips
+screen motion for reduced motion, hidden windows, or unsupported browsers.
+Proposal state activates before the workspace's first paint so the incoming
+snapshot contains the workspace.

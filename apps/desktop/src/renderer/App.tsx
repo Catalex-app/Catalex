@@ -28,7 +28,7 @@ import {
 import { ProjectPicker } from "@/components/project-picker";
 import { HistoryWorkspace } from "@/components/workspace/history-workspace";
 import { WorkspaceLayout } from "@/components/workspace/workspace-layout";
-import { lazy, Suspense, useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useLayoutEffect, useState } from "react";
 import { getCurrentWindow } from "@/lib/desktop/window";
 import { ask } from "@/lib/desktop/dialog";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -50,7 +50,7 @@ function WorkspaceWithAgent() {
   );
   const expectedProposalProjectRoot = getProposedChangesProjectKey(projectRoot);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     useProposedChangesStore.getState().activateProject(projectRoot);
     return () => {
       if (
@@ -229,10 +229,10 @@ export function App({ onReady }: { onReady?: () => void }) {
           />
           {!onboardingCompleted ? (
             <Onboarding />
-          ) : projectRoot ? (
-            <WorkspaceWithAgent />
           ) : (
-            <ProjectPicker />
+            <div className="h-full bg-background" data-project-screen>
+              {projectRoot ? <WorkspaceWithAgent /> : <ProjectPicker />}
+            </div>
           )}
           {showDebug && (
             <div className="fixed inset-0 z-[9998] flex items-end justify-center">

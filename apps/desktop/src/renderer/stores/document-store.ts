@@ -1,3 +1,7 @@
+import {
+  beginProjectOpen,
+  updateProjectScreen,
+} from "@/lib/project-navigation";
 import { rebaseDocumentEdit } from "@/lib/rebase-document-edit";
 import { connectPanelDocumentView } from "@/lib/panel-document-view";
 import { getPanelWindowSession } from "@/lib/panel-window-runtime";
@@ -951,7 +955,9 @@ export const useDocumentStore = create<DocumentState>()((set, get) => ({
       throw new Error("A project is already opening in this window.");
     openingProject = true;
     let pendingLease: string | null = null;
+    let finishOpening = () => {};
     try {
+      finishOpening = beginProjectOpen(rootPath);
       if (window.catalex)
         pendingLease = await invoke<string>("desktop:project:acquire", {
           path: rootPath,
@@ -981,35 +987,41 @@ export const useDocumentStore = create<DocumentState>()((set, get) => ({
 
       await restoreProjectChats(rootPath);
       clearPdfBytesCache();
-      set({
-        projectRoot: rootPath,
-        agentWorkspaceSessionId: null,
-        agentWorkspaceRoot: null,
-        isAgentWorkspaceReadOnly: false,
-        sourceViewSnapshot: null,
-        files: projectFiles,
-        folders: fsFolders,
-        activeFileId: initialFile?.id || projectFiles[0]?.id || "",
-        openFileIds: initialFile?.id
-          ? [initialFile.id]
-          : projectFiles[0]?.id
-            ? [projectFiles[0].id]
-            : [],
-        pdfRevision: 0,
-        compileError: null,
-        compileErrorCache: new Map(),
-        compileDiagnosticsCache: new Map(),
-        lastCompiledGenerations: new Map(),
-        initialized: true,
-        cursorPosition: 0,
-        outlineScrollPosition: null,
-        selectionRange: null,
-        pdfSelectionContext: null,
-        commentSelectionContext: null,
-        selectionPreviewRange: null,
-        jumpToPosition: null,
-        jumpToSelectionRange: null,
-      });
+      await updateProjectScreen(
+        "open",
+        () => {
+          set({
+            projectRoot: rootPath,
+            agentWorkspaceSessionId: null,
+            agentWorkspaceRoot: null,
+            isAgentWorkspaceReadOnly: false,
+            sourceViewSnapshot: null,
+            files: projectFiles,
+            folders: fsFolders,
+            activeFileId: initialFile?.id || projectFiles[0]?.id || "",
+            openFileIds: initialFile?.id
+              ? [initialFile.id]
+              : projectFiles[0]?.id
+                ? [projectFiles[0].id]
+                : [],
+            pdfRevision: 0,
+            compileError: null,
+            compileErrorCache: new Map(),
+            compileDiagnosticsCache: new Map(),
+            lastCompiledGenerations: new Map(),
+            initialized: true,
+            cursorPosition: 0,
+            outlineScrollPosition: null,
+            selectionRange: null,
+            pdfSelectionContext: null,
+            commentSelectionContext: null,
+            selectionPreviewRange: null,
+            jumpToPosition: null,
+            jumpToSelectionRange: null,
+          });
+        },
+        rootPath,
+      );
 
       // Initialize history system early so snapshots work before the panel is opened
       const historyStore = useHistoryStore.getState();
@@ -1027,6 +1039,7 @@ export const useDocumentStore = create<DocumentState>()((set, get) => ({
       activeProjectLease = pendingLease;
       pendingLease = null;
     } finally {
+      finishOpening();
       openingProject = false;
       if (pendingLease)
         await invoke("desktop:project:release", { token: pendingLease });
@@ -1055,31 +1068,37 @@ export const useDocumentStore = create<DocumentState>()((set, get) => ({
     clearEditorStateCache();
     clearCommentDocumentModels();
     clearPdfBytesCache();
-    set({
-      projectRoot: null,
-      agentWorkspaceSessionId: null,
-      agentWorkspaceRoot: null,
-      isAgentWorkspaceReadOnly: false,
-      sourceViewSnapshot: null,
-      files: [],
-      folders: [],
-      activeFileId: "",
-      openFileIds: [],
-      pdfRevision: 0,
-      compileError: null,
-      compileErrorCache: new Map(),
-      compileDiagnosticsCache: new Map(),
-      lastCompiledGenerations: new Map(),
-      cursorPosition: 0,
-      outlineScrollPosition: null,
-      selectionRange: null,
-      pdfSelectionContext: null,
-      commentSelectionContext: null,
-      selectionPreviewRange: null,
-      jumpToPosition: null,
-      jumpToSelectionRange: null,
-      initialized: false,
-    });
+    await updateProjectScreen(
+      "close",
+      () => {
+        set({
+          projectRoot: null,
+          agentWorkspaceSessionId: null,
+          agentWorkspaceRoot: null,
+          isAgentWorkspaceReadOnly: false,
+          sourceViewSnapshot: null,
+          files: [],
+          folders: [],
+          activeFileId: "",
+          openFileIds: [],
+          pdfRevision: 0,
+          compileError: null,
+          compileErrorCache: new Map(),
+          compileDiagnosticsCache: new Map(),
+          lastCompiledGenerations: new Map(),
+          cursorPosition: 0,
+          outlineScrollPosition: null,
+          selectionRange: null,
+          pdfSelectionContext: null,
+          commentSelectionContext: null,
+          selectionPreviewRange: null,
+          jumpToPosition: null,
+          jumpToSelectionRange: null,
+          initialized: false,
+        });
+      },
+      projectRoot,
+    );
     // All tabs have been saved under the old project before clearing the workspace.
     useAgentChatStore.getState().restoreProjectTabs(null);
     if (activeProjectLease) {
