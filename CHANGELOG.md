@@ -2,11 +2,20 @@
 
 ## [Unreleased]
 
-- Choose KaTeX or MathJax from the Markdown preview menu, with independent theme choices, up to five recent Typora themes, and a second-level full theme list that opens at the current selection. The math-engine preference is saved per project/file and stays consistent across windows and restarts. Files without an explicit choice follow the configurable default in Rendering settings, initially KaTeX. Wide MathJax displays scroll horizontally, and inline math stays inline in PDF exports.
+## [0.2.1]
 
-- Highlight Markdown fenced code blocks by language, including LaTeX, with light and dark preview colors and custom-theme overrides.
+### TL;DR
 
-- Follow Markdown links to headings, HTML anchors, and source lines, with a Jump back popup to restore the previous preview position. Insert relative links by dropping files into the Markdown editor, with a caret showing the insertion point, and render HTML snippets with text formatting and colors.
+Markdown previews gain MathJax, syntax highlighting, richer HTML, and easier navigation. Preview settings now offer per-file math engines and theme color previews.
+
+### Full Changelog
+
+- Follow Markdown links to headings, HTML anchors, and source lines. Use Jump back to return to the previous preview position, dismiss it manually, or clear it by scrolling past the return location.
+- Drag files into the Markdown editor to insert relative links, with an insertion caret showing the drop position. Rename the sidebar's creation action to New File.
+- Render sanitized HTML snippets with text formatting and colors. Highlight fenced code blocks by language, including LaTeX, with light, dark, and custom-theme colors. Fix checklist markers in GitHub Light.
+- Choose KaTeX or MathJax per file, with a configurable default under Rendering settings. Preserve explicit file choices and synchronize preferences across windows and restarts. Keep wide MathJax equations scrollable and inline equations inline in PDF exports.
+- Keep preview settings open while selecting options, and animate the content-sized menu between levels. Show up to five recent Typora themes in a stable order and open the full theme list at the current selection.
+- Preview theme colors as three outlined squares in both preview and settings dropdowns, with neutral colors when a theme's palette cannot be recognized.
 
 ## [0.2.0]
 
