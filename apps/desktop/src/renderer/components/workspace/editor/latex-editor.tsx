@@ -6195,7 +6195,7 @@ export function LatexEditor({
                     reviewingSnapshot
                       ? "hidden"
                       : showEditorMinimap && viewRef.current
-                        ? "editor-with-minimap absolute inset-y-0 right-9 left-0"
+                        ? "editor-with-minimap absolute inset-0"
                         : "absolute inset-0"
                   }
                 />

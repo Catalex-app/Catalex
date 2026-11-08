@@ -1,4 +1,5 @@
 /* Chromium's axis-specific scrollbar sizing keeps horizontal scrolling visible. */
+.editor-with-minimap .cm-editor { padding-right: 2.25rem; }
 .editor-with-minimap .cm-editor .cm-scroller { scrollbar-width: auto; scrollbar-color: auto; }
 .editor-with-minimap .cm-editor .cm-scroller::-webkit-scrollbar { width: 0; }
 /* Match the card's 4px gutter gap; retain its existing left alignment. */
