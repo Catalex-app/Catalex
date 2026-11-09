@@ -43,11 +43,12 @@ test("custom model popup fades out without keeping an interactive layer", async 
 }) => {
   await page.goto("/?debug=agent-pause&provider=claude");
   await page
-    .getByRole("button", { name: "Default · default", exact: true })
+    .getByRole("button", {
+      name: "Default · default · Model settings",
+      exact: true,
+    })
     .click();
-  const popup = page
-    .locator(".popup-motion:not([data-popup-exit])")
-    .filter({ hasText: "Model selection" });
+  const popup = page.getByRole("dialog", { name: "Model settings" });
   await expect(popup).toHaveCSS("animation-name", "popup-fade-in");
   await expect(popup).toHaveCSS("animation-duration", "0.2s");
   await page.mouse.click(20, 20);

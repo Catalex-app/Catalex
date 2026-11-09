@@ -10,7 +10,7 @@ import {
 import { Button } from "@/components/ui/button";
 import {
   ArrowUpIcon,
-  BotIcon,
+  BotMessageSquareIcon,
   CheckIcon,
   ChevronDownIcon,
   ChevronRightIcon,
@@ -713,7 +713,7 @@ export const ThinkingWidget: FC<{
       >
         <div className="flex items-center gap-2">
           <div className="relative">
-            <BotIcon className="size-4 text-muted-foreground" />
+            <BotMessageSquareIcon className="size-4 text-muted-foreground" />
             <SparklesIcon className="absolute -top-1 -right-1 size-2.5 animate-pulse text-muted-foreground/70" />
           </div>
           <span className="font-medium text-muted-foreground text-sm italic">

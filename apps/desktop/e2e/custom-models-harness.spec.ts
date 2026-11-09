@@ -164,7 +164,7 @@ test("syncs model settings between windows and navigates an already-open Setting
     .click();
   await chat
     .getByRole("button", {
-      name: "claude-opus-custom-sync · claude-opus-custom-sync",
+      name: "claude-opus-custom-sync · claude-opus-custom-sync · Model settings",
       exact: true,
     })
     .click();
@@ -179,6 +179,39 @@ test("syncs model settings between windows and navigates an already-open Setting
     })
     .click();
   await expect(option).toHaveCount(0);
+});
+
+test("default approval choices show their icons and tips", async ({ page }) => {
+  await page.setViewportSize({ width: 720, height: 620 });
+  await page.goto("/?debug=claude-models&section=agent&provider=codex");
+  const approvalMode = page.getByRole("combobox", {
+    name: "Default approval mode",
+  });
+  await expect(approvalMode).toHaveText("Need approval");
+  await approvalMode.click();
+
+  const needApproval = page.getByRole("option", { name: "Need approval" });
+  const autoApply = page.getByRole("option", { name: "Auto-apply" });
+  const tooltip = page.locator('[data-slot="tooltip-content"]:visible');
+  await expect(needApproval.locator("svg.lucide-thumbs-up")).toBeVisible();
+  await expect(autoApply.locator("svg.lucide-check-check")).toBeVisible();
+  await needApproval.hover();
+  await expect(tooltip).toContainText("Review changes before applying.");
+  await autoApply.hover();
+  await expect(tooltip).toContainText(
+    "Apply clean changes automatically. Pause on conflicts or errors.",
+  );
+  await page.screenshot({
+    path: test.info().outputPath("approval-options.png"),
+    animations: "disabled",
+  });
+  await autoApply.click();
+  await expect(approvalMode).toHaveText("Auto-apply");
+  await expect(approvalMode.locator("svg.lucide-check-check")).toHaveClass(
+    /\btext-purple-700\b/,
+  );
+  await page.reload();
+  await expect(approvalMode).toHaveText("Auto-apply");
 });
 
 test("provider tabs separate navigation from the exclusive default choice", async ({

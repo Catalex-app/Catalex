@@ -61,6 +61,11 @@ import {
   PopupSeparator,
 } from "@/components/ui/popup-surface";
 import { ButtonGroup } from "@/components/ui/button-group";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { toast } from "sonner";
 import {
   useClaudeModels,
@@ -68,6 +73,7 @@ import {
   usePiModels,
 } from "@/lib/use-agent-models";
 import { formatCodexModelName, codexEffortLabel } from "@/lib/codex-models";
+import { AGENT_EXECUTION_MODES } from "@/lib/agent-execution-mode";
 import {
   type FC,
   useCallback,
@@ -97,10 +103,11 @@ import {
   PinIcon,
   CheckIcon,
   ChevronDownIcon,
-  PencilLineIcon,
+  MinusIcon,
+  PlusIcon,
   ShieldCheckIcon,
   Settings2Icon,
-  BotIcon,
+  BotMessageSquareIcon,
 } from "lucide-react";
 import { getCurrentWebview } from "@/lib/desktop/webview";
 import { invoke } from "@/lib/desktop/core";
@@ -302,13 +309,13 @@ function llmConfigLabel(
   if (provider === "claude" && effortLevel) {
     const effort = `${base} • ${claudeEffortLabel(effortLevel)} effort`;
     return executionMode && executionMode !== "default"
-      ? `${effort} • ${executionModeLabel(executionMode)}`
+      ? `${effort} • ${AGENT_EXECUTION_MODES[executionMode].label}`
       : effort;
   }
   if (provider === "codex" && codexReasoningEffort) {
     const effort = `${base} • ${codexEffortLabel(codexReasoningEffort)} effort`;
     return executionMode && executionMode !== "default"
-      ? `${effort} • ${executionModeLabel(executionMode)}`
+      ? `${effort} • ${AGENT_EXECUTION_MODES[executionMode].label}`
       : effort;
   }
   return base;
@@ -323,16 +330,6 @@ function claudeEffortLabel(level: string): string {
     .split(/[-_]/)
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
-}
-
-function executionModeLabel(mode: AgentExecutionMode): string {
-  if (mode === "edit") return "Auto";
-  return "Manual";
-}
-
-function executionModeIcon(mode: AgentExecutionMode) {
-  if (mode === "edit") return PencilLineIcon;
-  return ShieldCheckIcon;
 }
 
 function nextExecutionMode(mode: AgentExecutionMode): AgentExecutionMode {
@@ -410,6 +407,7 @@ export const ChatComposer: FC<{
   isExpanded?: boolean;
   acceptPendingAttachments?: boolean;
 }> = ({ isOpen, isExpanded, acceptPendingAttachments = true }) => {
+  const isCollapsed = !isOpen && !isExpanded;
   const renderErrorPreview = useContext(ComposerErrorPreviewContext);
   const composerError = useAgentChatStore((s) => s.error);
   const { question: activeQuestion } = useActiveAgentQuestion();
@@ -698,36 +696,62 @@ export const ChatComposer: FC<{
   const [toolbarElement, setToolbarElement] = useState<HTMLDivElement | null>(
     null,
   );
-  const [hideToolbarShortcuts, setHideToolbarShortcuts] = useState(false);
+  const [compactToolbar, setCompactToolbar] = useState(false);
+  const [toolbarShortcutsOpen, setToolbarShortcutsOpen] = useState(false);
+  const toolbarToggleRef = useRef<HTMLButtonElement>(null);
+  const showToolbarShortcuts = !compactToolbar || toolbarShortcutsOpen;
 
   useLayoutEffect(() => {
-    if (!toolbarElement) return;
+    if (!toolbarElement) {
+      setToolbarShortcutsOpen(false);
+      return;
+    }
     const shortcuts = toolbarElement.querySelector<HTMLElement>(
       "[data-composer-shortcuts]",
     );
     const controls = toolbarElement.querySelector<HTMLElement>(
       "[data-composer-controls]",
     );
-    if (!shortcuts || !controls) return;
+    const submit = toolbarElement.querySelector<HTMLElement>(
+      "[data-composer-submit]",
+    );
+    if (!shortcuts || !controls || !submit) return;
     const measure = () => {
       const style = getComputedStyle(toolbarElement);
       const available =
         toolbarElement.clientWidth -
         Number.parseFloat(style.paddingLeft) -
         Number.parseFloat(style.paddingRight);
-      setHideToolbarShortcuts(
-        shortcuts.offsetWidth + controls.offsetWidth + 8 > available,
+      const shortcutsWidth = shortcuts.offsetWidth;
+      const controlsWidth = controls.offsetWidth;
+      toolbarElement.style.setProperty(
+        "--composer-shortcuts-width",
+        `${shortcutsWidth}px`,
       );
+      toolbarElement.style.setProperty(
+        "--composer-controls-width",
+        `${controlsWidth}px`,
+      );
+      toolbarElement.style.setProperty(
+        "--composer-submit-width",
+        `${submit.offsetWidth}px`,
+      );
+      const compact = shortcutsWidth + controlsWidth + 8 > available;
+      setCompactToolbar(compact);
+      if (!compact) setToolbarShortcutsOpen(false);
     };
     measure();
     const observer = new ResizeObserver(measure);
-    for (const element of [toolbarElement, shortcuts, controls])
+    for (const element of [toolbarElement, shortcuts, controls, submit])
       observer.observe(element);
     return () => observer.disconnect();
   }, [toolbarElement]);
 
   // Model picker state
-  const [modelPickerOpen, setModelPickerOpen] = useState(false);
+  const [openPicker, setOpenPicker] = useState<"model" | "permission" | null>(
+    null,
+  );
+  const modelPickerOpen = openPicker === "model";
   const contextUsage = useAgentChatStore(
     (state) =>
       state.tabs.find((tab) => tab.id === state.activeTabId)?.contextUsage?.[
@@ -790,19 +814,38 @@ export const ChatComposer: FC<{
   }, [modelPickerOpen, selectedProvider, usageRefresh]);
   const modelPickerRef = useRef<HTMLDivElement>(null);
   const modelButtonRef = useRef<HTMLButtonElement>(null);
+  const permissionPickerRef = useRef<HTMLDivElement>(null);
+  const modelPickerId = useId();
   const [pickerPos, setPickerPos] = useState<{ left: number; bottom: number }>({
     left: 0,
     bottom: 0,
   });
 
-  // Recalculate popup position when it opens
+  // Keep the popup anchored while the window is resized.
   useLayoutEffect(() => {
-    if (!modelPickerOpen || !modelButtonRef.current) return;
-    const rect = modelButtonRef.current.getBoundingClientRect();
-    setPickerPos({
-      left: Math.max(8, Math.min(rect.left, window.innerWidth - 296)),
-      bottom: window.innerHeight - rect.top + 4,
-    });
+    if (!modelPickerOpen) return;
+    const positionPicker = () => {
+      const rect = modelButtonRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      const width = modelPickerRef.current?.offsetWidth ?? 288;
+      setPickerPos({
+        left: Math.max(
+          8,
+          Math.min(
+            rect.left + (rect.width - width) / 2,
+            window.innerWidth - width - 8,
+          ),
+        ),
+        bottom: window.innerHeight - rect.top + 4,
+      });
+    };
+    positionPicker();
+    window.addEventListener("resize", positionPicker);
+    return () => window.removeEventListener("resize", positionPicker);
+  }, [modelPickerOpen]);
+
+  useLayoutEffect(() => {
+    if (modelPickerOpen) modelPickerRef.current?.focus({ preventScroll: true });
   }, [modelPickerOpen]);
 
   // Pinned contexts — supports multiple files/selections
@@ -978,7 +1021,6 @@ export const ChatComposer: FC<{
   const consumePendingAttachments = useAgentChatStore(
     (s) => s.consumePendingAttachments,
   );
-  const isCollapsed = !isOpen && !isExpanded;
   const isVisible = !!(isOpen || isExpanded);
   const queueMode = isExpanded ? "full" : isOpen ? "half" : "mini";
   const queueFolded = useAgentChatStore((s) => s.promptQueueFolded[queueMode]);
@@ -995,6 +1037,25 @@ export const ChatComposer: FC<{
       )}px`;
     },
     [textareaMaxHeight],
+  );
+  const attachMiniTextarea = useCallback(
+    (textarea: HTMLTextAreaElement | null) => {
+      textareaRef.current = textarea;
+      if (!textarea) return;
+      let width = textarea.clientWidth;
+      const observer = new ResizeObserver(() => {
+        const nextWidth = textarea.clientWidth;
+        if (nextWidth === width) return;
+        width = nextWidth;
+        resizeTextarea(textarea);
+      });
+      observer.observe(textarea);
+      return () => {
+        observer.disconnect();
+        textareaRef.current = null;
+      };
+    },
+    [resizeTextarea],
   );
   const currentLlmLabel = llmConfigLabel(
     selectedProvider,
@@ -1028,65 +1089,177 @@ export const ChatComposer: FC<{
       : selectedProvider === "pi"
         ? selectedPiExecutionMode
         : selectedCodexExecutionMode;
-  const cycleExecutionMode = useCallback(() => {
-    if (selectedProvider === "claude") {
-      setSelectedClaudeExecutionMode(
-        nextExecutionMode(selectedClaudeExecutionMode),
-      );
-      return;
-    }
-    if (selectedProvider === "pi")
-      setSelectedPiExecutionMode(nextExecutionMode(selectedPiExecutionMode));
-    else
-      setSelectedCodexExecutionMode(
-        nextExecutionMode(selectedCodexExecutionMode),
-      );
-  }, [
-    selectedProvider,
-    selectedClaudeExecutionMode,
-    selectedCodexExecutionMode,
-    setSelectedClaudeExecutionMode,
-    setSelectedCodexExecutionMode,
-    selectedPiExecutionMode,
-    setSelectedPiExecutionMode,
-  ]);
-  const ExecutionModeIcon = executionModeIcon(selectedExecutionMode);
-  const executionModeButton =
-    selectedProvider === "claude" ||
-    selectedProvider === "codex" ||
-    selectedProvider === "pi" ? (
-      <Hint
-        content={
-          selectedExecutionMode === "edit"
-            ? "Auto: apply clean changes; pause on conflicts or errors."
-            : "Manual: review changes before applying."
+  const setExecutionMode =
+    selectedProvider === "claude"
+      ? setSelectedClaudeExecutionMode
+      : selectedProvider === "pi"
+        ? setSelectedPiExecutionMode
+        : setSelectedCodexExecutionMode;
+  const cycleExecutionMode = useCallback(
+    () => setExecutionMode(nextExecutionMode(selectedExecutionMode)),
+    [selectedExecutionMode, setExecutionMode],
+  );
+  const {
+    icon: ExecutionModeIcon,
+    label: executionModeLabel,
+    labelClassName: executionModeColor,
+  } = AGENT_EXECUTION_MODES[selectedExecutionMode];
+  const modelButton = (
+    <Hint content={modelPickerOpen ? undefined : modelTooltip}>
+      <button
+        ref={modelButtonRef}
+        aria-label={
+          isCollapsed
+            ? "Model settings"
+            : `${modelTooltipLabel} · Model settings`
         }
+        aria-haspopup="dialog"
+        aria-expanded={modelPickerOpen}
+        aria-controls={modelPickerOpen ? modelPickerId : undefined}
+        type="button"
+        onClick={() =>
+          setOpenPicker((open) => (open === "model" ? null : "model"))
+        }
+        className="flex h-7 min-w-6 items-center justify-center gap-1 rounded-md px-1 text-muted-foreground text-xs transition-colors hover:bg-muted hover:text-foreground"
       >
-        <button
-          type="button"
-          disabled={isStreaming}
-          onClick={cycleExecutionMode}
-          aria-label={
-            selectedExecutionMode === "edit"
-              ? "Auto: apply clean changes; pause on conflicts or errors."
-              : "Manual: review changes before applying."
-          }
-          className={cn(
-            "inline-flex w-[68px] shrink-0 items-center justify-center gap-1 rounded-md bg-transparent px-1 py-0.5 font-medium font-mono text-xs leading-5 transition-colors hover:bg-muted",
-            selectedExecutionMode === "edit" &&
-              "text-purple-700 dark:text-purple-300",
-            selectedExecutionMode === "default" && "text-muted-foreground",
-            isStreaming && "cursor-not-allowed opacity-60",
-          )}
-        >
-          <ExecutionModeIcon
-            className="relative -top-[0.5px] size-2.5 shrink-0 self-center"
+        {isCollapsed && (
+          <BotMessageSquareIcon
+            className="@min-[360px]/mini-composer:hidden size-3.5 shrink-0"
             aria-hidden="true"
           />
-          <span>{executionModeLabel(selectedExecutionMode)}</span>
-        </button>
+        )}
+        <span
+          className={cn(
+            "min-w-0 items-center gap-1",
+            isCollapsed ? "@min-[360px]/mini-composer:flex hidden" : "flex",
+          )}
+        >
+          {selectedProvider === "codex" && selectedCodexFastMode && (
+            <ZapIcon
+              aria-label="Fast mode enabled"
+              fill="currentColor"
+              className="size-3 shrink-0"
+            />
+          )}
+          <span className="max-w-[120px] truncate">{pickerLabel}</span>
+          {showEffort && (
+            <span className="shrink-0 text-muted-foreground/60">
+              {effortShortLabel(selectedEffort)}
+            </span>
+          )}
+        </span>
+        <ChevronDownIcon
+          className={cn(
+            "size-3 shrink-0",
+            isCollapsed && "@min-[360px]/mini-composer:block hidden",
+          )}
+          aria-hidden="true"
+        />
+      </button>
+    </Hint>
+  );
+
+  const permissionButton = (
+    <Popover
+      open={openPicker === "permission"}
+      onOpenChange={(open) =>
+        setOpenPicker((current) =>
+          open ? "permission" : current === "permission" ? null : current,
+        )
+      }
+    >
+      <Hint
+        content={
+          openPicker === "permission"
+            ? undefined
+            : `Writing permission · ${executionModeLabel}`
+        }
+      >
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            aria-label="Writing permission"
+            aria-description={executionModeLabel}
+            className={cn(
+              "flex h-7 w-6 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-muted data-[state=open]:bg-muted",
+              executionModeColor ??
+                "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            <ExecutionModeIcon className="size-3.5" aria-hidden="true" />
+          </button>
+        </PopoverTrigger>
       </Hint>
-    ) : null;
+      <PopoverContent
+        ref={permissionPickerRef}
+        side="top"
+        align="center"
+        collisionPadding={8}
+        aria-label="Writing permission"
+        tabIndex={-1}
+        onOpenAutoFocus={(event) => {
+          event.preventDefault();
+          permissionPickerRef.current?.focus({ preventScroll: true });
+        }}
+        className="z-[9999] w-64 max-w-[calc(100vw-1rem)] p-1"
+      >
+        <PopupHeader>
+          <ShieldCheckIcon
+            className="size-3.5 text-muted-foreground"
+            aria-hidden="true"
+          />
+          <h2>Permission</h2>
+        </PopupHeader>
+        <PopupSeparator />
+        <div className="shrink-0 px-2 py-1.5">
+          <div className="mb-1.5 font-medium text-muted-foreground text-xs">
+            Writing permission
+          </div>
+          <ButtonGroup aria-label="Writing permission" className="flex gap-1">
+            {Object.values(AGENT_EXECUTION_MODES).map((option) => {
+              const {
+                value: mode,
+                label,
+                description,
+                icon: Icon,
+                labelClassName,
+              } = option;
+              return (
+                <Hint key={mode} content={description}>
+                  <button
+                    type="button"
+                    aria-pressed={selectedExecutionMode === mode}
+                    disabled={isStreaming}
+                    className={cn(
+                      "flex flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-md px-1.5 py-1.5 font-medium text-xs transition-colors motion-reduce:transition-none",
+                      isStreaming && "cursor-not-allowed opacity-50",
+                      selectedExecutionMode === mode
+                        ? [
+                            "bg-background shadow-sm",
+                            labelClassName ?? "text-foreground",
+                          ]
+                        : "text-muted-foreground hover:bg-background/70 hover:text-foreground",
+                    )}
+                    onClick={() => setExecutionMode(mode)}
+                  >
+                    <Icon className="size-3 shrink-0" aria-hidden="true" />
+                    {label}
+                  </button>
+                </Hint>
+              );
+            })}
+          </ButtonGroup>
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+  const agentControls = (
+    <div data-chat-agent-controls className="flex min-w-0 items-center">
+      {contextIndicator}
+      {permissionButton}
+      {modelButton}
+    </div>
+  );
 
   useLayoutEffect(() => {
     resizeTextarea();
@@ -1560,12 +1733,14 @@ export const ChatComposer: FC<{
   );
 
   const openSlashTrigger = useCallback(() => {
+    setToolbarShortcutsOpen(false);
     slashRangeRef.current = insertTriggerAtSelection("/");
     setSlashQuery("");
     setMentionQuery(null);
   }, [insertTriggerAtSelection]);
 
   const openMentionTrigger = useCallback(() => {
+    setToolbarShortcutsOpen(false);
     insertTriggerAtSelection("@");
     setMentionQuery("");
     setSlashQuery(null);
@@ -1966,7 +2141,7 @@ export const ChatComposer: FC<{
         modelButtonRef.current &&
         !modelButtonRef.current.contains(target)
       ) {
-        setModelPickerOpen(false);
+        setOpenPicker((open) => (open === "model" ? null : open));
       }
     };
     document.addEventListener("mousedown", handleClickOutside);
@@ -1978,6 +2153,7 @@ export const ChatComposer: FC<{
   const showStop = isStreaming && !hasMessageInput;
   const submitControl = (
     <TooltipIconButton
+      data-composer-submit
       tooltip={
         showStop
           ? isStopping
@@ -2062,6 +2238,16 @@ export const ChatComposer: FC<{
         createPortal(
           <PopupSurface
             ref={modelPickerRef}
+            id={modelPickerId}
+            role="dialog"
+            aria-label="Model settings"
+            tabIndex={-1}
+            onKeyDown={(event) => {
+              if (event.key !== "Escape") return;
+              consumeKey(event);
+              setOpenPicker(null);
+              modelButtonRef.current?.focus();
+            }}
             className="fixed flex w-72 max-w-[calc(100vw-1rem)] flex-col overflow-hidden"
             style={{
               left: pickerPos.left,
@@ -2088,7 +2274,7 @@ export const ChatComposer: FC<{
                     }
                     className="flex size-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     onClick={() => {
-                      setModelPickerOpen(false);
+                      setOpenPicker(null);
                       void invoke("open_settings_window", {
                         section: "agent",
                         provider: selectedProvider,
@@ -2104,19 +2290,11 @@ export const ChatComposer: FC<{
                 </Hint>
               }
             >
-              <BotIcon
+              <BotMessageSquareIcon
                 className="size-3.5 text-muted-foreground"
                 aria-hidden="true"
               />
-              <span>
-                {multipleProvidersEnabled
-                  ? "Model selection"
-                  : enabledProviders.claude
-                    ? "Claude Models"
-                    : enabledProviders.pi
-                      ? "Pi Models"
-                      : "Codex Models"}
-              </span>
+              <h2>Model</h2>
             </PopupHeader>
             <PopupSeparator />
             {multipleProvidersEnabled ? (
@@ -2240,7 +2418,7 @@ export const ChatComposer: FC<{
                 className="app-scrollbar min-h-0 overflow-y-auto"
               >
                 <div className="flex items-center justify-between px-2 py-1 font-medium text-muted-foreground text-xs">
-                  <span>Model</span>
+                  <span>Available models</span>
                   <button
                     type="button"
                     disabled={
@@ -3024,9 +3202,9 @@ export const ChatComposer: FC<{
                 </div>
               </div>
             ) : activeQuestion ? null : isCollapsed ? (
-              <div className="flex shrink-0 items-end gap-1 px-2 py-2">
+              <div className="@container/mini-composer flex shrink-0 items-end gap-1 py-2 pr-2 pl-1.5">
                 <textarea
-                  ref={textareaRef}
+                  ref={attachMiniTextarea}
                   data-chat-composer-input="true"
                   value={input}
                   onChange={handleInput}
@@ -3035,42 +3213,14 @@ export const ChatComposer: FC<{
                   placeholder={
                     pinnedContexts.some(isPromptSelection)
                       ? "Ask about this selection…"
-                      : `Write with ${PRODUCT_NAME}…`
+                      : "Message…"
                   }
-                  className="scrollbar-none max-h-12 min-h-8 flex-1 resize-none overflow-y-auto overflow-x-hidden bg-transparent px-2 py-1.5 text-sm outline-none placeholder:text-muted-foreground"
+                  className="scrollbar-none max-h-12 min-w-0 flex-1 resize-none overflow-y-auto overflow-x-hidden bg-transparent py-[5px] pr-2 pl-1.5 text-sm leading-[18px] outline-none placeholder:truncate placeholder:text-muted-foreground"
                   rows={1}
                 />
 
-                <div className="flex shrink-0 items-center gap-2">
-                  <div className="flex items-center gap-0">
-                    {contextIndicator}
-                    <Hint content={modelTooltip}>
-                      <button
-                        ref={modelButtonRef}
-                        aria-label={modelTooltipLabel}
-                        type="button"
-                        onClick={() => setModelPickerOpen((v) => !v)}
-                        className="flex max-w-[170px] shrink-0 items-center gap-1 rounded-md px-1 py-1 text-muted-foreground text-xs transition-colors hover:bg-muted hover:text-foreground"
-                      >
-                        {selectedProvider === "codex" &&
-                          selectedCodexFastMode && (
-                            <ZapIcon
-                              aria-label="Fast mode enabled"
-                              fill="currentColor"
-                              className="size-3 shrink-0"
-                            />
-                          )}
-                        <span className="truncate">{pickerLabel}</span>
-                        {showEffort && (
-                          <span className="text-muted-foreground/60">
-                            {effortShortLabel(selectedEffort)}
-                          </span>
-                        )}
-                        <ChevronDownIcon className="size-3 shrink-0" />
-                      </button>
-                    </Hint>
-                    {executionModeButton}
-                  </div>
+                <div className="flex shrink-0 items-center gap-1">
+                  {agentControls}
 
                   {submitControl}
                 </div>
@@ -3089,78 +3239,128 @@ export const ChatComposer: FC<{
                       ? "Ask about this selection…"
                       : `Write with ${PRODUCT_NAME}…`
                   }
-                  className="scrollbar-none max-h-40 min-h-10 w-full shrink-0 resize-none overflow-y-auto overflow-x-hidden bg-transparent px-4 py-2 text-sm outline-none placeholder:text-muted-foreground"
+                  className="scrollbar-none max-h-40 min-h-10 w-full shrink-0 resize-none overflow-y-auto overflow-x-hidden bg-transparent pt-[13px] pr-4 pb-[3px] pl-3 text-sm outline-none placeholder:text-muted-foreground"
                   rows={1}
                 />
 
                 <div
                   ref={setToolbarElement}
                   data-chat-composer-toolbar
-                  className="relative flex shrink-0 items-center justify-end gap-2 px-2 pb-2"
+                  className="relative flex shrink-0 items-center justify-end px-2 pb-2 [--composer-collapse-ease:cubic-bezier(0.8,0,0.6,1)]"
+                  onBlur={(event) => {
+                    if (
+                      toolbarShortcutsOpen &&
+                      !event.currentTarget.contains(event.relatedTarget)
+                    ) {
+                      setToolbarShortcutsOpen(false);
+                    }
+                  }}
+                  onKeyDown={(event) => {
+                    if (!toolbarShortcutsOpen || event.key !== "Escape") return;
+                    event.preventDefault();
+                    event.stopPropagation();
+                    setToolbarShortcutsOpen(false);
+                    toolbarToggleRef.current?.focus({ preventScroll: true });
+                  }}
                 >
-                  <div
-                    data-composer-shortcuts
-                    aria-hidden={hideToolbarShortcuts || undefined}
-                    inert={hideToolbarShortcuts}
-                    className={cn(
-                      "mr-auto flex w-max shrink-0 items-center gap-0 whitespace-nowrap",
-                      // Keep its natural width measurable so shortcuts return as
-                      // soon as they fit, including after model labels change.
-                      hideToolbarShortcuts && "invisible absolute left-2",
-                    )}
-                  >
-                    <button
-                      type="button"
-                      onClick={openSlashTrigger}
-                      className="rounded-md px-1 py-1 text-muted-foreground text-xs transition-colors hover:bg-muted hover:text-foreground"
+                  <div className="flex min-h-7 min-w-6 flex-1 items-center overflow-x-clip">
+                    <div
+                      data-composer-shortcuts-track
+                      className={cn(
+                        "relative flex h-7 shrink-0 items-center overflow-hidden transition-[width] duration-200 motion-reduce:transition-none",
+                        showToolbarShortcuts
+                          ? "w-(--composer-shortcuts-width) ease-in-out"
+                          : "w-6 ease-(--composer-collapse-ease)",
+                        toolbarShortcutsOpen &&
+                          "w-[calc(var(--composer-shortcuts-width)+1.5rem)]",
+                      )}
                     >
-                      / for commands
-                    </button>
-                    <button
-                      type="button"
-                      onClick={openMentionTrigger}
-                      className="rounded-md px-1 py-1 text-muted-foreground text-xs transition-colors hover:bg-muted hover:text-foreground"
-                    >
-                      @ for mention
-                    </button>
+                      <button
+                        ref={toolbarToggleRef}
+                        type="button"
+                        aria-label={
+                          toolbarShortcutsOpen
+                            ? "Hide composer shortcuts"
+                            : "Show composer shortcuts"
+                        }
+                        aria-expanded={toolbarShortcutsOpen}
+                        aria-hidden={!compactToolbar || undefined}
+                        inert={!compactToolbar}
+                        onClick={() => setToolbarShortcutsOpen((open) => !open)}
+                        className={cn(
+                          "absolute left-0 z-10 flex h-7 w-6 items-center justify-center rounded-md text-muted-foreground transition-opacity duration-100 hover:bg-muted hover:text-foreground motion-reduce:transition-none",
+                          compactToolbar
+                            ? "delay-100 ease-(--composer-collapse-ease)"
+                            : "opacity-0",
+                        )}
+                      >
+                        {toolbarShortcutsOpen ? (
+                          <MinusIcon className="size-3.5" aria-hidden="true" />
+                        ) : (
+                          <PlusIcon className="size-3.5" aria-hidden="true" />
+                        )}
+                      </button>
+                      <div
+                        data-composer-shortcuts
+                        aria-hidden={!showToolbarShortcuts || undefined}
+                        inert={!showToolbarShortcuts}
+                        className={cn(
+                          "flex w-max shrink-0 items-center whitespace-nowrap transition-[opacity,translate] duration-100 motion-reduce:transition-none",
+                          compactToolbar && "translate-x-6",
+                          showToolbarShortcuts
+                            ? "delay-75"
+                            : "opacity-0 delay-25 ease-(--composer-collapse-ease)",
+                        )}
+                      >
+                        <button
+                          type="button"
+                          onClick={openSlashTrigger}
+                          className="rounded-md px-1 py-1 text-muted-foreground text-xs transition-colors hover:bg-muted hover:text-foreground"
+                        >
+                          / commands
+                        </button>
+                        <button
+                          type="button"
+                          onClick={openMentionTrigger}
+                          className="rounded-md px-1 py-1 text-muted-foreground text-xs transition-colors hover:bg-muted hover:text-foreground"
+                        >
+                          @ mention
+                        </button>
+                      </div>
+                    </div>
                   </div>
 
+                  {/* Reserve space for Send even while the agent controls fade. */}
+                  <div
+                    aria-hidden="true"
+                    className={cn(
+                      "shrink-0 transition-[width] duration-200 motion-reduce:transition-none",
+                      toolbarShortcutsOpen
+                        ? "w-(--composer-submit-width) ease-in-out"
+                        : "w-(--composer-controls-width) ease-(--composer-collapse-ease)",
+                    )}
+                  />
                   <div
                     data-composer-controls
-                    className="flex shrink-0 items-center gap-2"
+                    className={cn(
+                      "absolute right-2 flex min-w-0 max-w-[calc(100%-2.5rem)] items-center gap-1",
+                      // Let clicks pass through the space behind the fading controls.
+                      toolbarShortcutsOpen &&
+                        "pointer-events-none [&>[data-composer-submit]]:pointer-events-auto",
+                    )}
                   >
-                    {/* Model & settings selector */}
                     <div
-                      data-chat-agent-controls
-                      className="flex items-center gap-0"
+                      data-composer-agent-controls
+                      aria-hidden={toolbarShortcutsOpen || undefined}
+                      inert={toolbarShortcutsOpen}
+                      className={cn(
+                        "min-w-0 transition-opacity duration-200 motion-reduce:transition-none",
+                        toolbarShortcutsOpen
+                          ? "opacity-0 ease-in-out"
+                          : "ease-(--composer-collapse-ease)",
+                      )}
                     >
-                      {contextIndicator}
-                      <Hint content={modelTooltip}>
-                        <button
-                          ref={modelButtonRef}
-                          aria-label={modelTooltipLabel}
-                          type="button"
-                          onClick={() => setModelPickerOpen((v) => !v)}
-                          className="flex items-center gap-1 rounded-md px-1 py-1 text-muted-foreground text-xs transition-colors hover:bg-muted hover:text-foreground"
-                        >
-                          {selectedProvider === "codex" &&
-                            selectedCodexFastMode && (
-                              <ZapIcon
-                                aria-label="Fast mode enabled"
-                                fill="currentColor"
-                                className="size-3 shrink-0"
-                              />
-                            )}
-                          <span>{pickerLabel}</span>
-                          {showEffort && (
-                            <span className="text-muted-foreground/60">
-                              {effortShortLabel(selectedEffort)}
-                            </span>
-                          )}
-                          <ChevronDownIcon className="size-3" />
-                        </button>
-                      </Hint>
-                      {executionModeButton}
+                      {agentControls}
                     </div>
 
                     {submitControl}

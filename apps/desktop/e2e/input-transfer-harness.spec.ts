@@ -177,12 +177,23 @@ test("layout switches and new chats share one default permission", async ({
 }) => {
   await page.goto("/?debug=input-transfer");
   await expect(page.locator(".cm-editor")).toBeVisible();
-  const ask = page
-    .getByRole("button", { name: /^Manual:/ })
-    .filter({ visible: true })
-    .first();
-  await expect(ask).toBeVisible();
   await expect(page.locator("#loading-screen")).toHaveCount(0);
+  const expectManual = async (panel: string) => {
+    const trigger = page
+      .locator(panel)
+      .getByRole("button", { name: "Writing permission", exact: true });
+    await trigger.click();
+    const popup = page.getByRole("dialog", {
+      name: "Writing permission",
+      exact: true,
+    });
+    await expect(
+      popup.getByRole("button", { name: "Need approval", exact: true }),
+    ).toHaveAttribute("aria-pressed", "true");
+    await popup.press("Escape");
+    await expect(trigger).toBeFocused();
+  };
+  await expectManual("[data-chat-drawer-panel]");
   await page.waitForTimeout(800);
   await page
     .getByRole("button", { name: "Toggle drawer", exact: true })
@@ -193,17 +204,17 @@ test("layout switches and new chats share one default permission", async ({
     "data-chat-layout",
     "workspace",
   );
-  await expect(ask).toBeVisible();
+  await expectManual("[data-workspace-chat-pane]");
   await page.evaluate(() => window.__newInputTransferChat?.());
-  await expect(ask).toBeVisible();
+  await expectManual("[data-workspace-chat-pane]");
   await page.getByRole("button", { name: "Half", exact: true }).click();
   await expect(page.locator("[data-workspace-mode-area]")).toHaveAttribute(
     "data-chat-layout",
     "drawer",
   );
-  await expect(ask).toBeVisible();
+  await expectManual("[data-chat-drawer-panel]");
   await page.evaluate(() => window.__newInputTransferChat?.());
-  await expect(ask).toBeVisible();
+  await expectManual("[data-chat-drawer-panel]");
 });
 
 test("removing a badge while typing preserves chat focus and caret", async ({

@@ -3,16 +3,14 @@ import { expect, test } from "@playwright/test";
 test("model descriptions render above the model picker", async ({ page }) => {
   await page.goto("/?debug=agent-pause&provider=claude");
   await page
-    .getByRole("button", { name: "Default · default", exact: true })
+    .getByRole("button", {
+      name: "Default · default · Model settings",
+      exact: true,
+    })
     .click();
-  const popup = page
-    .locator(".popup-glass")
-    .filter({ hasText: "Model selection" });
+  const popup = page.getByRole("dialog", { name: "Model settings" });
   await expect(popup).toBeVisible();
-  const model = popup
-    .locator("button[aria-label]")
-    .filter({ hasNotText: "Manage legacy models" })
-    .last();
+  const model = popup.locator("[data-model-provider] button").last();
   const description = model.locator("[data-model-description]");
   const tip = page.locator('[data-slot="tooltip-content"]');
   await description.hover();
@@ -35,9 +33,9 @@ test("model descriptions render above the model picker", async ({ page }) => {
   await expect
     .poll(async () => {
       return tip.evaluate((element) => {
-        const popup = [
-          ...document.querySelectorAll<HTMLElement>(".popup-glass"),
-        ].find((item) => item.textContent?.includes("Model selection"));
+        const popup = document.querySelector<HTMLElement>(
+          '[role="dialog"][aria-label="Model settings"]',
+        );
         const wrapper = element.parentElement!;
         return (
           Number(getComputedStyle(wrapper).zIndex) >
@@ -58,53 +56,55 @@ test("model descriptions render above the model picker", async ({ page }) => {
 test("provider switching animates and respects reduced motion", async ({
   page,
 }) => {
-  await page.goto("/?debug=agent-pause&provider=claude");
-  await page.getByRole("button", { name: "Pause", exact: true }).click();
-  await expect(
-    page.getByRole("button", { name: "Continue", exact: true }),
-  ).toBeVisible();
-  await page
-    .getByRole("button", { name: "Default · default", exact: true })
-    .click();
-  const group = page.getByRole("group", { name: "Provider", exact: true });
-  const popup = page
-    .locator(".popup-glass")
-    .filter({ hasText: "Model selection" });
-  await expect(group.locator("[data-provider-indicator]")).toHaveCount(0);
-  await group.getByRole("button", { name: "Codex", exact: true }).click();
-  const motion = await popup.evaluate((element) => {
-    const animations = element.getAnimations({ subtree: true });
-    const frames = animations.map((animation) => {
-      animation.pause();
-      animation.currentTime = 90;
-      return (animation.effect as KeyframeEffect).getKeyframes();
-    });
-    return frames;
+  await page.goto("/?debug=claude-models&usage=slow");
+  await page.getByRole("button", { name: /Opus 4.8/ }).click();
+  const popup = page.getByRole("dialog", { name: "Model settings" });
+  const group = popup.getByRole("group", { name: "Provider", exact: true });
+  const refresh = popup.getByRole("button", {
+    name: "Refresh subscription usage",
   });
-  expect(motion.some((frames) => frames.some((frame) => frame.height))).toBe(
-    true,
+  await expect(refresh).toBeEnabled();
+  const usage = popup.locator("[data-subscription-content]");
+  const [keyframes] = await Promise.all([
+    usage.evaluate(
+      (element) =>
+        new Promise<Keyframe[]>((resolve) => {
+          const observer = new MutationObserver(() => {
+            const frames = element
+              .getAnimations()
+              .flatMap((animation) =>
+                (animation.effect as KeyframeEffect).getKeyframes(),
+              );
+            if (!frames.some((frame) => "opacity" in frame)) return;
+            observer.disconnect();
+            resolve(frames);
+          });
+          observer.observe(element, { childList: true, subtree: true });
+        }),
+    ),
+    group.getByRole("button", { name: "Codex", exact: true }).click(),
+  ]);
+  expect(keyframes).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ opacity: "0" }),
+      expect.objectContaining({ opacity: "1" }),
+    ]),
   );
-  expect(
-    motion.filter((frames) => frames.some((frame) => frame.opacity)).length,
-  ).toBeGreaterThanOrEqual(2);
-  const outgoing = popup.locator("[data-model-picker-outgoing]");
-  await expect(outgoing).toHaveAttribute("aria-hidden", "true");
-  await expect(outgoing).toHaveAttribute("inert", "");
-  await page.screenshot({ path: "/tmp/vib398-provider-crossfade.png" });
-  await popup.evaluate((element) =>
-    element
-      .getAnimations({ subtree: true })
-      .forEach((animation) => animation.finish()),
-  );
-  await expect(outgoing).toHaveCount(0);
-  await page.screenshot({ path: "/tmp/vib398-provider-switch.png" });
+  await expect(refresh).toBeEnabled();
   await page.emulateMedia({ reducedMotion: "reduce" });
   await group.getByRole("button", { name: "Claude", exact: true }).click();
-  await expect(page.locator('[data-model-provider="claude"]')).toBeVisible();
-  await expect(outgoing).toHaveCount(0);
+  await expect(popup.locator('[data-model-provider="claude"]')).toBeVisible();
+  await expect(refresh).toBeEnabled();
   expect(
     await popup.evaluate(
-      (element) => element.getAnimations({ subtree: true }).length,
+      (element) =>
+        element
+          .getAnimations({ subtree: true })
+          .filter(
+            (animation) =>
+              !(animation instanceof CSSAnimation) &&
+              !(animation instanceof CSSTransition),
+          ).length,
     ),
   ).toBe(0);
 });

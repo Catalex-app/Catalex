@@ -74,7 +74,7 @@ import {
   SidebarIcon,
   UserIcon,
   GitMergeIcon,
-  BotIcon,
+  BotMessageSquareIcon,
 } from "lucide-react";
 import { invoke } from "@/lib/desktop/core";
 import {
@@ -903,7 +903,7 @@ function SystemPromptsSection({
       <SidebarSectionHeader
         section="system-prompts"
         title="System Prompts"
-        icon={<BotIcon className="size-3.5" />}
+        icon={<BotMessageSquareIcon className="size-3.5" />}
         collapsed={isCollapsed}
         onToggle={onToggle}
       />

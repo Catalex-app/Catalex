@@ -56,8 +56,9 @@ import { listen } from "@/lib/desktop/event";
 import { CustomModelSettings } from "./custom-model-settings";
 import { useClaudeModels, useCodexModels } from "@/lib/use-agent-models";
 import { formatCodexModelName, codexEffortLabel } from "@/lib/codex-models";
+import { AGENT_EXECUTION_MODES } from "@/lib/agent-execution-mode";
 import {
-  BotIcon,
+  BotMessageSquareIcon,
   CatIcon,
   CheckIcon,
   ChevronDownIcon,
@@ -73,12 +74,10 @@ import {
   PlusIcon,
   MonitorIcon,
   MoonIcon,
-  PencilLineIcon,
   RefreshCwIcon,
   RotateCcwIcon,
   SearchIcon,
   SettingsIcon,
-  ShieldCheckIcon,
   SunIcon,
 } from "lucide-react";
 import { open } from "@/lib/desktop/dialog";
@@ -135,7 +134,6 @@ import {
   type CatStaticDisplay,
   type CompilerBackend,
   type CompilerEngine,
-  type AgentExecutionMode,
   type CodexModelId,
   type CodexReasoningEffort,
   type DefaultAgent,
@@ -179,7 +177,7 @@ const SECTIONS: Array<{
 }> = [
   { id: "appearance", label: "Appearance", icon: SunIcon },
   { id: "cat", label: "Cat", icon: CatIcon },
-  { id: "agent", label: "Agent", icon: BotIcon },
+  { id: "agent", label: "Agent", icon: BotMessageSquareIcon },
   { id: "keyboard", label: "Keyboard", icon: KeyboardIcon },
   { id: "rendering", label: "Rendering", icon: CodeXmlIcon },
   { id: "storage", label: "Storage", icon: HardDriveIcon },
@@ -284,24 +282,7 @@ export const FALLBACK_CODEX_REASONING_OPTIONS: Array<{
   { value: "xhigh", label: codexEffortLabel("xhigh") },
 ];
 
-const AGENT_MODE_OPTIONS: Array<{
-  value: AgentExecutionMode;
-  label: string;
-  icon?: LucideIcon;
-  labelClassName?: string;
-}> = [
-  {
-    value: "default",
-    label: "Manual approval",
-    icon: ShieldCheckIcon,
-  },
-  {
-    value: "edit",
-    label: "Automatic approval",
-    icon: PencilLineIcon,
-    labelClassName: "text-purple-700 dark:text-purple-300",
-  },
-];
+const AGENT_MODE_OPTIONS = Object.values(AGENT_EXECUTION_MODES);
 
 export const CAT_MODE_OPTIONS: Array<{
   value: CatDisplayMode;
@@ -1643,6 +1624,7 @@ export function SettingsWindow() {
         ),
         searchText: [
           "Default",
+          "Approval mode",
           getOptionLabel(AGENT_MODE_OPTIONS, defaultAgentExecutionMode),
           ...getOptionSearchText(AGENT_MODE_OPTIONS),
         ],
@@ -2716,6 +2698,7 @@ export function SettingsWindow() {
                               title="Default"
                             >
                               <SettingsDropdown
+                                ariaLabel="Default approval mode"
                                 value={defaultAgentExecutionMode}
                                 options={AGENT_MODE_OPTIONS}
                                 onChange={setDefaultAgentExecutionMode}

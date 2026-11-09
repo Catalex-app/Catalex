@@ -1,23 +1,29 @@
 import { Hint } from "@/components/ui/tooltip";
 import { useRef, useState, type ReactNode } from "react";
-import { useProjectStore } from "@/stores/project-store";
+import {
+  MIN_PROJECT_SIDEBAR_WIDTH,
+  useProjectStore,
+} from "@/stores/project-store";
 import { cn } from "@/lib/utils";
 
 // The welcome sidebar is w-60 (240px). Keep manual resizing independent of
 // this default so widening one project never changes another project's layout.
-export const DEFAULT_PROJECT_SIDEBAR_WIDTH = 240;
-export const MAX_PROJECT_SIDEBAR_WIDTH = 420;
+const DEFAULT_PROJECT_SIDEBAR_WIDTH = 240;
+// The resize handle is 4px wide with a 4px margin on either side.
+export const PROJECT_SIDEBAR_HANDLE_WIDTH = 12;
 
 export function ProjectSidebarPanel({
   projectRoot,
   collapsed,
   transitioning,
+  maxWidth,
   onToggle,
   children,
 }: {
   projectRoot: string | null;
   collapsed: boolean;
   transitioning: boolean;
+  maxWidth: number;
   onToggle: () => void;
   children: ReactNode;
 }) {
@@ -31,12 +37,9 @@ export function ProjectSidebarPanel({
     startWidth: number;
     width: number;
   } | null>(null);
-  const width = dragWidth ?? savedWidth ?? DEFAULT_PROJECT_SIDEBAR_WIDTH;
   const clamp = (value: number) =>
-    Math.min(
-      MAX_PROJECT_SIDEBAR_WIDTH,
-      Math.max(DEFAULT_PROJECT_SIDEBAR_WIDTH, value),
-    );
+    Math.min(maxWidth, Math.max(MIN_PROJECT_SIDEBAR_WIDTH, value));
+  const width = clamp(dragWidth ?? savedWidth ?? DEFAULT_PROJECT_SIDEBAR_WIDTH);
   const persist = (value: number | null) => {
     if (projectRoot) saveWidth(projectRoot, value);
   };
@@ -61,8 +64,8 @@ export function ProjectSidebarPanel({
           aria-orientation="vertical"
           aria-label="Resize sidebar"
           aria-controls="project-sidebar"
-          aria-valuemin={DEFAULT_PROJECT_SIDEBAR_WIDTH}
-          aria-valuemax={MAX_PROJECT_SIDEBAR_WIDTH}
+          aria-valuemin={MIN_PROJECT_SIDEBAR_WIDTH}
+          aria-valuemax={maxWidth}
           aria-valuenow={Math.round(width)}
           tabIndex={collapsed ? -1 : 0}
           className={cn(
@@ -88,7 +91,8 @@ export function ProjectSidebarPanel({
           }}
           onPointerUp={(event) => {
             if (!drag.current) return;
-            persist(drag.current.width);
+            const next = clamp(drag.current.width);
+            if (next !== clamp(drag.current.startWidth)) persist(next);
             drag.current = null;
             setDragWidth(null);
             event.currentTarget.releasePointerCapture(event.pointerId);
@@ -107,10 +111,10 @@ export function ProjectSidebarPanel({
                 next = clamp(width + 10);
                 break;
               case "Home":
-                next = DEFAULT_PROJECT_SIDEBAR_WIDTH;
+                next = MIN_PROJECT_SIDEBAR_WIDTH;
                 break;
               case "End":
-                next = MAX_PROJECT_SIDEBAR_WIDTH;
+                next = maxWidth;
                 break;
               case "Enter":
                 event.preventDefault();
@@ -120,7 +124,7 @@ export function ProjectSidebarPanel({
                 return;
             }
             event.preventDefault();
-            persist(next);
+            if (next !== width) persist(next);
           }}
         >
           <span className="absolute -inset-x-1 inset-y-0" />

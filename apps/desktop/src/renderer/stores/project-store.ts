@@ -21,6 +21,8 @@ interface ProjectState {
 }
 
 const MAX_RECENT = 10;
+export const MIN_PROJECT_SIDEBAR_WIDTH = 200;
+export const MAX_PROJECT_SIDEBAR_WIDTH = 420;
 
 export const useProjectStore = create<ProjectState>()(
   persist(
@@ -32,7 +34,11 @@ export const useProjectStore = create<ProjectState>()(
         set((state) => {
           const widths = { ...state.sidebarWidthsByProject };
           if (width === null) delete widths[path];
-          else widths[path] = Math.min(420, Math.max(240, width));
+          else
+            widths[path] = Math.min(
+              MAX_PROJECT_SIDEBAR_WIDTH,
+              Math.max(MIN_PROJECT_SIDEBAR_WIDTH, width),
+            );
           return { sidebarWidthsByProject: widths };
         });
       },

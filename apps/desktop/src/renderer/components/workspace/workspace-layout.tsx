@@ -23,7 +23,14 @@ import {
   WORKSPACE_PANEL_EXPAND_ANIMATION_MS,
   useWorkspaceLayoutAnimation,
 } from "./use-workspace-layout-animation";
-import { ProjectSidebarPanel } from "./project-sidebar-panel";
+import {
+  PROJECT_SIDEBAR_HANDLE_WIDTH,
+  ProjectSidebarPanel,
+} from "./project-sidebar-panel";
+import {
+  MAX_PROJECT_SIDEBAR_WIDTH,
+  MIN_PROJECT_SIDEBAR_WIDTH,
+} from "@/stores/project-store";
 import { useWorkspaceTheme } from "@/hooks/use-workspace-theme";
 import { PdfFileIcon } from "@/components/ui/pdf-file-icon";
 import { ButtonGroup } from "@/components/ui/button-group";
@@ -46,8 +53,10 @@ import {
   useRef,
   useState,
 } from "react";
+import { flushSync } from "react-dom";
 import { useTrafficLightInset } from "@/hooks/use-traffic-light-inset";
 import {
+  customizeGlobalCursorStyles,
   Panel,
   PanelGroup,
   PanelResizeHandle,
@@ -124,7 +133,29 @@ const WORKSPACE_COLUMN_ORDER: WorkspaceColumnId[] = [
   "incoming",
   "pdf",
 ];
-const OPEN_COLUMN_MIN_PERCENT = 20;
+const WORKSPACE_SPLIT_HANDLE_WIDTH = 8;
+const SYNC_NAVIGATION_RESIZE_PADDING = 12;
+const WORKSPACE_PANEL_MIN_WIDTH = 280;
+const WORKSPACE_MIN_WIDTH =
+  2 * WORKSPACE_PANEL_MIN_WIDTH + WORKSPACE_SPLIT_HANDLE_WIDTH;
+
+customizeGlobalCursorStyles(
+  ({ exceedsHorizontalMinimum, exceedsHorizontalMaximum }) => {
+    if (exceedsHorizontalMinimum) return "e-resize";
+    if (exceedsHorizontalMaximum) return "w-resize";
+    return "col-resize";
+  },
+);
+
+function getSplitMinSize(availableWidth: number) {
+  // Share the available space equally if the viewport temporarily falls
+  // below the space required by the two panes.
+  return (
+    (WORKSPACE_PANEL_MIN_WIDTH /
+      Math.max(availableWidth, 2 * WORKSPACE_PANEL_MIN_WIDTH)) *
+    100
+  );
+}
 
 function getWorkspaceViewOptions({
   isMarkdownDocument,
@@ -512,28 +543,46 @@ function ProjectWorkspaceLayout() {
     setLatexPdfScrollTarget(null);
     setEditorScrollSyncTarget(null);
   }, [projectRoot, activeFileId]);
-  const [isSyncNavigationControlHovered, setIsSyncNavigationControlHovered] =
-    useState(false);
-  const [isWorkspaceSeamMiddleHovered, setIsWorkspaceSeamMiddleHovered] =
-    useState(false);
+  const [isSyncResizeAreaHovered, setIsSyncResizeAreaHovered] = useState(false);
+  const workspaceResizeSeamRef = useRef<HTMLDivElement>(null);
+  const syncNavigationControlRef = useRef<HTMLDivElement>(null);
   const isWorkspaceSeamDraggingRef = useRef(false);
   useEffect(() => {
     const updateSeamResizeRegion = (event: PointerEvent) => {
       if (isWorkspaceSeamDraggingRef.current) return;
-      const seam = document.querySelector<HTMLElement>(
-        "[data-workspace-resize-seam]",
+      const seam = workspaceResizeSeamRef.current?.getBoundingClientRect();
+      const controls =
+        syncNavigationControlRef.current?.getBoundingClientRect();
+      const hitMargin = event.pointerType === "touch" ? 15 : 5;
+      const protectedArea = Boolean(
+        seam &&
+          controls &&
+          seam.width > 0 &&
+          controls.height > 0 &&
+          event.clientX >= seam.left - hitMargin &&
+          event.clientX <= seam.right + hitMargin &&
+          event.clientY >= controls.top - SYNC_NAVIGATION_RESIZE_PADDING &&
+          event.clientY <= controls.bottom + SYNC_NAVIGATION_RESIZE_PADDING,
       );
-      if (!seam) return;
-      const bounds = seam.getBoundingClientRect();
-      const position = (event.clientY - bounds.top) / bounds.height;
-      setIsWorkspaceSeamMiddleHovered(position > 1 / 3 && position < 2 / 3);
+      if (
+        event.type === "pointerdown" &&
+        protectedArea !== isSyncResizeAreaHovered
+      ) {
+        // Update before the resize library's pointerdown listener on the body.
+        flushSync(() => setIsSyncResizeAreaHovered(protectedArea));
+      } else {
+        setIsSyncResizeAreaHovered(protectedArea);
+      }
     };
     // The resize library hit-tests a margin outside the handle itself.
-    // Track the pointer globally so the same vertical restriction covers that margin.
+    // Check both hover and drag start, including presses without a prior move.
     window.addEventListener("pointermove", updateSeamResizeRegion, true);
-    return () =>
+    window.addEventListener("pointerdown", updateSeamResizeRegion, true);
+    return () => {
       window.removeEventListener("pointermove", updateSeamResizeRegion, true);
-  }, []);
+      window.removeEventListener("pointerdown", updateSeamResizeRegion, true);
+    };
+  }, [isSyncResizeAreaHovered]);
 
   const [globalHeaderHost, setGlobalHeaderHost] =
     useState<HTMLDivElement | null>(null);
@@ -549,6 +598,7 @@ function ProjectWorkspaceLayout() {
   const modeContentGroupRef = useRef<ImperativePanelGroupHandle | null>(null);
   const contentGroupRef = useRef<ImperativePanelGroupHandle | null>(null);
   const headerRowRef = useRef<HTMLDivElement | null>(null);
+  const workspaceRowRef = useRef<HTMLDivElement | null>(null);
   const modeAreaRef = useRef<HTMLDivElement | null>(null);
   const collapsedHeaderControlsRef = useRef<HTMLDivElement | null>(null);
   const contentAreaRef = useRef<HTMLDivElement | null>(null);
@@ -848,26 +898,53 @@ function ProjectWorkspaceLayout() {
   const isPdfVisible = openColumns.includes("pdf");
   const isPreviewOnly = isPdfVisible && !isEditorVisible;
   const isIncomingVisible = openColumns.includes("incoming");
+  const [{ rowWidth, workspaceWidth }, setWorkspaceWidths] = useState({
+    rowWidth: 0,
+    workspaceWidth: 0,
+  });
+  useLayoutEffect(() => {
+    const row = workspaceRowRef.current;
+    const workspace = modeAreaRef.current;
+    if (!row || !workspace) return;
+    const measure = () => {
+      const rowWidth = row.clientWidth;
+      const workspaceWidth = workspace.clientWidth;
+      setWorkspaceWidths((previous) =>
+        previous.rowWidth === rowWidth &&
+        previous.workspaceWidth === workspaceWidth
+          ? previous
+          : { rowWidth, workspaceWidth },
+      );
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(row);
+    observer.observe(workspace);
+    return () => observer.disconnect();
+  }, [initialized]);
+
+  const splitWidth =
+    visibleColumnCount === 2 ? WORKSPACE_SPLIT_HANDLE_WIDTH : 0;
+  const sidebarMaxWidth = rowWidth
+    ? Math.min(
+        MAX_PROJECT_SIDEBAR_WIDTH,
+        Math.max(
+          MIN_PROJECT_SIDEBAR_WIDTH,
+          rowWidth - PROJECT_SIDEBAR_HANDLE_WIDTH - WORKSPACE_MIN_WIDTH,
+        ),
+      )
+    : MAX_PROJECT_SIDEBAR_WIDTH;
+  const splitMinSize =
+    !isColumnLayoutAnimating && visibleColumnCount === 2 && workspaceWidth
+      ? getSplitMinSize(workspaceWidth - splitWidth)
+      : 0;
+  const panelMinSize = (column: WorkspaceColumnId) =>
+    openColumns.includes(column) ? splitMinSize : 0;
+
   useEffect(() => {
     if (expandedPanel && !openColumns.includes(expandedPanel))
       setExpandedPanel(null);
   }, [expandedPanel, openColumns]);
-  const chatPanelMinSize =
-    !isColumnLayoutAnimating && visibleColumnCount === 2 && isChatVisible
-      ? OPEN_COLUMN_MIN_PERCENT
-      : 0;
-  const editorPanelMinSize =
-    !isColumnLayoutAnimating && visibleColumnCount === 2 && isEditorVisible
-      ? OPEN_COLUMN_MIN_PERCENT
-      : 0;
-  const pdfPanelMinSize =
-    !isColumnLayoutAnimating && visibleColumnCount === 2 && isPdfVisible
-      ? OPEN_COLUMN_MIN_PERCENT
-      : 0;
-  const incomingPanelMinSize =
-    !isColumnLayoutAnimating && visibleColumnCount === 2 && isIncomingVisible
-      ? OPEN_COLUMN_MIN_PERCENT
-      : 0;
   const showChatEditorHandle =
     openPairKey === "chat|editor" || openPairKey === "chat|pdf";
   const showEditorPdfHandle =
@@ -904,10 +981,10 @@ function ProjectWorkspaceLayout() {
       const ratioKey =
         right === "incoming" ? "editor|pdf" : getOrderedPairKey(left, right);
       const storedRatio = pairRatioByKeyRef.current[ratioKey] ?? 50;
-      const leftWidth = Math.max(
-        OPEN_COLUMN_MIN_PERCENT,
-        Math.min(100 - OPEN_COLUMN_MIN_PERCENT, storedRatio),
+      const minSize = getSplitMinSize(
+        (modeAreaRef.current?.clientWidth ?? 0) - WORKSPACE_SPLIT_HANDLE_WIDTH,
       );
+      const leftWidth = Math.max(minSize, Math.min(100 - minSize, storedRatio));
       layout[getColumnIndex(left)] = leftWidth;
       layout[getColumnIndex(right)] = 100 - leftWidth;
       return layout;
@@ -2556,12 +2633,13 @@ function ProjectWorkspaceLayout() {
 
   return (
     <div className="h-full pt-0 pr-2 pl-3">
-      <div className="flex h-full">
+      <div ref={workspaceRowRef} className="flex h-full">
         <ProjectSidebarPanel
           key={projectRoot}
           projectRoot={projectRoot}
           collapsed={isSidebarCollapsed}
           transitioning={isSidebarTransitioning}
+          maxWidth={sidebarMaxWidth}
           onToggle={toggleSidebar}
         >
           <Sidebar
@@ -2728,21 +2806,21 @@ function ProjectWorkspaceLayout() {
                   {isWorkspaceChat && (
                     <div
                       data-git-actions-overlap-anchor
-                      className="min-w-0 shrink overflow-hidden"
+                      className="@container/file-switcher w-[280px] min-w-0 shrink overflow-hidden"
                     >
                       <Select
                         value={activeFileId || undefined}
                         onValueChange={setActiveFile}
                       >
-                        <SelectTrigger
-                          size="sm"
-                          className="h-8 w-full min-w-0 max-w-[280px] justify-start gap-2 overflow-hidden rounded-md px-2 py-0 font-normal text-sm leading-none shadow-none"
-                        >
-                          <SelectValue
-                            className="truncate"
-                            placeholder="Choose file"
-                          />
-                        </SelectTrigger>
+                        <Hint content={activeFileRelativePath}>
+                          {/* 106px leaves 40px for text beside both icons and their spacing. */}
+                          <SelectTrigger
+                            size="sm"
+                            className="h-8 min-w-0 max-w-full @max-[106px]/file-switcher:gap-1 gap-2 overflow-hidden rounded-md @max-[106px]/file-switcher:px-1.5 px-2 py-0 font-normal text-sm leading-none shadow-none *:data-[slot=select-value]:min-w-0 @max-[106px]/file-switcher:[&_[data-slot=select-value]_svg]:hidden"
+                          >
+                            <SelectValue placeholder="Choose file" />
+                          </SelectTrigger>
+                        </Hint>
                         <SelectContent
                           position="popper"
                           align="start"
@@ -2922,8 +3000,7 @@ function ProjectWorkspaceLayout() {
                           >
                             <Panel
                               defaultSize={initialColumnSize("chat")}
-                              minSize={chatPanelMinSize}
-                              maxSize={70}
+                              minSize={panelMinSize("chat")}
                             >
                               <div
                                 data-workspace-chat-pane="true"
@@ -2954,8 +3031,9 @@ function ProjectWorkspaceLayout() {
                               </div>
                             </Panel>
 
-                            <Hint content="Double-click to split panes equally">
+                            <div className="shrink-0">
                               <WorkspacePanelResizeHandle
+                                className="h-full"
                                 collapsed={!showChatEditorHandle}
                                 tabIndex={showChatEditorHandle ? 0 : -1}
                                 aria-label="Resize workspace panes"
@@ -2965,12 +3043,11 @@ function ProjectWorkspaceLayout() {
                                     : undefined
                                 }
                               />
-                            </Hint>
+                            </div>
 
                             <Panel
                               defaultSize={initialColumnSize("editor")}
-                              minSize={editorPanelMinSize}
-                              maxSize={100}
+                              minSize={panelMinSize("editor")}
                             >
                               <div
                                 ref={editorPanelRef}
@@ -3039,144 +3116,120 @@ function ProjectWorkspaceLayout() {
                               </div>
                             </Panel>
 
-                            <Hint
-                              content={
-                                isWorkspaceSeamMiddleHovered ||
-                                isSyncNavigationControlHovered
-                                  ? undefined
-                                  : "Double-click to split panes equally"
+                            <div
+                              ref={workspaceResizeSeamRef}
+                              className={
+                                showEditorPdfHandle
+                                  ? "relative w-2 shrink-0"
+                                  : "w-0 shrink-0"
                               }
                             >
-                              <div
+                              <PanelResizeHandle
+                                aria-label={
+                                  hasWholeFileComparison
+                                    ? "Resize conflict panes"
+                                    : "Resize workspace panes"
+                                }
+                                data-workspace-resize-seam="true"
+                                onDragging={(dragging) => {
+                                  isWorkspaceSeamDraggingRef.current = dragging;
+                                }}
+                                onDoubleClick={
+                                  showEditorPdfHandle &&
+                                  !isSyncResizeAreaHovered
+                                    ? resetWorkspaceSplit
+                                    : undefined
+                                }
+                                disabled={
+                                  !showEditorPdfHandle ||
+                                  isSyncResizeAreaHovered
+                                }
+                                tabIndex={showEditorPdfHandle ? 0 : -1}
                                 className={
                                   showEditorPdfHandle
-                                    ? "relative w-2 shrink-0"
-                                    : "w-0 shrink-0"
+                                    ? `relative h-full w-2 bg-transparent ${isSyncResizeAreaHovered ? "cursor-default" : ""}`
+                                    : "pointer-events-none mx-0 w-0 bg-transparent"
                                 }
                               >
-                                <PanelResizeHandle
-                                  aria-label={
-                                    hasWholeFileComparison
-                                      ? "Resize conflict panes"
-                                      : "Resize workspace panes"
-                                  }
-                                  data-workspace-resize-seam="true"
-                                  onPointerDownCapture={(event) => {
-                                    const bounds = (
-                                      event.currentTarget as unknown as HTMLElement
-                                    ).getBoundingClientRect();
-                                    const position =
-                                      (event.clientY - bounds.top) /
-                                      bounds.height;
-                                    if (position > 1 / 3 && position < 2 / 3) {
-                                      event.stopPropagation();
+                                {showEditorPdfHandle &&
+                                !hasWholeFileComparison &&
+                                isPreviewableFile &&
+                                !isCsvDocument ? (
+                                  <SyncNavigationControl
+                                    ref={syncNavigationControlRef}
+                                    previewLabel={
+                                      isMarkdownDocument ? "preview" : "PDF"
                                     }
-                                  }}
-                                  onDragging={(dragging) => {
-                                    isWorkspaceSeamDraggingRef.current =
-                                      dragging;
-                                  }}
-                                  onDoubleClick={
-                                    showEditorPdfHandle &&
-                                    !isWorkspaceSeamMiddleHovered
-                                      ? resetWorkspaceSplit
-                                      : undefined
-                                  }
-                                  disabled={
-                                    !showEditorPdfHandle ||
-                                    isWorkspaceSeamMiddleHovered ||
-                                    isSyncNavigationControlHovered
-                                  }
-                                  tabIndex={showEditorPdfHandle ? 0 : -1}
-                                  className={
-                                    showEditorPdfHandle
-                                      ? `relative h-full w-2 bg-transparent ${isWorkspaceSeamMiddleHovered ? "cursor-default" : ""}`
-                                      : "pointer-events-none mx-0 w-0 bg-transparent"
-                                  }
-                                >
-                                  {showEditorPdfHandle &&
-                                  !hasWholeFileComparison &&
-                                  isPreviewableFile &&
-                                  !isCsvDocument ? (
-                                    <SyncNavigationControl
-                                      previewLabel={
-                                        isMarkdownDocument ? "preview" : "PDF"
-                                      }
-                                      onActiveChange={
-                                        setIsSyncNavigationControlHovered
-                                      }
-                                      scrollSyncMuted={
-                                        !isMarkdownDocument &&
-                                        isLatexScrollSyncMuted
-                                      }
-                                      onScrollSyncEnabledChange={(enabled) => {
-                                        if (!projectRoot) return;
-                                        useSettingsStore
-                                          .getState()
-                                          .setFileScrollSync(
-                                            projectRoot,
-                                            activeFileId,
-                                            enabled,
-                                          );
-                                        if (isMarkdownDocument) {
-                                          setMarkdownPreviewScrollTarget(null);
-                                          setEditorScrollSyncTarget(null);
-                                          if (!enabled) return;
-                                          const documentState =
-                                            useDocumentStore.getState();
-                                          markdownPreviewScrollRequestIdRef.current += 1;
-                                          setMarkdownPreviewScrollTarget({
-                                            id: markdownPreviewScrollRequestIdRef.current,
-                                            position:
-                                              documentState.selectionRange
-                                                ?.start ??
-                                              documentState.cursorPosition,
-                                          });
-                                        } else {
-                                          setLatexPdfScrollTarget(null);
-                                          setEditorScrollSyncTarget(null);
-                                          if (!enabled) return;
-                                          const documentState =
-                                            useDocumentStore.getState();
-                                          latexPdfScrollRequestIdRef.current += 1;
-                                          setLatexPdfScrollTarget({
-                                            id: latexPdfScrollRequestIdRef.current,
-                                            position:
-                                              documentState.selectionRange
-                                                ?.start ??
-                                              documentState.cursorPosition,
-                                          });
-                                        }
-                                      }}
-                                      scrollSyncLocked={
-                                        isMarkdownDocument
-                                          ? isScrollSyncLocked
-                                          : isLatexScrollSyncEnabled
-                                      }
-                                      onNavigateToPreview={() => {
-                                        setSyncNavigationRequest({
-                                          id: Date.now(),
-                                          direction: isMarkdownDocument
-                                            ? "to-preview"
-                                            : "to-pdf",
+                                    scrollSyncMuted={
+                                      !isMarkdownDocument &&
+                                      isLatexScrollSyncMuted
+                                    }
+                                    onScrollSyncEnabledChange={(enabled) => {
+                                      if (!projectRoot) return;
+                                      useSettingsStore
+                                        .getState()
+                                        .setFileScrollSync(
+                                          projectRoot,
+                                          activeFileId,
+                                          enabled,
+                                        );
+                                      if (isMarkdownDocument) {
+                                        setMarkdownPreviewScrollTarget(null);
+                                        setEditorScrollSyncTarget(null);
+                                        if (!enabled) return;
+                                        const documentState =
+                                          useDocumentStore.getState();
+                                        markdownPreviewScrollRequestIdRef.current += 1;
+                                        setMarkdownPreviewScrollTarget({
+                                          id: markdownPreviewScrollRequestIdRef.current,
+                                          position:
+                                            documentState.selectionRange
+                                              ?.start ??
+                                            documentState.cursorPosition,
                                         });
-                                      }}
-                                      onNavigateToEditor={() => {
-                                        setSyncNavigationRequest({
-                                          id: Date.now() + 1,
-                                          direction: "to-editor",
+                                      } else {
+                                        setLatexPdfScrollTarget(null);
+                                        setEditorScrollSyncTarget(null);
+                                        if (!enabled) return;
+                                        const documentState =
+                                          useDocumentStore.getState();
+                                        latexPdfScrollRequestIdRef.current += 1;
+                                        setLatexPdfScrollTarget({
+                                          id: latexPdfScrollRequestIdRef.current,
+                                          position:
+                                            documentState.selectionRange
+                                              ?.start ??
+                                            documentState.cursorPosition,
                                         });
-                                      }}
-                                    />
-                                  ) : null}
-                                </PanelResizeHandle>
-                              </div>
-                            </Hint>
+                                      }
+                                    }}
+                                    scrollSyncLocked={
+                                      isMarkdownDocument
+                                        ? isScrollSyncLocked
+                                        : isLatexScrollSyncEnabled
+                                    }
+                                    onNavigateToPreview={() => {
+                                      setSyncNavigationRequest({
+                                        id: Date.now(),
+                                        direction: isMarkdownDocument
+                                          ? "to-preview"
+                                          : "to-pdf",
+                                      });
+                                    }}
+                                    onNavigateToEditor={() => {
+                                      setSyncNavigationRequest({
+                                        id: Date.now() + 1,
+                                        direction: "to-editor",
+                                      });
+                                    }}
+                                  />
+                                ) : null}
+                              </PanelResizeHandle>
+                            </div>
 
                             <Panel
                               defaultSize={initialColumnSize("incoming")}
-                              minSize={incomingPanelMinSize}
-                              maxSize={100}
+                              minSize={panelMinSize("incoming")}
                             >
                               <WorkspacePanel
                                 ref={incomingPanelRef}
@@ -3201,8 +3254,7 @@ function ProjectWorkspaceLayout() {
 
                             <Panel
                               defaultSize={initialColumnSize("pdf")}
-                              minSize={pdfPanelMinSize}
-                              maxSize={100}
+                              minSize={panelMinSize("pdf")}
                             >
                               <WorkspacePanel
                                 ref={pdfPanelRef}

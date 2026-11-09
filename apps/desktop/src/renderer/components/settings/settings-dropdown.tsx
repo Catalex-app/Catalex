@@ -70,6 +70,7 @@ export function SettingsDropdown<T extends string>({
   options: Array<{
     value: T;
     label: string;
+    description?: string;
     icon?: LucideIcon;
     labelClassName?: string;
     removable?: boolean;
@@ -94,7 +95,11 @@ export function SettingsDropdown<T extends string>({
     >
       <Hint
         content={
-          selectedOption ? (
+          selectedOption?.description ? (
+            open ? null : (
+              selectedOption.description
+            )
+          ) : selectedOption ? (
             <span className="break-all font-mono">{selectedOption.label}</span>
           ) : null
         }
@@ -133,43 +138,52 @@ export function SettingsDropdown<T extends string>({
         {options.map((option) => {
           const OptionIcon = option.icon;
           const removable = option.removable && !!onRemoveOption;
+          const item = (
+            <SelectItem
+              className={cn(
+                "justify-start rounded-lg [&>span:last-child]:min-w-0",
+                removable &&
+                  "group-hover/option:[&>[data-slot=select-item-indicator]]:opacity-0",
+              )}
+              value={option.value}
+              textValue={option.label}
+              aria-keyshortcuts={removable ? "Delete" : undefined}
+              onKeyDown={(event) => {
+                if (removable && event.key === "Delete") {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  remove(option.value);
+                }
+              }}
+            >
+              <span className="flex min-w-0 items-center gap-1.5">
+                {renderIcon ? (
+                  renderIcon(option.value)
+                ) : OptionIcon ? (
+                  <OptionIcon
+                    className={cn("size-3.5 shrink-0", option.labelClassName)}
+                  />
+                ) : null}
+                <span
+                  className={cn(
+                    "min-w-0 whitespace-normal break-all font-mono",
+                    option.labelClassName,
+                  )}
+                >
+                  {option.label}
+                </span>
+              </span>
+            </SelectItem>
+          );
           return (
             <div key={option.value} className="group/option relative">
-              <SelectItem
-                className={cn(
-                  "justify-start rounded-lg [&>span:last-child]:min-w-0",
-                  removable &&
-                    "group-hover/option:[&>[data-slot=select-item-indicator]]:opacity-0",
-                )}
-                value={option.value}
-                textValue={option.label}
-                aria-keyshortcuts={removable ? "Delete" : undefined}
-                onKeyDown={(event) => {
-                  if (removable && event.key === "Delete") {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    remove(option.value);
-                  }
-                }}
-              >
-                <span className="flex min-w-0 items-center gap-1.5">
-                  {renderIcon ? (
-                    renderIcon(option.value)
-                  ) : OptionIcon ? (
-                    <OptionIcon
-                      className={cn("size-3.5 shrink-0", option.labelClassName)}
-                    />
-                  ) : null}
-                  <span
-                    className={cn(
-                      "min-w-0 whitespace-normal break-all font-mono",
-                      option.labelClassName,
-                    )}
-                  >
-                    {option.label}
-                  </span>
-                </span>
-              </SelectItem>
+              {option.description ? (
+                <Hint content={option.description} side="left">
+                  {item}
+                </Hint>
+              ) : (
+                item
+              )}
               {removable && (
                 <Button
                   type="button"

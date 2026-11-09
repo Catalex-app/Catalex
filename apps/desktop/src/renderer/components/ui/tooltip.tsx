@@ -134,16 +134,17 @@ type HintProps = Omit<
 > & {
   content: React.ReactNode;
   children: React.ReactElement;
+  side?: React.ComponentProps<typeof TooltipContent>["side"];
 };
 
-function Hint({ content, children, ...triggerProps }: HintProps) {
+function Hint({ content, children, side, ...triggerProps }: HintProps) {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
         <Slot {...triggerProps}>{children}</Slot>
       </TooltipTrigger>
       {content != null && content !== "" && (
-        <TooltipContent>{content}</TooltipContent>
+        <TooltipContent side={side}>{content}</TooltipContent>
       )}
     </Tooltip>
   );
