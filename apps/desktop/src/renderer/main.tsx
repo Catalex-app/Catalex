@@ -1,3 +1,4 @@
+import { useApplicationMenu } from "./hooks/use-application-menu";
 import { installImeKeyBoundary } from "./lib/keyboard-events";
 import { installMouseBoundary } from "./lib/mouse-events";
 import { AppContextMenu } from "./components/ui/app-context-menu";
@@ -115,10 +116,16 @@ const rootEl = document.getElementById("root");
 if (!rootEl) throw new Error("Root element #root not found");
 const rootContainer: HTMLElement = rootEl;
 const reactRoot = ReactDOM.createRoot(rootContainer);
+function ApplicationMenuBridge() {
+  useApplicationMenu();
+  return null;
+}
+
 const root = {
   render: (children: React.ReactNode) =>
     reactRoot.render(
       <>
+        <ApplicationMenuBridge />
         <AppContextMenu />
         {children}
       </>,

@@ -13,9 +13,11 @@ import {
 export function ResponsiveFormattingTools({
   children,
   forceCollapsed = false,
+  disabled = false,
 }: {
   children: ReactNode;
   forceCollapsed?: boolean;
+  disabled?: boolean;
 }) {
   const availableRef = useRef<HTMLDivElement>(null);
   const toolsRef = useRef<HTMLDivElement>(null);
@@ -85,6 +87,7 @@ export function ResponsiveFormattingTools({
                 size="sm"
                 className="h-7 gap-1 px-2"
                 aria-label="Formatting options"
+                disabled={disabled}
               >
                 <TypeIcon className="size-3.5" />
                 <ChevronDownIcon className="size-3" />

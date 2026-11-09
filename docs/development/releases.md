@@ -4,7 +4,9 @@
 2. Add `## [<version>]` at the top of `CHANGELOG.md` and write the user-facing
    changes underneath it. Use `## [Unreleased]` for notes not assigned a version
    yet; move those notes into the version entry before releasing.
-3. Run the required checks and `pnpm package:desktop`. The version command synchronizes
+3. Run the required checks and `pnpm package:mac:signed` for stable releases
+   (`pnpm package:desktop` for previews). Verify the signed installer as described
+   below. The version command synchronizes
    the native crate version in Cargo.lock so locked builds can verify it. Commit the version files,
    changelog, and changes together on `main`.
 4. Create an annotated tag on that commit:

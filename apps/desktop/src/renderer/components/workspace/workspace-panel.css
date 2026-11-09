@@ -38,6 +38,7 @@
   perspective: none !important;
   contain: none !important;
   isolation: auto !important;
+  view-transition-name: none !important;
   z-index: auto !important;
 }
 

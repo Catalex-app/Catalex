@@ -1,3 +1,6 @@
+import { useAppAction, useAppActions } from "@/hooks/use-app-actions";
+import { saveFile } from "@/lib/save-file";
+import { useActionTarget } from "@/hooks/use-action-target";
 import { FilePanelHeader } from "./file-panel-header";
 import { spellCheckExtension } from "@/lib/spelling/extension";
 import {
@@ -1294,6 +1297,7 @@ export function LatexEditor({
   const viewRef = useRef<EditorView | null>(null);
   const [editorMountNonce, setEditorMountNonce] = useState(0);
   const [editorReadyRevision, setEditorReadyRevision] = useState(0);
+  const [isTextEditorEditable, setIsTextEditorEditable] = useState(false);
   const repairQueuedRef = useRef(false);
   const outlineTrackingEnabledRef = useRef(outlineTrackingEnabled);
   outlineTrackingEnabledRef.current = outlineTrackingEnabled;
@@ -2852,6 +2856,9 @@ export function LatexEditor({
     const currentContent = getActiveFileContent();
 
     const updateListener = EditorView.updateListener.of((update) => {
+      setIsTextEditorEditable(
+        !update.state.readOnly && update.state.facet(EditorView.editable),
+      );
       const savedSelection = commentSelectionRef.current;
       if (update.docChanged && savedSelection?.view === update.view) {
         savedSelection.selection = savedSelection.selection.map(update.changes);
@@ -3298,11 +3305,7 @@ export function LatexEditor({
         {
           key: "Mod-s",
           run: () => {
-            const state = useDocumentStore.getState();
-            state.setIsSaving(true);
-            state
-              .saveCurrentFile()
-              .finally(() => setTimeout(() => state.setIsSaving(false), 500));
+            void saveFile();
             return true;
           },
         },
@@ -3510,6 +3513,9 @@ export function LatexEditor({
       },
     });
     viewRef.current = view;
+    setIsTextEditorEditable(
+      !view.state.readOnly && view.state.facet(EditorView.editable),
+    );
     setEditorReadyRevision((revision) => revision + 1);
     // Initial review centering must yield to a user's text-selection gesture.
     const stopMergeAutoCenter = () => {
@@ -3748,6 +3754,7 @@ export function LatexEditor({
       view.destroy();
       if (viewRef.current === view) {
         viewRef.current = null;
+        setIsTextEditorEditable(false);
         isMergeActiveRef.current = false;
         pendingChangeRef.current = null;
         pendingHistoryRef.current = null;
@@ -4836,13 +4843,6 @@ export function LatexEditor({
     [handleDeleteInlineComment],
   );
 
-  const handleToolbarAction = useCallback(
-    (actionId: string) => {
-      if (actionId === "comment") openCommentForSelection();
-    },
-    [openCommentForSelection],
-  );
-
   const handleToolbarDismiss = useCallback(
     (reason?: "outside" | "escape") => {
       toolbarStickyRef.current = false;
@@ -5607,6 +5607,64 @@ export function LatexEditor({
     [isLatexDocument],
   );
 
+  const editorActionTarget = useActionTarget(
+    () => viewRef.current?.contentDOM ?? null,
+    activeFileId,
+  );
+  const editorActionsAvailable =
+    !!activeFile &&
+    isTextFile &&
+    !isLargeFileNotLoaded &&
+    !activeGitFileConflict &&
+    !reviewingSnapshot;
+  useAppAction({
+    id: "save-file",
+    label: "Save",
+    run: saveFile,
+    enabled: editorActionsAvailable && isTextEditorEditable,
+    menu: { group: "File", section: 2, order: 0 },
+  });
+  useAppActions(
+    [
+      {
+        id: "find",
+        label: "Find…",
+        run: () => openSearch(false),
+        enabled: editorActionsAvailable,
+        shortcut: "Mod+KeyF",
+        menu: { group: "Edit", section: 1, order: 0 },
+      },
+      {
+        id: "replace",
+        label: "Find and Replace…",
+        run: () => openSearch(true),
+        enabled: editorActionsAvailable && isTextEditorEditable,
+        shortcut: "Mod+Alt+KeyF",
+        menu: { group: "Edit", section: 1, order: 1 },
+      },
+    ],
+    editorActionTarget ? "active" : "fallback",
+  );
+  const addCommentAction = useAppAction(
+    {
+      id: "add-comment",
+      label:
+        editorToolbarActions.find((action) => action.id === "comment")?.label ??
+        "Comment",
+      run: openCommentForSelection,
+      visible: editorToolbarActions.some((action) => action.id === "comment"),
+      enabled:
+        editorActionsAvailable &&
+        isTextEditorEditable &&
+        !isReviewDisplay &&
+        inlineCommentsLoaded &&
+        !!selectionRange &&
+        selectionRange.start !== selectionRange.end,
+      menu: { group: "Edit", section: 0, order: 0, submenu: "Comments" },
+    },
+    editorActionTarget ? "active" : "inactive",
+  );
+
   const isWholeFileReview =
     !!activeFileChange && (activeFileChange.binary || !isTextFile);
   const isPdf = activeFile?.type === "pdf";
@@ -5624,6 +5682,7 @@ export function LatexEditor({
     !isLargeFileNotLoaded &&
     !isReviewDisplay &&
     allActiveFileInlineComments.length > 0;
+
   const problemsSummary = (
     <div className="flex shrink-0 items-center">
       <ProblemsMotion
@@ -5773,6 +5832,8 @@ export function LatexEditor({
             wordCount={editorTextStatistics.wordCount}
             characterCount={editorTextStatistics.characterCount}
             trailingContent={problemsSummary}
+            actionTarget={editorActionTarget}
+            actionsEnabled={isTextEditorEditable}
             onInlineFormat={applyMarkdownInlineFormat}
             onBlockFormat={applyMarkdownBlockFormat}
           />
@@ -5784,6 +5845,8 @@ export function LatexEditor({
             wordCount={editorTextStatistics.wordCount}
             characterCount={editorTextStatistics.characterCount}
             trailingContent={problemsSummary}
+            actionTarget={editorActionTarget}
+            actionsEnabled={isTextEditorEditable}
             onInlineFormat={applyLatexInlineFormat}
             onBlockFormat={applyLatexBlockFormat}
           />
@@ -6259,7 +6322,7 @@ export function LatexEditor({
                       contextLabel={selectionLabel}
                       selectionContext={selectionContext}
                       actions={editorToolbarActions}
-                      onAction={handleToolbarAction}
+                      onAction={addCommentAction.run}
                       onDismiss={handleToolbarDismiss}
                     />
                   )}

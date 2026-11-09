@@ -1,3 +1,5 @@
+import { isApplicationMenuState } from "../application-menu";
+import { installApplicationMenu } from "./application-menu";
 import {
   PRODUCT_NAME,
   APP_NAMESPACE,
@@ -12,7 +14,6 @@ import {
   clipboard,
   dialog,
   ipcMain,
-  Menu,
   net,
   powerMonitor,
   protocol,
@@ -102,6 +103,7 @@ const pdfSnapshots = new PdfSnapshots(
   path.join(app.getPath("userData"), "pdf-snapshots"),
 );
 const windows = new Map<string, BrowserWindow>();
+let applicationMenu: ReturnType<typeof installApplicationMenu> | undefined;
 // Dependent views share the owner's native project context, never another lease.
 const panelOwners = new Map<number, string>();
 const projectOwnership = new ProjectOwnership(() => {
@@ -138,6 +140,7 @@ function send(win: BrowserWindow, event: string, payload?: unknown) {
 const updateService = new UpdateService(
   () => releaseUpdates.check(true),
   (state) => {
+    applicationMenu?.setUpdateChecking(state.checking);
     for (const win of windows.values())
       send(win, "desktop:updater:changed", state);
   },
@@ -248,6 +251,7 @@ function configureWindowOpening(win: BrowserWindow, ownerId: string) {
     });
     child.on("closed", () => {
       windows.delete(id);
+      applicationMenu?.remove(child);
       panelOwners.delete(child.id);
       closeHandlers.delete(child.id);
       approvedClose.delete(child.id);
@@ -324,6 +328,7 @@ async function createWindow(id: string, query = "") {
   });
   win.on("closed", () => {
     windows.delete(id);
+    applicationMenu?.remove(win);
     closeHandlers.delete(win.id);
     approvedClose.delete(win.id);
     cleanupWindowProjects(id);
@@ -376,6 +381,14 @@ async function hostCommand(
   if (command.startsWith("desktop:fs:"))
     return { result: await filesystemCommand(files, command.slice(11), args) };
   switch (command) {
+    case "desktop:menu:update": {
+      const state = args.state;
+      if (!isApplicationMenuState(state))
+        throw new Error("Invalid menu state.");
+      applicationMenu?.update(win, state);
+      win.webContents.setIgnoreMenuShortcuts(state.recordingShortcut);
+      return { result: null };
+    }
     case "desktop:pdf:open":
       return {
         result: await pdfSnapshots.copy(
@@ -903,6 +916,12 @@ async function hostCommand(
 }
 
 async function start() {
+  app.setAboutPanelOptions({
+    applicationName: PRODUCT_NAME,
+    applicationVersion: `${app.getVersion()}${app.isPackaged ? "" : " (Development)"}`,
+    // Do not inherit Electron's bundle build number in unpackaged runs.
+    version: "",
+  });
   if (terminationRequested) return;
   session.defaultSession.setPermissionRequestHandler(
     (contents, permission, callback) => {
@@ -1095,35 +1114,20 @@ async function start() {
       console.error(error);
     }
   });
-  const menu: Electron.MenuItemConstructorOptions[] = [
-    ...(process.platform === "darwin"
-      ? [
-          {
-            label: PRODUCT_NAME,
-            submenu: [
-              { role: "about" as const },
-              {
-                label: "Preferences…",
-                accelerator: "CmdOrCtrl+,",
-                click: () => void createWindow("settings", "?settings=1"),
-              },
-              { type: "separator" as const },
-              { role: "services" as const },
-              { role: "hide" as const },
-              { role: "hideOthers" as const },
-              { role: "unhide" as const },
-              { type: "separator" as const },
-              { role: "quit" as const },
-            ],
-          },
-        ]
-      : []),
-    { role: "fileMenu" },
-    { role: "editMenu" },
-    { label: "View", submenu: [{ role: "togglefullscreen" }] },
-    { role: "windowMenu" },
-  ];
-  Menu.setApplicationMenu(Menu.buildFromTemplate(menu));
+  applicationMenu = installApplicationMenu((win, action) => {
+    if (action.command === "new-window") {
+      void createWindow(`window-${crypto.randomUUID()}`).catch(console.error);
+    } else if (action.command === "open-settings") {
+      void createWindow("settings", "?settings=1").catch(console.error);
+    } else if (action.command === "check-for-updates") {
+      void updateService.check();
+      void createWindow("settings", "?settings=1&section=about")
+        .then((settings) => send(settings, "settings-navigate", "about"))
+        .catch(console.error);
+    } else if (win) {
+      send(win, "application-menu", action);
+    }
+  });
   powerMonitor.on("resume", () => {
     void updateService.checkIfDue();
     for (const win of windows.values()) send(win, "window-focus-restored");

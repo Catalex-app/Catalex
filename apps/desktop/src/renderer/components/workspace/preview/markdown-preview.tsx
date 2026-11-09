@@ -1,3 +1,4 @@
+import { useAppAction } from "@/hooks/use-app-actions";
 import {
   WorkspacePanelHeader,
   useWorkspacePanelExpansion,
@@ -1018,6 +1019,13 @@ export function MarkdownPreview({
       setIsExportingPdf(false);
     }
   }, [activeFile, frameDocument, isExportingPdf]);
+  const exportAction = useAppAction({
+    id: "export-pdf",
+    label: "Export PDF",
+    enabled: !!frameDocument && !isExportingPdf && !loadingMath,
+    run: handleExportPdf,
+    menu: { group: "File", section: 2, order: 1 },
+  });
 
   const navigateEditorToPreview = useCallback(() => {
     if (!frameDocument) return;
@@ -1719,15 +1727,17 @@ export function MarkdownPreview({
               )}
             </DialogResizeTransition>
           </DropdownMenu>
-          <Hint content={isExportingPdf ? "Exporting PDF…" : "Export PDF"}>
+          <Hint
+            content={isExportingPdf ? "Exporting PDF…" : exportAction.label}
+          >
             <Button
               type="button"
               variant="ghost"
               size="icon"
               className="size-7"
               aria-label="Export Markdown as PDF"
-              onClick={handleExportPdf}
-              disabled={!frameDocument || isExportingPdf || loadingMath}
+              onClick={exportAction.run}
+              disabled={!exportAction.enabled}
             >
               {isExportingPdf ? (
                 <LoaderIcon className="size-3.5 animate-spin" />

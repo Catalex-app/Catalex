@@ -289,3 +289,92 @@ test("refine the same draft twice, preserving approvals and manual edits", async
     .toBeGreaterThan(20);
   await page.screenshot({ path: test.info().outputPath("refined-review.png") });
 });
+
+for (const kind of ["markdown", "latex"] as const) {
+  test(`${kind} review permits formatting and shows the real applying status`, async ({
+    page,
+  }, info) => {
+    await page.setViewportSize({ width: 1600, height: 1000 });
+    await page.goto("/?debug=agent-file-review&acceptanceDemo");
+    await expect(page.locator("[data-proposed-changes-panel]")).toBeVisible();
+    await page
+      .getByRole("button", {
+        name: kind === "latex" ? "main.tex" : "manuscript.md",
+        exact: true,
+      })
+      .first()
+      .click();
+    await page.getByRole("tab", { name: "Editor", exact: true }).click();
+    const editor = page.locator(".cm-content");
+    const bold = page
+      .getByTestId(`${kind}-editor-toolbar`)
+      .getByRole("button", { name: "Bold", exact: true });
+    await expect(bold).toBeEnabled();
+    await editor.click();
+    await page.keyboard.press("ControlOrMeta+Home");
+    await page.keyboard.type("User review edit. ");
+    await expect(editor).toContainText("User review edit.");
+    await bold.click();
+    await expect(editor).toContainText(
+      kind === "markdown" ? "**text**" : "\\textbf{text}",
+    );
+    await page.screenshot({
+      path: info.outputPath(`${kind}-editable-review.png`),
+    });
+    // Hold only the mocked backend response; the app owns its editing lock.
+    const applyGate = await page.evaluateHandle(async () => {
+      const { browserHarness } = await import(
+        "/src/renderer/lib/desktop/bridge.ts"
+      );
+      const { useAgentChatStore } = await import(
+        "/src/renderer/stores/agent-chat-store.ts"
+      );
+      useAgentChatStore.getState().requestDrawerOpen();
+      const bridge = browserHarness()!;
+      const original = bridge.invoke;
+      let release!: () => void;
+      const pending = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      bridge.invoke = async (command, args, options) => {
+        if (command === "apply_agent_workspace") await pending;
+        return original(command, args, options);
+      };
+      return () => {
+        bridge.invoke = original;
+        release();
+      };
+    });
+    await page
+      .locator("[data-proposed-changes-panel]")
+      .getByRole("button", { name: "Accept All", exact: false })
+      .click();
+    const applyingNotice = page
+      .locator("[data-agent-draft-notice]")
+      .filter({ hasText: "Applying…" })
+      .first();
+    await expect(applyingNotice).toBeVisible();
+    await expect(
+      page.locator("[data-chat-messages]:visible").first(),
+    ).toBeVisible();
+    await expect(bold).toBeDisabled();
+    await page.screenshot({ path: info.outputPath(`${kind}-applying.png`) });
+    await applyGate.evaluate((release) => release());
+    await applyGate.dispose();
+    await expect(
+      page
+        .locator("[data-agent-draft-notice]")
+        .filter({ hasText: "Applying…" }),
+    ).toHaveCount(0);
+    // Acceptance advances to the next pending file; reopen the edited file.
+    await page
+      .getByRole("button", {
+        name: kind === "latex" ? "main.tex" : "manuscript.md",
+        exact: true,
+      })
+      .first()
+      .click();
+    await expect(bold).toBeEnabled();
+    await expect(editor).toContainText("User review edit.");
+  });
+}

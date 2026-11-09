@@ -1,5 +1,13 @@
+import { useAppAction } from "@/hooks/use-app-actions";
+import { useActionTarget } from "@/hooks/use-action-target";
 import { canCloseSearchOnEscape } from "@/lib/search-escape";
-import { useEffect, useRef, useState, type RefObject } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type RefObject,
+} from "react";
 import { SearchPanel } from "../editor/search-panel";
 import {
   previewSearchPattern,
@@ -25,6 +33,33 @@ export function usePreviewSearch(
     setOpen(false);
     setQuery((previous) => ({ ...previous, text: "" }));
   }, [identity, active]);
+  const menuActive = useActionTarget(
+    () => scope.current?.closest("[data-preview-pane]") ?? scope.current,
+    identity,
+    frameDocument ?? undefined,
+    true,
+  );
+  const showSearch = useCallback(() => {
+    setOpen(true);
+    requestAnimationFrame(() => {
+      const input = scope.current?.querySelector<HTMLInputElement>(
+        '[data-testid="preview-search-panel"] input',
+      );
+      input?.focus();
+      input?.select();
+    });
+  }, [scope]);
+  const findAction = useAppAction(
+    {
+      id: "find",
+      label: "Find…",
+      enabled: active,
+      run: showSearch,
+      shortcut: "Mod+KeyF",
+      menu: { group: "Edit", section: 1, order: 0 },
+    },
+    menuActive ? "active" : "inactive",
+  );
   useEffect(() => {
     if (!active) return;
     const handler = (event: KeyboardEvent) => {
@@ -47,14 +82,7 @@ export function usePreviewSearch(
         return;
       event.preventDefault();
       event.stopPropagation();
-      setOpen(true);
-      requestAnimationFrame(() => {
-        const input = scope.current?.querySelector<HTMLInputElement>(
-          '[data-testid="preview-search-panel"] input',
-        );
-        input?.focus();
-        input?.select();
-      });
+      findAction.run();
     };
     const pane = scope.current?.closest("[data-preview-pane]") ?? scope.current;
     const focusPane = (event: Event) => {
@@ -75,7 +103,7 @@ export function usePreviewSearch(
       pane?.removeEventListener("keydown", handler as EventListener, true);
       frameDocument?.removeEventListener("keydown", handler, true);
     };
-  }, [scope, frameDocument, active, open]);
+  }, [scope, frameDocument, active, open, showSearch]);
   let valid = true;
   try {
     previewSearchPattern(query);

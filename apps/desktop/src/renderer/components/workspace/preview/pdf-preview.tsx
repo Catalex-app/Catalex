@@ -1,3 +1,5 @@
+import { useActionTarget } from "@/hooks/use-action-target";
+import { useAppAction } from "@/hooks/use-app-actions";
 import {
   pdfFileCommentTargets,
   validPdfCommentRegions,
@@ -1332,6 +1334,25 @@ export function PdfPreview({
     ],
   );
 
+  const commentTarget = useActionTarget(
+    () => previewContainerRef.current,
+    activeFile?.id ?? "",
+  );
+  const commentTool = pdfToolbarActions.find(
+    (action) => action.id === "comment",
+  );
+  const addCommentAction = useAppAction(
+    {
+      id: "add-comment",
+      label: commentTool?.label ?? "Comment",
+      visible: !!commentTool,
+      enabled: !!pdfSelection && !commentTool?.disabled,
+      run: () => handlePdfToolbarAction("comment"),
+      menu: { group: "Edit", section: 0, order: 0, submenu: "Comments" },
+    },
+    commentTarget ? "active" : "inactive",
+  );
+
   const handlePdfToolbarDismiss = useCallback(
     (reason?: "outside" | "escape") => {
       if (reason !== "outside") {
@@ -1478,6 +1499,18 @@ export function PdfPreview({
     if (!filePath) return;
     await exportPdfSource(currentPdf, filePath);
   }, [isStandalonePdf, standalonePdfData, exportFileName]);
+
+  const exportAction = useAppAction(
+    {
+      id: "export-pdf",
+      label: "Export PDF",
+      visible: hasCurrentPdfData,
+      enabled: hasCurrentPdfData,
+      run: handleExport,
+      menu: { group: "File", section: 2, order: 1 },
+    },
+    commentTarget ? "active" : "fallback",
+  );
 
   const handleCurrentPageChange = useCallback(
     (page: number) => {
@@ -2965,9 +2998,9 @@ export function PdfPreview({
           </DropdownMenuItem>
         )}
         {hideExport && (
-          <DropdownMenuItem onSelect={handleExport}>
+          <DropdownMenuItem onSelect={exportAction.run}>
             <DownloadIcon className="size-3.5" />
-            Export PDF
+            {exportAction.label}
           </DropdownMenuItem>
         )}
       </>
@@ -3043,14 +3076,14 @@ export function PdfPreview({
           }
         >
           {compilerControls}
-          {hasCurrentPdfData && !hideExport && (
-            <Hint content="Export PDF">
+          {exportAction.visible && !hideExport && (
+            <Hint content={exportAction.label}>
               <Button
                 variant="ghost"
                 size="icon"
                 className="size-7 shrink-0"
-                onClick={handleExport}
-                aria-label="Export PDF"
+                onClick={exportAction.run}
+                aria-label={exportAction.label}
               >
                 <DownloadIcon className="size-3.5" />
               </Button>
@@ -3083,7 +3116,7 @@ export function PdfPreview({
           contextLabel={pdfContextLabel}
           selectionContext={pdfSelectionContext}
           actions={pdfToolbarActions}
-          onAction={handlePdfToolbarAction}
+          onAction={addCommentAction.run}
           onDismiss={handlePdfToolbarDismiss}
         />
       )}

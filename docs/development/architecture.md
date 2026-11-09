@@ -43,6 +43,36 @@ Node remains outside the renderer. The Claude bridge uses Electron's executable
 in Node mode and clears `ELECTRON_RUN_AS_NODE` before starting native Claude or
 its tools. It does not bundle another JavaScript runtime.
 
+Features define actions beside their existing controls, with optional `menu`
+metadata (`group`, `section`, `order`, and optionally `submenu`). The UI and native
+menu use the same action label, callback, selected state, and availability.
+`useAppActions` exposes those definitions; adding an action to an exposed group
+requires no entry in Electron's menu builder. Register the definitions once at
+the owning feature, not once per rendered button: responsive toolbars can render
+the same action in both their main row and overflow menu.
+Formatting availability follows the mounted CodeMirror editor’s live read-only
+and editable state. It has no separate menu checklist for agent or review stages.
+`WorkspacePanel` registers Expand/Restore and Pop out once, sharing them with its
+header controls. Only the focused panel exposes those actions under View; focus
+inside a preview iframe also counts as focus in its enclosing panel.
+
+`src/application-menu.ts` contains only the serializable menu projection and its
+validation. `use-application-menu.ts` sends that projection through the existing
+preload bridge. Electron renders it alongside native system roles and window,
+Settings, and update actions. It has no document-format catalog or workspace
+layout rules. Native clicks carry an owner key back to the current action;
+stale or unavailable actions are ignored. Multiple panel owners use explicit
+active/fallback targeting, never registration order. `use-action-target.ts`
+retains content selection across native menu blur and observes iframe focus;
+an expanded panel's dialog role does not exclude its editor.
+
+Shortcuts retain their existing handlers. Save uses the same operation from the
+editor, the app shortcut, and the menu; PDF/image zoom remains local. Shortcut
+recording bypasses native accelerators. Manage Comments exposes the existing sidebar project-manager dialog; it does not
+change the per-document comment strips or their visibility. Workspace
+switches share their definitions with the toolbar and are absent during panel
+expansion and in pop-out windows.
+
 ## Desktop frontend
 
 | Location | Responsibility |
@@ -96,7 +126,8 @@ change workspace layout, available features, or mode transition behavior. Keep t
 Workspace panels share a temporary expanded state in `workspace-layout.tsx`.
 `workspace-panel.tsx` keeps the live content mounted and lifts the selected panel
 above the app while making the surrounding workspace inactive. The split ratios
-remain unchanged. Headers use the same expand/restore control; Escape restores
+remain unchanged. Expanded ancestors temporarily drop their view-transition name
+so the project screen cannot trap the panel below its backdrop. Headers use the same expand/restore control; Escape restores
 the panel after nested menus or search have handled the key. The editor and preview expand the same `WorkspacePanel` boundary, including its
 header and content. File tabs stay outside that boundary; file-change notices
 stay inside the editor panel. Markdown forwards Escape from its iframe.
@@ -293,8 +324,10 @@ and is not automatically isolated by this app-profile setting.
 The desktop workflow currently builds only macOS ARM64 DMG artifacts on pull
 requests, manual dispatch, and version-tag pushes. Windows/Linux builds and
 release artifacts are paused; their runtime and installer parity remain unverified.
-Validated `v*` tags prepare a draft GitHub release with the macOS DMG and changelog
-after the build and tests pass. Publication and Latest selection are manual after
+Validated prerelease tags (`v*-*`) prepare a draft GitHub release with the macOS
+DMG and changelog after the build and tests pass. Stable releases use the local
+signed and notarized build described in [Releases](releases.md), followed by
+manual draft creation. Publication and Latest selection are manual after
 installer review. Pull requests and non-tag manual runs only build.
 
 Automatic updating is explicitly unavailable. The workflow does not consume

@@ -1,3 +1,4 @@
+import { useAppAction } from "@/hooks/use-app-actions";
 import "./sidebar-status-motion.css";
 import {
   insertMarkdownFileLinksAtPoint,
@@ -2477,6 +2478,14 @@ function SidebarDefault({
     setAddDialogOpen(true);
   };
 
+  const newFileAction = useAppAction({
+    id: "new-file",
+    label: "New File",
+    enabled: !!projectRoot && !disableInteractiveIntegrations,
+    run: () => openNewFileDialog(),
+    menu: { group: "File", section: 0, order: 0 },
+  });
+
   const openNewFolderDialog = (parent?: string) => {
     setFolderDialogParent(parent);
     setNewFolderName("");
@@ -2627,9 +2636,9 @@ function SidebarDefault({
                 </DropdownMenuTrigger>
               </Hint>
               <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={() => openNewFileDialog()}>
+                <DropdownMenuItem onClick={newFileAction.run}>
                   <FileTextIcon className="mr-2 size-4" />
-                  New File
+                  {newFileAction.label}
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => openNewFolderDialog()}>
                   <FolderPlusIcon className="mr-2 size-4" />
@@ -2721,9 +2730,9 @@ function SidebarDefault({
                   </DroppableRoot>
                 </ContextMenuTrigger>
                 <ContextMenuContent>
-                  <ContextMenuItem onClick={() => openNewFileDialog()}>
+                  <ContextMenuItem onClick={newFileAction.run}>
                     <FileTextIcon className="mr-2 size-4" />
-                    New File
+                    {newFileAction.label}
                   </ContextMenuItem>
                   <ContextMenuItem onClick={() => openNewFolderDialog()}>
                     <FolderPlusIcon className="mr-2 size-4" />
@@ -3800,6 +3809,23 @@ function CommentVisibilitySection() {
   const showPdfComments = useSettingsStore((s) => s.showPdfComments);
   const setDisplayComments = useSettingsStore((s) => s.setDisplayComments);
   const setShowPdfComments = useSettingsStore((s) => s.setShowPdfComments);
+  const enableComments = useAppAction({
+    id: "toggle-comments",
+    label: "Enable comments",
+    type: "checkbox",
+    checked: displayComments,
+    run: () => setDisplayComments(!displayComments),
+    menu: { group: "View", section: 3, order: 0 },
+  });
+  const previewComments = useAppAction({
+    id: "toggle-preview-comments",
+    label: "Show in preview",
+    type: "checkbox",
+    checked: showPdfComments,
+    enabled: displayComments,
+    run: () => setShowPdfComments(!showPdfComments),
+    menu: { group: "View", section: 3, order: 1 },
+  });
   return (
     <section
       data-sidebar-section="comment-visibility"
@@ -3820,17 +3846,17 @@ function CommentVisibilitySection() {
       />
       <SidebarSectionBody hidden={collapsed} className="space-y-0.5">
         <PromptSourceToggle
-          label="Enable comments"
+          label={enableComments.label}
           Icon={EyeIcon}
-          checked={displayComments}
-          onCheckedChange={setDisplayComments}
+          checked={enableComments.checked}
+          onCheckedChange={enableComments.run}
         />
         <PromptSourceToggle
-          label="Show in preview"
+          label={previewComments.label}
           Icon={PdfFileIcon}
-          checked={showPdfComments}
-          disabled={!displayComments}
-          onCheckedChange={setShowPdfComments}
+          checked={previewComments.checked}
+          disabled={!previewComments.enabled}
+          onCheckedChange={previewComments.run}
         />
         <CommentDeleteButtons />
       </SidebarSectionBody>

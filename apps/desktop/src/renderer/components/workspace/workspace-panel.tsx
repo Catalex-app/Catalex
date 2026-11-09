@@ -1,3 +1,5 @@
+import { useAppActions, type AppAction } from "@/hooks/use-app-actions";
+import { useActionTarget } from "@/hooks/use-action-target";
 import {
   createContext,
   useContext,
@@ -47,9 +49,13 @@ export interface WorkspacePanelExpansion {
   disabled?: boolean;
   onPopOut?: () => void;
 }
-const ExpansionContext = createContext<WorkspacePanelExpansion | undefined>(
-  undefined,
-);
+const ExpansionContext = createContext<
+  | (WorkspacePanelExpansion & {
+      toggleAction: AppAction;
+      popOutAction: AppAction;
+    })
+  | undefined
+>(undefined);
 
 const MotionContext = createContext<PanelExpansionMotion | undefined>(
   undefined,
@@ -92,6 +98,30 @@ export function WorkspacePanel({
   const expanded = expansion?.expanded ?? false;
   const motion = usePanelExpansionMotion(panelRef, expanded);
   const floating = motion.floating;
+  const actionTarget = useActionTarget(
+    () => panelRef.current,
+    expansion?.label,
+    undefined,
+    true,
+  );
+  const [toggleAction, popOutAction] = useAppActions([
+    {
+      id: "panel:expand",
+      label: expanded ? "Restore Focused Panel" : "Expand Focused Panel",
+      enabled: !expansion?.disabled,
+      visible: !!expansion?.onExpandedChange,
+      run: () => expansion?.onExpandedChange?.(!expanded),
+      menu: actionTarget ? { group: "View", section: 1, order: 0 } : undefined,
+    },
+    {
+      id: "panel:pop-out",
+      label: "Pop Out Focused Panel",
+      enabled: !expansion?.disabled,
+      visible: !!expansion?.onPopOut,
+      run: () => expansion?.onPopOut?.(),
+      menu: actionTarget ? { group: "View", section: 1, order: 1 } : undefined,
+    },
+  ]);
 
   useLayoutEffect(() => {
     const panel = panelRef.current;
@@ -269,7 +299,13 @@ export function WorkspacePanel({
   }, [floating, motion]);
 
   return (
-    <ExpansionContext.Provider value={expansion ?? inheritedExpansion}>
+    <ExpansionContext.Provider
+      value={
+        expansion
+          ? { ...expansion, toggleAction, popOutAction }
+          : inheritedExpansion
+      }
+    >
       <MotionContext.Provider value={expansion ? motion : inheritedMotion}>
         {floating &&
           createPortal(
@@ -392,8 +428,8 @@ export function WorkspacePanelExpandControl({
         className="h-7 gap-1.5 text-muted-foreground focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset"
         aria-label={`Restore ${expansion.label}`}
         aria-pressed
-        disabled={expansion.disabled}
-        onClick={() => expansion.onExpandedChange?.(false)}
+        disabled={expansion.toggleAction.enabled === false}
+        onClick={expansion.toggleAction.run}
       >
         <Minimize2Icon className="size-3" />
         Restore
@@ -407,8 +443,8 @@ export function WorkspacePanelExpandControl({
         size="xs"
         className="h-7 gap-1.5 text-muted-foreground focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset"
         aria-label={`Pop out ${expansion.label}`}
-        disabled={expansion.disabled}
-        onClick={expansion.onPopOut}
+        disabled={expansion.popOutAction.enabled === false}
+        onClick={expansion.popOutAction.run}
       >
         <AppWindowIcon className="size-3.5" />
         Pop out
@@ -473,7 +509,7 @@ export function WorkspacePanelExpandControl({
                 event.preventDefault();
                 expandAfterMenuClose.current = false;
                 // Let the menu release focus before the expanded panel receives it.
-                expansion?.onExpandedChange?.(!expansion.expanded);
+                expansion?.toggleAction.run();
               }}
             >
               {expansion && (
@@ -498,8 +534,8 @@ export function WorkspacePanelExpandControl({
                   )}
                   {expansion.onPopOut && (
                     <DropdownMenuItem
-                      aria-label={`Pop out ${label}`}
-                      onSelect={expansion.onPopOut}
+                      aria-label={`Pop out ${expansion.label}`}
+                      onSelect={expansion.popOutAction.run}
                     >
                       <AppWindowIcon className="size-3.5" />
                       Pop out
@@ -622,8 +658,8 @@ export function WorkspacePanelHeader(props: WorkspacePanelHeaderProps) {
         !isBlankPanelHeader(event)
       )
         return;
-      if (event.altKey) expansion.onPopOut?.();
-      else expansion.onExpandedChange?.(!expansion.expanded);
+      if (event.altKey) expansion.popOutAction.run();
+      else expansion.toggleAction.run();
     },
   };
   const content = (

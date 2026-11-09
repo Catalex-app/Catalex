@@ -1,3 +1,4 @@
+import { useProjectActions } from "@/hooks/use-project-actions";
 import { PRODUCT_NAME } from "../branding";
 import { waitForCommentsOnClose } from "@/lib/comment-close-wait";
 import { CommentCloseDialog } from "@/components/comment-close-dialog";
@@ -104,6 +105,7 @@ export function App({ onReady }: { onReady?: () => void }) {
   } | null>(null);
   const [closeBusy, setCloseBusy] = useState(false);
   const onboardingCompleted = useOnboardingStore((s) => s.completed);
+  useProjectActions(onboardingCompleted && !showDebug && !closeBusy);
 
   useEffect(() => {
     const unsubscribe = subscribeProjectChats((error) => {

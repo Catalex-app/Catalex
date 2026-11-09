@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+- View menu: Expose the focused panel’s existing Expand/Restore and Pop out actions, sharing callbacks and availability with its controls.
+
+- Editor formatting: Disable Markdown and LaTeX formatting controls, including compact menus, when the editor is read-only. Proposal review, background agent work, and focus in another panel do not disable an editable document's toolbar.
+- Expanded panels: Keep the editor above its backdrop when the project screen uses a view transition, restoring pointer access after double-click expansion.
+
+- View menu: Mirror the existing workspace view switches, including Editor/Raw, Split, and PDF/Preview/Table, with matching selection and availability.
+- Comments: Add selection-aware Add Comment and Manage Comments to the Edit menu, plus Enable Comments and Show in Preview toggles in View.
+- About: Use Catalex's configured name and package version in the native dialog, with a Development label for unpackaged runs.
+- Updates: Add Check for Updates… to the Catalex menu. It opens Settings → About, runs the existing release check, and shows Checking for Updates… while busy.
+- Application menus: Expose shared action definitions through native menus, including window actions, New File, Open Recent Projects, Close Project, Save, PDF export, Find and Replace, editor formatting, and interface zoom. Formatting follows the focused editor and its document type; menu shortcuts follow keyboard settings across windows and restarts.
 - Sidebar: Yellow human-comment and violet agent-comment icons mark unresolved comments, alongside warning and error indicators. Indicators default to a stack. Click a file’s indicators to switch between separate icons and one stack across the app; the preference persists. Only rows with two or more indicators offer the toggle. Resolving all comments from an author hides that icon. Indicators pop in and burst softly when removed, with reduced-motion support.
 - Project navigation: Recent-project rows move right and fade with staggered timing as a project opens; the clicked row moves faster and farther. The workspace fades rightward into place. Returning home reverses leftward, revealing the closed project's row first, then its neighbours, with visible movement as they settle. Reduced motion is respected.
 

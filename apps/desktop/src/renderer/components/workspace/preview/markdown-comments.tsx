@@ -1,3 +1,5 @@
+import { useAppAction } from "@/hooks/use-app-actions";
+import { useActionTarget } from "@/hooks/use-action-target";
 import { canHandleEscape, consumeKey } from "@/lib/keyboard-events";
 import { getActiveComment, setActiveComment } from "../editor/active-comment";
 import type { CommentRange } from "../editor/comment-range";
@@ -507,6 +509,22 @@ export function MarkdownComments({
       }),
     [frameDocument, context, source, filePath, setFiles, commentsLoaded],
   );
+  const commentTarget = useActionTarget(
+    () => frameDocument.body,
+    filePath,
+    frameDocument,
+  );
+  const addCommentAction = useAppAction(
+    {
+      id: "add-comment",
+      label: "Comment",
+      enabled: !!context && commentsLoaded && !!selection?.sourceRange,
+      run: () => addComment(selection?.sourceRange ?? null),
+      menu: { group: "Edit", section: 0, order: 0, submenu: "Comments" },
+    },
+    commentTarget ? "active" : "inactive",
+  );
+
   if (!context) return null;
   return (
     <>
@@ -623,16 +641,16 @@ export function MarkdownComments({
             {
               id: "comment",
               isAI: false,
-              label: "Comment",
+              label: addCommentAction.label,
               icon: <MessageSquareTextIcon className="size-4" />,
-              disabled: !selection.sourceRange || !commentsLoaded,
+              disabled: !addCommentAction.enabled,
               description: selection.sourceRange
                 ? "Add comment"
                 : "Couldn’t locate the source. Select more surrounding text.",
             },
           ]}
           onDismiss={dismiss}
-          onAction={() => addComment(selection.sourceRange)}
+          onAction={addCommentAction.run}
         />
       )}
     </>

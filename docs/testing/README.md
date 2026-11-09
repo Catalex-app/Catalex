@@ -40,7 +40,7 @@ See [desktop setup](../development/setup.md) for native dependencies. Tests use 
 pnpm -C apps/desktop exec playwright test -c playwright.config.ts
 ```
 
-The Playwright configuration starts Vite. Interactive harnesses use `/?debug=<name>`. Useful focused guides cover [agent stop/pause](agent-pause-harness.md) and [sidebar animation](sidebar-animation-harness.md).
+The Playwright configuration starts Vite. See the [browser demo catalog](browser-demos.md) for starting URLs and the full list. Interactive harnesses use `/?debug=<name>`. Useful focused guides cover [agent stop/pause](agent-pause-harness.md) and [sidebar animation](sidebar-animation-harness.md).
 
 For composer transfer or sidebar motion changes, run the owning regression suite:
 
@@ -50,6 +50,12 @@ pnpm -C apps/desktop exec playwright test -c playwright.config.ts e2e/sidebar-an
 ```
 
 Inspect rendered behavior and visual fit for UI changes; code checks alone are insufficient.
+
+Formatting regressions are covered by `agent-file-review.spec.ts` (editable review,
+applying, and recovery) and `text-editor-header.spec.ts` (background work, panel
+focus, and compact toolbars). The review test pauses the mocked backend response
+inside the test; the demo needs no special controls. `menu-views-smoke.mjs` checks
+the toolbar and native menu together.
 
 ## Electron application checks
 
@@ -68,6 +74,10 @@ node apps/desktop/e2e/electron/panel-review-smoke.mjs
 node apps/desktop/e2e/electron/prompt-library-smoke.mjs
 node apps/desktop/e2e/electron/pdf-file-comments-smoke.mjs
 node apps/desktop/e2e/electron/agent-pdf-comments-smoke.mjs
+node apps/desktop/e2e/electron/application-menu-smoke.mjs
+node apps/desktop/e2e/electron/menu-updates-smoke.mjs
+node apps/desktop/e2e/electron/menu-comments-smoke.mjs
+node apps/desktop/e2e/electron/menu-views-smoke.mjs
 ```
 
 The compilation cancellation smoke uses an isolated profile, a controlled latexmk
@@ -100,6 +110,32 @@ The agent PDF comments smoke holds an isolated Claude turn open against a local 
 See [agent harnesses](../development/agent-harnesses.md) for provider boundaries, [private draft snapshots](private-draft-snapshots.md) for draft behavior, and the [PDF](pdf-performance.md) and [long-project](long-paper-performance.md) runbooks for opt-in stress tests. Run performance measurements without competing builds or tests and distinguish browser, native, and packaged-app coverage.
 
 Current runtime verification is on macOS. Windows/Linux packaging targets do not establish runtime or installer parity.
+
+The application-menu smoke uses an isolated Electron profile and temporary project.
+It invokes the real native menu items and checks Markdown/LaTeX formatting,
+selection retention, disabling formatting after focus moves to search or the Markdown iframe, preview Find routing, Find and
+Replace, the New File dialog, Markdown PDF export, recent projects, project
+closing, PDF-local versus app zoom, shortcut recording in Settings, editor pop-out
+cleanup, shortcut customization across windows, and a full application restart.
+Dialog paths are controlled by the test; application actions use real IPC and
+storage. Rendered screenshots are saved under
+`output/playwright/electron/application-menu/`.
+When the background runner cannot acquire macOS window focus, the smoke emits
+Electron's window-focus event explicitly to check routing. This does not replace
+an interactive check of switching windows through the macOS menu bar.
+
+The menu-comments smoke checks native Add Comment routing between the editor and Markdown iframe, saved source anchors, standalone PDF comments, the existing project-manager dialog, and visibility checkboxes. Screenshots are saved under `output/playwright/electron/menu-comments/`.
+
+The menu-views smoke also verifies that exporting a focused standalone PDF writes
+the original bytes even when a hidden compiled preview is mounted.
+
+The menu-views smoke checks the existing Markdown, LaTeX, and CSV switches through native menus, toolbar/menu selection synchronization, hidden switches for single-view files, expanded panels, and pop-outs, agent workspace behavior, and read-only content. It also double-clicks panel headers and checks formatting through both the native menu and existing toolbar inside the expanded editor, including pointer access and restoration. Screenshots are saved under `output/playwright/electron/menu-views/`.
+
+The menu-updates smoke invokes Check for Updates through the native Catalex menu,
+using controlled GitHub responses with the real update service and production UI.
+It checks new and existing About windows, one shared request, the disabled busy
+label across window changes, available/current/error results, and retry. Screenshots
+are saved under `output/playwright/electron/menu-updates/`.
 
 ## macOS permission prompts
 

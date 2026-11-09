@@ -1,3 +1,4 @@
+import { useAppActions } from "@/hooks/use-app-actions";
 import { browserHarness } from "@/lib/desktop/bridge";
 import { ARTISAN_MODE_REQUEST_EVENT } from "@/lib/workspace-events";
 import { AgentFileReview } from "./editor/agent-file-review";
@@ -2390,6 +2391,25 @@ function ProjectWorkspaceLayout() {
     );
     setViewMode(nextMode);
   };
+  const workspaceActions = useAppActions(
+    (isPreviewableFile ? workspaceViewOptions : [])
+      .filter((option) => !isWorkspaceChat || option.value !== "split")
+      .map((option, order) => ({
+        ...option,
+        id: `view:${option.value === "pdf" ? "preview" : option.value}`,
+        menu: { group: "View" as const, section: 0, order },
+        visible: !expandedPanel,
+        checked: effectiveViewMode === option.value,
+        type: "radio" as const,
+        run: () => {
+          if (isWorkspaceChat) {
+            if (option.value !== "split")
+              updateWorkspaceContentMode(option.value);
+          } else changeViewMode(option.value);
+        },
+      })),
+  );
+
   const frontMorphGeometryDelayMs =
     drawerPresence === "transfer" && frontMorphToPanel
       ? FRONT_MORPH_GEOMETRY_DELAY_MS
@@ -2761,53 +2781,33 @@ function ProjectWorkspaceLayout() {
                           aria-label="Chat workspace content"
                           className="flex items-center p-1"
                         >
-                          {(["editor", "pdf"] as const).map((option) => (
-                            <Hint
-                              content={
-                                option === "editor"
-                                  ? editorPanelLabel
-                                  : previewPanelLabel
-                              }
-                              key={option}
-                            >
-                              <button
-                                type="button"
-                                role="tab"
-                                aria-selected={
-                                  workspaceChatRightPanelMode === option
-                                }
-                                aria-label={
-                                  option === "editor"
-                                    ? editorPanelLabel
-                                    : previewPanelLabel
-                                }
-                                className={cn(
-                                  "flex h-6 w-7 items-center justify-center rounded-md transition-colors",
-                                  workspaceChatRightPanelMode === option
-                                    ? "bg-background text-foreground shadow-sm"
-                                    : "text-muted-foreground hover:bg-background/70 hover:text-foreground",
-                                )}
-                                onClick={() =>
-                                  updateWorkspaceContentMode(option)
-                                }
-                              >
-                                {option === "editor" ? (
-                                  <CodeXmlIcon className="size-4" />
-                                ) : isCsvDocument ? (
-                                  <FileSpreadsheetIcon className="size-4" />
-                                ) : isMarkdownDocument ? (
-                                  <FileTextIcon className="size-4" />
-                                ) : (
-                                  <PdfFileIcon className="size-4" />
-                                )}
-                                <span className="sr-only">
-                                  {option === "editor"
-                                    ? editorPanelLabel
-                                    : previewPanelLabel}
-                                </span>
-                              </button>
-                            </Hint>
-                          ))}
+                          {workspaceActions
+                            .filter((action) => action.visible)
+                            .map((action) => {
+                              const Icon = action.icon;
+                              return (
+                                <Hint content={action.label} key={action.id}>
+                                  <button
+                                    type="button"
+                                    role="tab"
+                                    aria-selected={action.checked}
+                                    aria-label={action.label}
+                                    className={cn(
+                                      "flex h-6 w-7 items-center justify-center rounded-md transition-colors",
+                                      action.checked
+                                        ? "bg-background text-foreground shadow-sm"
+                                        : "text-muted-foreground hover:bg-background/70 hover:text-foreground",
+                                    )}
+                                    onClick={action.run}
+                                  >
+                                    <Icon className="size-4" />
+                                    <span className="sr-only">
+                                      {action.label}
+                                    </span>
+                                  </button>
+                                </Hint>
+                              );
+                            })}
                         </div>
                       ) : null}
                     </ButtonGroup>
@@ -2822,32 +2822,34 @@ function ProjectWorkspaceLayout() {
                           data-chat-layout={chatLayout}
                           className="workspace-view-mode-switch flex h-8 shrink-0 items-center"
                         >
-                          {workspaceViewOptions.map((option) => {
-                            const isActive = viewMode === option.value;
-                            const Icon = option.icon;
-                            return (
-                              <Hint content={option.label} key={option.value}>
-                                <button
-                                  type="button"
-                                  role="tab"
-                                  aria-selected={isActive}
-                                  aria-label={option.label}
-                                  onClick={() => changeViewMode(option.value)}
-                                  className={cn(
-                                    "workspace-view-mode-tab flex h-6 w-7 items-center justify-center rounded-md transition-colors",
-                                    isActive
-                                      ? "bg-background text-foreground shadow-sm"
-                                      : "text-muted-foreground hover:bg-background/70 hover:text-foreground",
-                                  )}
-                                >
-                                  <Icon className="size-4" />
-                                  <span className="sr-only">
-                                    {option.label}
-                                  </span>
-                                </button>
-                              </Hint>
-                            );
-                          })}
+                          {workspaceActions
+                            .filter((action) => action.visible)
+                            .map((option) => {
+                              const isActive = option.checked;
+                              const Icon = option.icon;
+                              return (
+                                <Hint content={option.label} key={option.value}>
+                                  <button
+                                    type="button"
+                                    role="tab"
+                                    aria-selected={isActive}
+                                    aria-label={option.label}
+                                    onClick={option.run}
+                                    className={cn(
+                                      "workspace-view-mode-tab flex h-6 w-7 items-center justify-center rounded-md transition-colors",
+                                      isActive
+                                        ? "bg-background text-foreground shadow-sm"
+                                        : "text-muted-foreground hover:bg-background/70 hover:text-foreground",
+                                    )}
+                                  >
+                                    <Icon className="size-4" />
+                                    <span className="sr-only">
+                                      {option.label}
+                                    </span>
+                                  </button>
+                                </Hint>
+                              );
+                            })}
                         </ButtonGroup>
                       ) : null}{" "}
                     </>
