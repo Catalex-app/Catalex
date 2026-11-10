@@ -171,6 +171,7 @@ export interface DocumentState {
     end: number;
   } | null;
   jumpToPosition: number | null;
+  jumpToPositionHighlight: boolean;
   jumpToSelectionRange: { start: number; end: number } | null;
   isThreadOpen: boolean;
   /** Bumped whenever PDF bytes change — triggers re-render without storing bytes in state. */
@@ -207,7 +208,7 @@ export interface DocumentState {
   setSelectionPreviewRange: (
     range: { fileId: string; start: number; end: number } | null,
   ) => void;
-  requestJumpToPosition: (position: number) => void;
+  requestJumpToPosition: (position: number, highlight?: boolean) => void;
   requestJumpToSelectionRange: (range: { start: number; end: number }) => void;
   clearJumpRequest: () => void;
   setThreadOpen: (open: boolean) => void;
@@ -935,6 +936,7 @@ export const useDocumentStore = create<DocumentState>()((set, get) => ({
   commentSelectionContext: null,
   selectionPreviewRange: null,
   jumpToPosition: null,
+  jumpToPositionHighlight: false,
   jumpToSelectionRange: null,
   isThreadOpen: false,
   pdfRevision: 0,
@@ -1017,6 +1019,7 @@ export const useDocumentStore = create<DocumentState>()((set, get) => ({
             commentSelectionContext: null,
             selectionPreviewRange: null,
             jumpToPosition: null,
+            jumpToPositionHighlight: false,
             jumpToSelectionRange: null,
           });
         },
@@ -1093,6 +1096,7 @@ export const useDocumentStore = create<DocumentState>()((set, get) => ({
           commentSelectionContext: null,
           selectionPreviewRange: null,
           jumpToPosition: null,
+          jumpToPositionHighlight: false,
           jumpToSelectionRange: null,
           initialized: false,
         });
@@ -1207,12 +1211,17 @@ export const useDocumentStore = create<DocumentState>()((set, get) => ({
 
   setSelectionPreviewRange: (range) => set({ selectionPreviewRange: range }),
 
-  requestJumpToPosition: (position) => set({ jumpToPosition: position }),
+  requestJumpToPosition: (position, highlight = false) =>
+    set({ jumpToPosition: position, jumpToPositionHighlight: highlight }),
 
   requestJumpToSelectionRange: (range) => set({ jumpToSelectionRange: range }),
 
   clearJumpRequest: () =>
-    set({ jumpToPosition: null, jumpToSelectionRange: null }),
+    set({
+      jumpToPosition: null,
+      jumpToPositionHighlight: false,
+      jumpToSelectionRange: null,
+    }),
 
   addFile: (file) => {
     const id = file.relativePath;

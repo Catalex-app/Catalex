@@ -17,6 +17,7 @@ import {
 import { markdownCommentSource } from "./markdown-comment-source";
 import {
   cancelNavigationScroll,
+  highlightNavigationTarget,
   isNavigationScrolling,
   scrollForNavigation,
 } from "@/lib/navigation-scroll";
@@ -1035,13 +1036,20 @@ export function MarkdownPreview({
     const scroll = frameDocument.scrollingElement as HTMLElement | null;
     if (element && scroll) {
       const rect = element.getBoundingClientRect();
-      scrollForNavigation(scroll, {
-        top:
-          scroll.scrollTop +
-          rect.top +
-          rect.height / 2 -
-          frameDocument.documentElement.clientHeight / 2,
-      });
+      scrollForNavigation(
+        scroll,
+        {
+          top:
+            scroll.scrollTop +
+            rect.top +
+            rect.height / 2 -
+            frameDocument.documentElement.clientHeight / 2,
+        },
+        () =>
+          highlightNavigationTarget(scroll, "markdown", () =>
+            element.isConnected ? element.getBoundingClientRect() : null,
+          ),
+      );
     }
   }, [frameDocument]);
 
@@ -1057,7 +1065,7 @@ export function MarkdownPreview({
     if (!frameDocument) return;
     const position = sourcePositionAtPreviewCenter(frameDocument);
     if (position !== undefined) {
-      useDocumentStore.getState().requestJumpToPosition(position);
+      useDocumentStore.getState().requestJumpToPosition(position, true);
     }
   }, [frameDocument]);
 
@@ -1187,7 +1195,7 @@ export function MarkdownPreview({
         return;
       }
       lastNavigation = { position: range.start, timestamp };
-      useDocumentStore.getState().requestJumpToPosition(range.start);
+      useDocumentStore.getState().requestJumpToPosition(range.start, true);
     };
     const handleSecondClick = (event: MouseEvent) => {
       if (event.detail >= 2) navigateEventTargetToEditor(event);

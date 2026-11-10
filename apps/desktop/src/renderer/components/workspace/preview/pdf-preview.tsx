@@ -963,7 +963,7 @@ export function PdfPreview({
   );
 
   const navigateSynctexResultToSource = useCallback(
-    (result: SynctexResult, scrollOnly = false) => {
+    (result: SynctexResult, navigation: "locate" | "sync") => {
       if (isolatedSnapshot) return;
       const normalize = (path: string) =>
         path.replace(/\\/g, "/").replace(/^\.\//, "");
@@ -975,7 +975,7 @@ export function PdfPreview({
 
       const state = useDocumentStore.getState();
       const needsSwitch = state.activeFileId !== targetFile.id;
-      if (scrollOnly && !scrollSyncEnabled && needsSwitch) return;
+      if (navigation === "sync" && !scrollSyncEnabled && needsSwitch) return;
       if (needsSwitch) setActiveFile(targetFile.id);
 
       const fileContent = targetFile.content ?? "";
@@ -986,10 +986,18 @@ export function PdfPreview({
       const offset = lines.offset(result.line, Math.max(0, result.column));
 
       const navigate = () => {
-        if (scrollOnly) {
+        if (navigation === "locate") {
+          const current = useDocumentStore.getState();
+          if (
+            current.projectRoot !== state.projectRoot ||
+            current.activeFileId !== targetFile.id
+          )
+            return;
+        }
+        if (navigation === "sync") {
           onScrollSyncToEditor?.(offset);
         } else {
-          requestJumpToPosition(offset);
+          requestJumpToPosition(offset, navigation === "locate");
         }
       };
       if (needsSwitch) setTimeout(navigate, 100);
@@ -1010,9 +1018,10 @@ export function PdfPreview({
   const handleSynctexClick = useCallback(
     async (page: number, x: number, y: number) => {
       if (isolatedSnapshot || !projectRoot) return;
+      const isCurrentContext = captureCompileContext();
       const result = await synctexEdit(projectRoot, page, x, y);
-      if (!result) return;
-      navigateSynctexResultToSource(result);
+      if (!result || !isCurrentContext()) return;
+      navigateSynctexResultToSource(result, "locate");
     },
     [isolatedSnapshot, navigateSynctexResultToSource, projectRoot],
   );
@@ -1549,7 +1558,7 @@ export function PdfPreview({
     )
       return;
     setResolvedSource(result);
-    navigateSynctexResultToSource(result);
+    navigateSynctexResultToSource(result, "locate");
   }, [
     isolatedSnapshot,
     projectRoot,
@@ -1761,7 +1770,7 @@ export function PdfPreview({
       position.pdfY,
     );
     if (!result || epoch !== scrollSyncRequestIdRef.current) return;
-    const source = inverseNavigationRef.current(result, true);
+    const source = inverseNavigationRef.current(result, "sync");
     if (source)
       linkedReadingAnchorRef.current = {
         source,

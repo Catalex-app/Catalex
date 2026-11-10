@@ -1622,6 +1622,10 @@ test("renders Markdown live and applies project Typora themes", async ({
   });
 
   await locatePreviewButton.click();
+  await expect(preview.locator("[data-navigation-highlight]")).toBeInViewport();
+  await expect(
+    page.locator('[data-navigation-highlight="editor"]'),
+  ).toHaveCount(0);
   await expect
     .poll(() =>
       preview
@@ -1651,6 +1655,9 @@ test("renders Markdown live and applies project Typora themes", async ({
   });
   expect(centerSourcePosition).toMatch(/^\d+$/);
   await locateEditorButton.click();
+  await expect(
+    page.locator('[data-navigation-highlight="editor"]'),
+  ).toBeInViewport();
   await expect(page.getByTestId("markdown-editor-cursor-position")).toHaveText(
     centerSourcePosition!,
   );
@@ -1665,13 +1672,16 @@ test("renders Markdown live and applies project Typora themes", async ({
     "data-markdown-source-start",
   );
   expect(doubleClickSourcePosition).toMatch(/^\d+$/);
-  // Manual scrolling interrupts the still-running Locate editor animation.
+  // Start the double-click jump with the editor scrolled away from its target.
   await editorScroller.hover();
   await page.mouse.wheel(0, -10_000);
   await expect
     .poll(() => editorScroller.evaluate((element) => element.scrollTop))
     .toBe(0);
   await doubleClickHeading.dblclick();
+  await expect(
+    page.locator('[data-navigation-highlight="editor"]'),
+  ).toBeInViewport();
   await expect(page.getByTestId("markdown-editor-cursor-position")).toHaveText(
     doubleClickSourcePosition!,
   );

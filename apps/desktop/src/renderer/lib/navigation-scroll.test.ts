@@ -47,17 +47,20 @@ function harness(reduced = false) {
 it("uses intermediate frames, clamps the target and finishes after a short duration", () => {
   const h = harness();
   try {
-    scrollForNavigation(h.element, { top: 3000, left: 500 });
+    const onArrival = vi.fn();
+    scrollForNavigation(h.element, { top: 3000, left: 500 }, onArrival);
     expect(h.element.scrollTop).toBe(0);
     expect(isNavigationScrolling(h.element)).toBe(true);
     h.tick(60);
     expect(h.element.scrollTop).toBeGreaterThan(0);
     expect(h.element.scrollTop).toBeLessThan(2000);
+    expect(onArrival).not.toHaveBeenCalled();
     h.tick(180);
     expect(h.element.scrollTop).toBe(2000);
     expect(h.element.scrollLeft).toBe(300);
     expect(isNavigationScrolling(h.element)).toBe(false);
     expect(h.frames.size).toBe(0);
+    expect(onArrival).toHaveBeenCalledTimes(1);
   } finally {
     h.destroy();
   }
@@ -71,13 +74,15 @@ it.each([
 ])("yields immediately to %s", (event) => {
   const h = harness();
   try {
-    scrollForNavigation(h.element, { top: 1000 });
+    const onArrival = vi.fn();
+    scrollForNavigation(h.element, { top: 1000 }, onArrival);
     h.tick(60);
     const stopped = h.element.scrollTop;
     h.element.dispatchEvent(new Event(event));
     h.tick(180);
     expect(h.element.scrollTop).toBe(stopped);
     expect(isNavigationScrolling(h.element)).toBe(false);
+    expect(onArrival).not.toHaveBeenCalled();
   } finally {
     h.destroy();
   }
@@ -106,10 +111,12 @@ it("replaces stale navigation and adapts to virtualized editor geometry", () => 
 it("respects reduced motion without scheduling frames", () => {
   const h = harness(true);
   try {
-    scrollForNavigation(h.element, { top: 1000 });
+    const onArrival = vi.fn();
+    scrollForNavigation(h.element, { top: 1000 }, onArrival);
     expect(h.element.scrollTop).toBe(1000);
     expect(h.frames.size).toBe(0);
     expect(isNavigationScrolling(h.element)).toBe(false);
+    expect(onArrival).toHaveBeenCalledTimes(1);
   } finally {
     h.destroy();
   }

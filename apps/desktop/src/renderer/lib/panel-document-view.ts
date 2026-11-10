@@ -16,6 +16,7 @@ export function connectPanelDocumentView(
     "selectionRange",
     "selectionPreviewRange",
     "jumpToPosition",
+    "jumpToPositionHighlight",
     "jumpToSelectionRange",
     "commentSelectionContext",
     "pdfSelectionContext",

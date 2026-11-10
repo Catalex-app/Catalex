@@ -1335,6 +1335,9 @@ export function LatexEditor({
     (s) => s.selectionPreviewRange,
   );
   const jumpToPosition = useDocumentStore((s) => s.jumpToPosition);
+  const jumpToPositionHighlight = useDocumentStore(
+    (s) => s.jumpToPositionHighlight,
+  );
   const jumpToSelectionRange = useDocumentStore((s) => s.jumpToSelectionRange);
   const clearJumpRequest = useDocumentStore((s) => s.clearJumpRequest);
 
@@ -4322,10 +4325,17 @@ export function LatexEditor({
     view.dispatch({
       selection: { anchor: jumpToPosition },
     });
-    scrollToEditorPosition(view, jumpToPosition);
+    scrollToEditorPosition(view, jumpToPosition, {
+      highlight: jumpToPositionHighlight,
+    });
     view.focus();
     clearJumpRequest();
-  }, [jumpToPosition, clearJumpRequest, scrollSyncEnabled]);
+  }, [
+    jumpToPosition,
+    jumpToPositionHighlight,
+    clearJumpRequest,
+    scrollSyncEnabled,
+  ]);
 
   useEffect(() => {
     if (!outlineTrackingEnabled) return;
@@ -4896,7 +4906,7 @@ export function LatexEditor({
     saveCommentFilter(panelsProjectKey, comment.origin ? "agent" : "human");
     pendingInlineCommentCenterIdRef.current = null;
     const from = Math.max(0, Math.min(comment.from, view.state.doc.length));
-    scrollToEditorPosition(view, from, comment.id);
+    scrollToEditorPosition(view, from, { commentId: comment.id });
     setPdfCommentRequest(null);
     // Follow the card's measured geometry as the author filter mounts it.
   }, [
@@ -6087,7 +6097,7 @@ export function LatexEditor({
                   0,
                   Math.min(comment.from, view.state.doc.length),
                 );
-                scrollToEditorPosition(view, from, comment.id);
+                scrollToEditorPosition(view, from, { commentId: comment.id });
               }}
             />
           </div>
