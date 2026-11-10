@@ -11,6 +11,7 @@ import { ThemeProvider, useTheme } from "next-themes";
 import { WorkspaceLayout } from "@/components/workspace/workspace-layout";
 import { Toaster } from "@/components/ui/sonner";
 import { useDocumentStore } from "@/stores/document-store";
+import { useAgentQuestionStore } from "@/stores/agent-question-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import { useProposedChangesStore } from "@/stores/proposed-changes-store";
 import {
@@ -228,6 +229,9 @@ This paragraph repeats the experimental setup described in the manuscript.
 };
 
 function initializeDemo() {
+  const questionMode = new URLSearchParams(window.location.search).has(
+    "question",
+  );
   const comments: InlineCommentsByFile = {};
   const add = (
     filePath: keyof typeof documents,
@@ -489,7 +493,7 @@ function initializeDemo() {
       title: "Review manuscript comments",
       provider: "codex" as const,
       messages,
-      isStreaming: false,
+      isStreaming: questionMode,
       error: null,
       selectedCodexExecutionMode: "default" as const,
     };
@@ -500,10 +504,27 @@ function initializeDemo() {
       messages,
       selectedProvider: "codex",
       selectedCodexExecutionMode: "default",
-      isStreaming: false,
+      isStreaming: questionMode,
       error: null,
     };
   });
+  if (questionMode) {
+    useSettingsStore.getState().setWorkspacePreferences(projectRoot, {
+      mode: "duet",
+      chatLayout: "drawer",
+    });
+    useAgentQuestionStore.getState().receive({
+      requestId: "demo-outline-question",
+      tabId: "demo-review",
+      sessionId: "demo-review-chat",
+      projectRoot,
+      question: "Which outline should I use?",
+      options: [
+        { label: "Use the existing outline" },
+        { label: "Draft a new outline" },
+      ],
+    });
+  }
 }
 
 function DemoWorkspace() {

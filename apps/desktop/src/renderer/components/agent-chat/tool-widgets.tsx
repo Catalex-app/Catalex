@@ -1,6 +1,7 @@
 import { toolTitle } from "./tool-title";
 import {
   type FC,
+  type ReactNode,
   createContext,
   useContext,
   useEffect,
@@ -8,6 +9,8 @@ import {
   useState,
 } from "react";
 import { Button } from "@/components/ui/button";
+import type { ChatContextBadge } from "@/lib/chat-context";
+import { formatChatPrompt } from "@/lib/chat-prompt";
 import {
   ArrowUpIcon,
   BotMessageSquareIcon,
@@ -278,12 +281,18 @@ const GrepWidget: FC<{ input: any; result?: ContentBlock }> = ({
 
 // ─── AskUserQuestion Widget ───
 
+export type CustomAnswerContext = {
+  contexts: ChatContextBadge[];
+  badges: ReactNode;
+};
+
 export const AskUserQuestionWidget: FC<{
   input: any;
   result?: ContentBlock;
   onAnswer?: (answer: string) => Promise<void>;
   allowSkip?: boolean;
-}> = ({ input, result, onAnswer, allowSkip = true }) => {
+  customAnswerContext?: CustomAnswerContext;
+}> = ({ input, result, onAnswer, allowSkip = true, customAnswerContext }) => {
   const questions: any[] = input?.questions || [];
   const [answered, setAnswered] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -328,13 +337,21 @@ export const AskUserQuestionWidget: FC<{
     return () => cancelAnimationFrame(frame);
   }, [interactive, needsUserAnswer]);
 
-  const handleOptionClick = async (_question: string, label: string) => {
+  const handleOptionClick = async (
+    label: string,
+    contexts?: ChatContextBadge[],
+  ) => {
     if (onAnswer) {
       if (!needsUserAnswer || !label.trim()) return;
       setSubmitting(true);
       setError(null);
       try {
-        await onAnswer(label);
+        const answer = contexts?.length
+          ? formatChatPrompt(label.trim(), undefined, contexts)
+          : label;
+        if (contexts?.length && new TextEncoder().encode(answer).length > 4000)
+          throw new Error("Shorten your answer or select less text.");
+        await onAnswer(answer);
         setAnswered(true);
       } catch (error) {
         setError(error instanceof Error ? error.message : String(error));
@@ -407,7 +424,6 @@ export const AskUserQuestionWidget: FC<{
                     size="sm"
                     onClick={() =>
                       void handleOptionClick(
-                        "",
                         "Skip this question (no option selected).",
                       )
                     }
@@ -438,6 +454,7 @@ export const AskUserQuestionWidget: FC<{
               {q.options?.map((opt: any, oIdx: number) => (
                 <div
                   key={oIdx}
+                  data-question-option-row=""
                   onMouseEnter={(event) => {
                     if (!needsUserAnswer) return;
                     event.currentTarget
@@ -481,8 +498,7 @@ export const AskUserQuestionWidget: FC<{
                       next?.scrollIntoView({ block: "nearest" });
                     }}
                     onClick={() =>
-                      needsUserAnswer &&
-                      void handleOptionClick(q.question, opt.label)
+                      needsUserAnswer && void handleOptionClick(opt.label)
                     }
                     className="group/choice flex min-h-9 min-w-0 flex-1 items-start rounded-lg px-0 py-2 text-left text-sm leading-5 outline-none disabled:cursor-default"
                   >
@@ -522,7 +538,7 @@ export const AskUserQuestionWidget: FC<{
       </div>
       {onAnswer && !answered && !questions.some((q) => q.permission) && (
         <form
-          className="group relative -mx-4 -mb-3 flex shrink-0 items-center gap-2 px-4 py-2 before:pointer-events-none before:absolute before:inset-x-4 before:top-0 before:h-px before:bg-input"
+          className="group relative -mx-4 -mb-3 grid min-h-13 shrink-0 grid-cols-[minmax(0,1fr)_auto] content-center items-center gap-x-2 px-4 py-1.5 before:pointer-events-none before:absolute before:inset-x-4 before:top-0 before:h-px before:bg-input"
           onBlur={(event) => {
             // Preserve deliberate moves to Send, another choice, or other controls.
             if (event.relatedTarget && event.relatedTarget !== document.body)
@@ -540,10 +556,15 @@ export const AskUserQuestionWidget: FC<{
           }}
           onSubmit={(event) => {
             event.preventDefault();
-            void handleOptionClick("", customAnswer);
+            void handleOptionClick(customAnswer, customAnswerContext?.contexts);
           }}
         >
-          <label className="flex min-h-9 min-w-0 flex-1 items-center text-muted-foreground text-sm">
+          {customAnswerContext && (
+            <div className="app-scrollbar col-span-2 max-h-13 min-w-0 overflow-y-auto overscroll-contain">
+              {customAnswerContext.badges}
+            </div>
+          )}
+          <label className="flex min-h-7 min-w-0 items-center text-muted-foreground text-sm">
             <input
               aria-label="Custom answer"
               placeholder="Or type your own answer"

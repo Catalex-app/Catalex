@@ -26,10 +26,12 @@ const keyOf = (context: ChatContextBadge) =>
 /** Preserve badge identity while a live selection changes or becomes pinned. */
 export function ContextBadgeList({
   contexts,
+  compact = false,
   isLive,
   renderContext,
 }: {
   contexts: ChatContextBadge[];
+  compact?: boolean;
   isLive: (context: ChatContextBadge) => boolean;
   renderContext: (context: ChatContextBadge, index: number) => ReactNode;
 }) {
@@ -174,7 +176,7 @@ export function ContextBadgeList({
     >
       <div
         ref={rowRef}
-        className={`relative space-y-1.5 pr-4 pl-3 ${entries.length ? "pt-3" : ""}`}
+        className={`relative space-y-1.5 ${compact ? (entries.length ? "pb-1" : "") : `pr-4 pl-3 ${entries.length ? "pt-3" : ""}`}`}
       >
         {[
           entries.filter(

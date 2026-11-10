@@ -1380,14 +1380,23 @@ export const ChatComposer: FC<{
     setTimeout(() => textareaRef.current?.focus(), 0);
   }, [acceptPendingAttachments, pendingAttachments, consumePendingAttachments]);
 
-  const currentContextLabel = useMemo(() => {
+  const editorSelection = useMemo(() => {
     if (!selectionRange) return null;
     const file = files.find((f) => f.id === activeFileId);
     if (!file?.content) return null;
     const start = offsetToLineCol(file.content, selectionRange.start);
     const end = offsetToLineCol(file.content, selectionRange.end);
-    return `@${file.relativePath}:${start.line}:${start.col}-${end.line}:${end.col}`;
-  }, [selectionRange, activeFileId, files]);
+    return {
+      proposedDraft: captureProposedDraft(draftSessionId, file.content),
+      label: `@${file.relativePath}:${start.line}:${start.col}-${end.line}:${end.col}`,
+      filePath: file.relativePath,
+      selectedText: file.content.slice(
+        selectionRange.start,
+        selectionRange.end,
+      ),
+    };
+  }, [draftSessionId, selectionRange, activeFileId, files]);
+  const liveTextSelection = pdfSelectionContext ?? editorSelection;
 
   const handlePinnedContextMouseEnter = useCallback(
     (context: PinnedContext) => {
@@ -1422,7 +1431,7 @@ export const ChatComposer: FC<{
         context &&
         isSelectionRangeContextLabel(context.label) &&
         (!context.selectionPinned ||
-          context.label === currentContextLabel ||
+          context.label === editorSelection?.label ||
           (pdfSelectionContext &&
             isSameSelectionContext(context, pdfSelectionContext)))
       ) {
@@ -1437,7 +1446,7 @@ export const ChatComposer: FC<{
     },
     [
       pinnedContexts,
-      currentContextLabel,
+      editorSelection?.label,
       pdfSelectionContext,
       commentSelectionContext,
       setSelectionRange,
@@ -1499,7 +1508,6 @@ export const ChatComposer: FC<{
   // Text and comments share one live selection lifecycle; grouping is visual only.
   useEffect(() => {
     if (!acceptPendingAttachments) return;
-    const file = files.find((f) => f.id === activeFileId);
     const keepContext = (context: PinnedContext) => {
       if (!context.comment || !commentsLoaded) return true;
       return Boolean(
@@ -1521,20 +1529,7 @@ export const ChatComposer: FC<{
         }
       }
     }
-    const liveContext: PinnedContext | null =
-      commentSelectionContext ??
-      pdfSelectionContext ??
-      (selectionRange && currentContextLabel && file?.content
-        ? {
-            proposedDraft: captureProposedDraft(draftSessionId, file.content),
-            label: currentContextLabel,
-            filePath: file.relativePath,
-            selectedText: file.content.slice(
-              selectionRange.start,
-              selectionRange.end,
-            ),
-          }
-        : null);
+    const liveContext = commentSelectionContext ?? liveTextSelection;
     setPinnedContexts((prev) => {
       const retained = prev.filter(
         (context) =>
@@ -1573,12 +1568,8 @@ export const ChatComposer: FC<{
       return pinnedContextsEqual(prev, next) ? prev : next;
     });
   }, [
-    draftSessionId,
-    pdfSelectionContext,
+    liveTextSelection,
     commentSelectionContext,
-    selectionRange,
-    currentContextLabel,
-    activeFileId,
     files,
     commentsByFile,
     commentsLoaded,
@@ -2197,6 +2188,202 @@ export const ChatComposer: FC<{
         <ArrowUpIcon className="size-3.5" />
       )}
     </TooltipIconButton>
+  );
+
+  const answerContexts = useMemo(
+    () =>
+      activeQuestion
+        ? pinnedContexts.filter(
+            (context) => context.comment || isPromptSelection(context),
+          )
+        : null,
+    [activeQuestion, pinnedContexts],
+  );
+  const contextBadges = (
+    <ContextBadgeList
+      contexts={answerContexts ?? pinnedContexts}
+      compact={!!answerContexts}
+      isLive={(context) =>
+        !context.selectionPinned &&
+        (Boolean(context.comment) ||
+          isSelectionRangeContextLabel(context.label))
+      }
+      renderContext={(ctx) => {
+        const i = pinnedContexts.indexOf(ctx);
+        const earlierDraft = isEarlierDraftContext(
+          ctx,
+          draftSessionId,
+          files.find((file) => file.relativePath === ctx.filePath)?.content,
+        );
+        const draftLabel = ctx.proposedDraft
+          ? earlierDraft
+            ? "Agent proposed · Earlier draft"
+            : "Agent proposed"
+          : null;
+        const badge = ctx.imageDataUrl ? (
+          <span
+            className="inline-flex max-w-full items-center gap-1 rounded-sm border border-border bg-transparent py-0.5 pr-0.5 pl-1 font-mono text-muted-foreground text-xs transition-colors hover:border-muted-foreground/50 hover:bg-muted/50 hover:text-foreground"
+            data-attachment-chip="true"
+          >
+            <ChatImagePreview
+              src={ctx.imageDataUrl}
+              sourcePath={ctx.filePath}
+              alt={ctx.label}
+              label={ctx.label}
+              tooltip={ctx.attachment ? ctx.filePath : undefined}
+              thumbnailClassName="size-4 shrink-0 rounded-sm border-0 object-cover"
+            />
+            <button
+              type="button"
+              aria-label="Remove attachment"
+              onMouseDown={handleContextRemoveMouseDown}
+              onClick={() => handlePinnedContextRemove(i)}
+              className="shrink-0 rounded-sm p-0.5 hover:bg-muted-foreground/20"
+            >
+              <XIcon className="size-3" />
+            </button>
+          </span>
+        ) : (
+          <span
+            role="button"
+            tabIndex={0}
+            aria-label={`Show ${ctx.comment ? "comment @" : ctx.selectionKey?.startsWith("file:") ? "file " : "selection "}${ctx.label}`}
+            data-attachment-chip={ctx.attachment ? "true" : undefined}
+            data-selection-chip={
+              ctx.comment || ctx.attachment ? undefined : "true"
+            }
+            data-comment-chip={ctx.comment ? "true" : undefined}
+            data-selection-pinned={Boolean(ctx.selectionPinned)}
+            onMouseDown={(event) => {
+              if (ctx.comment) event.preventDefault();
+            }}
+            onClick={() => handlePinnedContextActivate(ctx)}
+            onKeyDown={(event) => {
+              if (event.target !== event.currentTarget) return;
+              if (event.key !== "Enter" && event.key !== " ") return;
+              event.preventDefault();
+              handlePinnedContextActivate(ctx);
+            }}
+            onMouseEnter={() => handlePinnedContextMouseEnter(ctx)}
+            onMouseLeave={handlePinnedContextMouseLeave}
+            onFocus={() => handlePinnedContextMouseEnter(ctx)}
+            onBlur={handlePinnedContextMouseLeave}
+            className={cn(
+              "inline-flex max-w-full cursor-pointer items-center gap-1 rounded-sm py-0.5 pr-0.5 pl-1 font-mono text-xs transition-colors focus-visible:outline-none focus-visible:ring-2",
+              ctx.attachment
+                ? "border border-border bg-transparent text-muted-foreground hover:border-muted-foreground/50 hover:bg-muted/50 hover:text-foreground focus-visible:ring-ring/50"
+                : "focus-visible:ring-blue-500/50",
+              ctx.attachment
+                ? ""
+                : ctx.comment
+                  ? ctx.comment.agent
+                    ? "bg-[#7252b5] text-white hover:bg-[#62439e]"
+                    : "bg-[#eab308] text-white hover:bg-[#d6a207]"
+                  : "bg-muted text-muted-foreground hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/40 dark:hover:text-blue-300",
+            )}
+            title={
+              ctx.comment?.text ??
+              (ctx.pdf
+                ? `${ctx.pdf.documentPath} · PDF p.${ctx.pdf.page}\n${ctx.selectedText}`
+                : undefined) ??
+              (ctx.proposedDraft ? ctx.selectedText : undefined)
+            }
+          >
+            {ctx.attachment && (
+              <FileIcon aria-hidden="true" className="size-3 shrink-0" />
+            )}
+            {draftLabel && (
+              <span
+                className="shrink-0 font-sans"
+                data-proposed-draft-context="true"
+              >
+                {draftLabel} ·
+              </span>
+            )}
+            <span data-context-label="true" className="min-w-0 truncate">
+              {ctx.comment ? `@${ctx.label}` : ctx.label}
+              <span data-context-glow="true" aria-hidden="true">
+                {ctx.comment ? `@${ctx.label}` : ctx.label}
+              </span>
+            </span>
+            {(ctx.comment || isSelectionRangeContextLabel(ctx.label)) && (
+              <span className="relative size-4 shrink-0">
+                <PinIcon
+                  aria-hidden="true"
+                  className={cn(
+                    "absolute inset-0.5 size-3 transition-opacity duration-150 motion-reduce:duration-75",
+                    ctx.selectionPinned ? "opacity-0" : "opacity-100",
+                  )}
+                />
+                <PinIcon
+                  aria-label={
+                    ctx.selectionPinned
+                      ? ctx.comment
+                        ? "Pinned comment"
+                        : "Pinned selection"
+                      : undefined
+                  }
+                  aria-hidden={!ctx.selectionPinned || undefined}
+                  className={cn(
+                    "absolute inset-0.5 size-3 fill-current transition-opacity duration-150 motion-reduce:duration-75",
+                    ctx.selectionPinned ? "opacity-100" : "opacity-0",
+                  )}
+                />
+                {!ctx.selectionPinned && (
+                  <Hint
+                    content={
+                      ctx.comment
+                        ? "Keep this comment while selecting others"
+                        : "Keep this selection while selecting more text"
+                    }
+                  >
+                    <button
+                      type="button"
+                      aria-label={ctx.comment ? "Pin comment" : "Pin selection"}
+                      onMouseDown={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                      }}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setPinnedContexts((prev) =>
+                          prev.map((context, index) =>
+                            index === i
+                              ? { ...context, selectionPinned: true }
+                              : context,
+                          ),
+                        );
+                      }}
+                      className="absolute inset-0 rounded-sm transition-colors hover:bg-muted-foreground/20"
+                    />
+                  </Hint>
+                )}
+              </span>
+            )}
+            <button
+              type="button"
+              aria-label="Remove context"
+              onClick={(event) => {
+                event.stopPropagation();
+                handlePinnedContextRemove(i);
+              }}
+              onMouseDown={(event) => {
+                if (ctx.comment) event.preventDefault();
+                handleContextRemoveMouseDown(event);
+              }}
+              className="rounded-sm p-0.5 transition-colors hover:bg-muted-foreground/20"
+            >
+              <XIcon className="size-3" />
+            </button>
+          </span>
+        );
+        return ctx.attachment && !ctx.imageDataUrl ? (
+          <Hint content={ctx.filePath}>{badge}</Hint>
+        ) : (
+          badge
+        );
+      }}
+    />
   );
 
   return (
@@ -2940,199 +3127,14 @@ export const ChatComposer: FC<{
         ) : (
           <>
             <div data-chat-feedback-slot="inside" />
-            <AgentQuestionPrompt />
-            {/* Pinned context chips */}
-            <ContextBadgeList
-              contexts={pinnedContexts}
-              isLive={(context) =>
-                !context.selectionPinned &&
-                (Boolean(context.comment) ||
-                  isSelectionRangeContextLabel(context.label))
+            <AgentQuestionPrompt
+              customAnswerContext={
+                answerContexts
+                  ? { contexts: answerContexts, badges: contextBadges }
+                  : undefined
               }
-              renderContext={(ctx) => {
-                const i = pinnedContexts.indexOf(ctx);
-                const earlierDraft = isEarlierDraftContext(
-                  ctx,
-                  draftSessionId,
-                  files.find((file) => file.relativePath === ctx.filePath)
-                    ?.content,
-                );
-                const draftLabel = ctx.proposedDraft
-                  ? earlierDraft
-                    ? "Agent proposed · Earlier draft"
-                    : "Agent proposed"
-                  : null;
-                const badge = ctx.imageDataUrl ? (
-                  <span
-                    className="inline-flex max-w-full items-center gap-1 rounded-sm border border-border bg-transparent py-0.5 pr-0.5 pl-1 font-mono text-muted-foreground text-xs transition-colors hover:border-muted-foreground/50 hover:bg-muted/50 hover:text-foreground"
-                    data-attachment-chip="true"
-                  >
-                    <ChatImagePreview
-                      src={ctx.imageDataUrl}
-                      sourcePath={ctx.filePath}
-                      alt={ctx.label}
-                      label={ctx.label}
-                      tooltip={ctx.attachment ? ctx.filePath : undefined}
-                      thumbnailClassName="size-4 shrink-0 rounded-sm border-0 object-cover"
-                    />
-                    <button
-                      type="button"
-                      aria-label="Remove attachment"
-                      onMouseDown={handleContextRemoveMouseDown}
-                      onClick={() => handlePinnedContextRemove(i)}
-                      className="shrink-0 rounded-sm p-0.5 hover:bg-muted-foreground/20"
-                    >
-                      <XIcon className="size-3" />
-                    </button>
-                  </span>
-                ) : (
-                  <span
-                    role="button"
-                    tabIndex={0}
-                    aria-label={`Show ${ctx.comment ? "comment @" : ctx.selectionKey?.startsWith("file:") ? "file " : "selection "}${ctx.label}`}
-                    data-attachment-chip={ctx.attachment ? "true" : undefined}
-                    data-selection-chip={
-                      ctx.comment || ctx.attachment ? undefined : "true"
-                    }
-                    data-comment-chip={ctx.comment ? "true" : undefined}
-                    data-selection-pinned={Boolean(ctx.selectionPinned)}
-                    onMouseDown={(event) => {
-                      if (ctx.comment) event.preventDefault();
-                    }}
-                    onClick={() => handlePinnedContextActivate(ctx)}
-                    onKeyDown={(event) => {
-                      if (event.target !== event.currentTarget) return;
-                      if (event.key !== "Enter" && event.key !== " ") return;
-                      event.preventDefault();
-                      handlePinnedContextActivate(ctx);
-                    }}
-                    onMouseEnter={() => handlePinnedContextMouseEnter(ctx)}
-                    onMouseLeave={handlePinnedContextMouseLeave}
-                    onFocus={() => handlePinnedContextMouseEnter(ctx)}
-                    onBlur={handlePinnedContextMouseLeave}
-                    className={cn(
-                      "inline-flex max-w-full cursor-pointer items-center gap-1 rounded-sm py-0.5 pr-0.5 pl-1 font-mono text-xs transition-colors focus-visible:outline-none focus-visible:ring-2",
-                      ctx.attachment
-                        ? "border border-border bg-transparent text-muted-foreground hover:border-muted-foreground/50 hover:bg-muted/50 hover:text-foreground focus-visible:ring-ring/50"
-                        : "focus-visible:ring-blue-500/50",
-                      ctx.attachment
-                        ? ""
-                        : ctx.comment
-                          ? ctx.comment.agent
-                            ? "bg-[#7252b5] text-white hover:bg-[#62439e]"
-                            : "bg-[#eab308] text-white hover:bg-[#d6a207]"
-                          : "bg-muted text-muted-foreground hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/40 dark:hover:text-blue-300",
-                    )}
-                    title={
-                      ctx.comment?.text ??
-                      (ctx.pdf
-                        ? `${ctx.pdf.documentPath} · PDF p.${ctx.pdf.page}\n${ctx.selectedText}`
-                        : undefined) ??
-                      (ctx.proposedDraft ? ctx.selectedText : undefined)
-                    }
-                  >
-                    {ctx.attachment && (
-                      <FileIcon
-                        aria-hidden="true"
-                        className="size-3 shrink-0"
-                      />
-                    )}
-                    {draftLabel && (
-                      <span
-                        className="shrink-0 font-sans"
-                        data-proposed-draft-context="true"
-                      >
-                        {draftLabel} ·
-                      </span>
-                    )}
-                    <span
-                      data-context-label="true"
-                      className="min-w-0 truncate"
-                    >
-                      {ctx.comment ? `@${ctx.label}` : ctx.label}
-                      <span data-context-glow="true" aria-hidden="true">
-                        {ctx.comment ? `@${ctx.label}` : ctx.label}
-                      </span>
-                    </span>
-                    {(ctx.comment ||
-                      isSelectionRangeContextLabel(ctx.label)) && (
-                      <span className="relative size-4 shrink-0">
-                        <PinIcon
-                          aria-hidden="true"
-                          className={cn(
-                            "absolute inset-0.5 size-3 transition-opacity duration-150 motion-reduce:duration-75",
-                            ctx.selectionPinned ? "opacity-0" : "opacity-100",
-                          )}
-                        />
-                        <PinIcon
-                          aria-label={
-                            ctx.selectionPinned
-                              ? ctx.comment
-                                ? "Pinned comment"
-                                : "Pinned selection"
-                              : undefined
-                          }
-                          aria-hidden={!ctx.selectionPinned || undefined}
-                          className={cn(
-                            "absolute inset-0.5 size-3 fill-current transition-opacity duration-150 motion-reduce:duration-75",
-                            ctx.selectionPinned ? "opacity-100" : "opacity-0",
-                          )}
-                        />
-                        {!ctx.selectionPinned && (
-                          <Hint
-                            content={
-                              ctx.comment
-                                ? "Keep this comment while selecting others"
-                                : "Keep this selection while selecting more text"
-                            }
-                          >
-                            <button
-                              aria-label={
-                                ctx.comment ? "Pin comment" : "Pin selection"
-                              }
-                              onMouseDown={(event) => {
-                                event.preventDefault();
-                                event.stopPropagation();
-                              }}
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                setPinnedContexts((prev) =>
-                                  prev.map((context, index) =>
-                                    index === i
-                                      ? { ...context, selectionPinned: true }
-                                      : context,
-                                  ),
-                                );
-                              }}
-                              className="absolute inset-0 rounded-sm transition-colors hover:bg-muted-foreground/20"
-                            />
-                          </Hint>
-                        )}
-                      </span>
-                    )}
-                    <button
-                      aria-label="Remove context"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        handlePinnedContextRemove(i);
-                      }}
-                      onMouseDown={(event) => {
-                        if (ctx.comment) event.preventDefault();
-                        handleContextRemoveMouseDown(event);
-                      }}
-                      className="rounded-sm p-0.5 transition-colors hover:bg-muted-foreground/20"
-                    >
-                      <XIcon className="size-3" />
-                    </button>
-                  </span>
-                );
-                return ctx.attachment && !ctx.imageDataUrl ? (
-                  <Hint content={ctx.filePath}>{badge}</Hint>
-                ) : (
-                  badge
-                );
-              }}
             />
+            {!activeQuestion && contextBadges}
 
             {isDragOver ? (
               <div className="flex min-h-10 shrink-0 items-center justify-center px-4 py-3 text-muted-foreground text-sm">
