@@ -28,6 +28,7 @@ import {
 import {
   buildFileTree,
   getFileIcon,
+  renderSidebarFileName,
   SidebarFileTree,
   type SidebarFileTreeNode,
 } from "./sidebar-files";
@@ -503,8 +504,6 @@ function FileStatus({
 }) {
   const diagnostics = useFileCompileDiagnostics(fileId);
   const maskId = useId();
-  const stacked = useSettingsStore((s) => s.sidebarStatusStacked);
-  const setStacked = useSettingsStore((s) => s.setSidebarStatusStacked);
   const indicators = [
     ...(["human", "agent"] as const).flatMap((author) => {
       const count = commentCounts?.[author] ?? 0;
@@ -577,118 +576,78 @@ function FileStatus({
     return () => window.clearTimeout(timeout);
   }, [presence]);
   if (!presence.items.length) return null;
-  const canToggle = indicators.length >= 2;
-  const action = stacked ? "Unstack file indicators" : "Stack file indicators";
-  const icons = (
-    <span className="relative inline-flex shrink-0">
-      <span
-        className="file-status-strip relative inline-block shrink-0"
-        style={{ width: 14 + (presence.items.length - 1) * (stacked ? 8 : 18) }}
-        data-file-status-stack={stacked && canToggle ? "true" : "false"}
-      >
-        {presence.items.map(({ indicator, exiting }, index) => {
-          const { key, label, className, Icon } =
-            indicators.find((item) => item.key === indicator.key) ?? indicator;
-          const NextIcon = stacked
-            ? presence.items[index + 1]?.indicator.Icon
-            : undefined;
-          const id = `${maskId}-${key}`;
-          return (
-            <span
-              key={key}
-              className={cn(
-                "file-status-indicator inline-flex shrink-0",
-                className,
+  return (
+    <span
+      className="file-status-strip relative inline-block shrink-0"
+      style={{
+        width: `calc(14px + ${presence.items.length - 1} * var(--file-status-step))`,
+      }}
+    >
+      {presence.items.map(({ indicator, exiting }, index) => {
+        const { key, label, className, Icon } =
+          indicators.find((item) => item.key === indicator.key) ?? indicator;
+        const NextIcon = presence.items[index + 1]?.indicator.Icon;
+        const id = `${maskId}-${key}`;
+        return (
+          <span
+            key={key}
+            className={cn(
+              "file-status-indicator inline-flex shrink-0",
+              className,
+            )}
+            style={{
+              right: `calc(${presence.items.length - 1 - index} * var(--file-status-step))`,
+            }}
+            data-status-key={key}
+            data-exiting={exiting}
+            role="img"
+            aria-hidden={exiting || undefined}
+            aria-label={label}
+          >
+            <span className="file-status-glyph">
+              {NextIcon ? (
+                <svg
+                  className="size-3.5 overflow-visible"
+                  viewBox="0 0 24 24"
+                  aria-hidden="true"
+                >
+                  <defs>
+                    <mask
+                      id={id}
+                      maskUnits="userSpaceOnUse"
+                      x="-4"
+                      y="-4"
+                      width="32"
+                      height="32"
+                      style={{ maskType: "luminance" }}
+                    >
+                      <rect x="-4" y="-4" width="32" height="32" fill="white" />
+                      {/* Six-pixel overlap, with a transparent halo following the next icon's silhouette. */}
+                      <NextIcon
+                        className="size-6"
+                        x={(8 * 24) / 14}
+                        y={0}
+                        width={24}
+                        height={24}
+                        fill="black"
+                        stroke="black"
+                        strokeWidth={5}
+                      />
+                    </mask>
+                  </defs>
+                  <g className="file-status-masked-icon" mask={`url(#${id})`}>
+                    <Icon className="size-6" width={24} height={24} />
+                  </g>
+                </svg>
+              ) : (
+                <Icon className="size-3.5" aria-hidden="true" />
               )}
-              style={{
-                right: (presence.items.length - 1 - index) * (stacked ? 8 : 18),
-              }}
-              data-status-key={key}
-              data-exiting={exiting}
-              role="img"
-              aria-hidden={exiting || undefined}
-              aria-label={label}
-            >
-              <span className="file-status-glyph">
-                {NextIcon ? (
-                  <svg
-                    className="size-3.5 overflow-visible"
-                    viewBox="0 0 24 24"
-                    aria-hidden="true"
-                  >
-                    <defs>
-                      <mask
-                        id={id}
-                        maskUnits="userSpaceOnUse"
-                        x="-4"
-                        y="-4"
-                        width="32"
-                        height="32"
-                        style={{ maskType: "luminance" }}
-                      >
-                        <rect
-                          x="-4"
-                          y="-4"
-                          width="32"
-                          height="32"
-                          fill="white"
-                        />
-                        {/* Six-pixel overlap, with a transparent halo following the next icon's silhouette. */}
-                        <NextIcon
-                          className="size-6"
-                          x={(8 * 24) / 14}
-                          y={0}
-                          width={24}
-                          height={24}
-                          fill="black"
-                          stroke="black"
-                          strokeWidth={5}
-                        />
-                      </mask>
-                    </defs>
-                    <g mask={`url(#${id})`}>
-                      <Icon className="size-6" width={24} height={24} />
-                    </g>
-                  </svg>
-                ) : (
-                  <Icon className="size-3.5" aria-hidden="true" />
-                )}
-              </span>
             </span>
-          );
-        })}
-      </span>
-      {canToggle && (
-        <Hint content={stacked ? "Click to unstack" : "Click to stack"}>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="absolute inset-0 h-auto w-full rounded-sm p-0 hover:bg-transparent focus-visible:ring-2 focus-visible:ring-sidebar-ring dark:hover:bg-transparent"
-            aria-label={action}
-            aria-pressed={stacked}
-            onPointerDown={(event) => event.stopPropagation()}
-            onPointerMove={(event) => event.stopPropagation()}
-            onFocus={(event) => event.stopPropagation()}
-            onBlur={(event) => event.stopPropagation()}
-            onClick={(event) => {
-              event.stopPropagation();
-              setStacked(!stacked);
-            }}
-            onAuxClick={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-            }}
-            onDoubleClick={(event) => event.stopPropagation()}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" || event.key === " ")
-                event.stopPropagation();
-            }}
-          />
-        </Hint>
-      )}
+          </span>
+        );
+      })}
     </span>
   );
-  return icons;
 }
 
 function clampSectionHeight(height: number) {
@@ -2773,7 +2732,7 @@ function SidebarDefault({
     <div
       ref={sidebarRef}
       data-workspace-assistant-mode={assistantMode}
-      className="flex h-full flex-col bg-background text-sidebar-foreground"
+      className="@container/file-sidebar flex h-full flex-col bg-background text-sidebar-foreground"
     >
       <TrafficLightSafeHeader trafficLightInset={trafficLightInset}>
         <div className="-ml-1 flex shrink-0 items-center gap-0.5">
@@ -3625,6 +3584,7 @@ function FileTreeNode({
             <SidebarRow
               data-sidebar-file-id={encodeURIComponent(file.id)}
               data-middle-click-tab
+              aria-label={node.name}
               data-pending-ai-review={isPendingAIReview ? "true" : undefined}
               data-git-conflicted={isConflicted ? "true" : undefined}
               className={cn(
@@ -3690,18 +3650,16 @@ function FileTreeNode({
                         : undefined,
                 )}
               </SidebarRowIcon>
-              <span
-                className={cn(
-                  "min-w-0 flex-1 truncate",
-                  isConflicted
-                    ? CONFLICT_TEXT_CLASS
-                    : isPendingAIReview
-                      ? PENDING_AI_REVIEW_TEXT_CLASS
-                      : isIgnored && "text-muted-foreground",
-                )}
-              >
-                {node.name}
-              </span>
+              {renderSidebarFileName(
+                node.name,
+                isConflicted
+                  ? CONFLICT_TEXT_CLASS
+                  : isPendingAIReview
+                    ? PENDING_AI_REVIEW_TEXT_CLASS
+                    : isIgnored
+                      ? "text-muted-foreground"
+                      : undefined,
+              )}
             </SidebarRow>
           </ContextMenuTrigger>
         </Hint>

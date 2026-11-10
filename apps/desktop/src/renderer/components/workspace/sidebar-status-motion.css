@@ -1,6 +1,17 @@
 .file-status-strip {
+  --file-status-step: 8px;
   height: 14px;
   transition: width 160ms ease-out;
+}
+
+@container file-sidebar (width >= 230px) {
+  .file-status-strip {
+    --file-status-step: 16px;
+  }
+
+  .file-status-masked-icon {
+    mask: none;
+  }
 }
 
 .file-status-indicator {

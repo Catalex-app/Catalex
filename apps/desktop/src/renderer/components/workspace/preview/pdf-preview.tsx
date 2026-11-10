@@ -21,6 +21,10 @@ import {
 } from "@/lib/workspace-compile";
 import { isComposingKey } from "@/lib/keyboard-events";
 import { DocumentZoomControl } from "../document-zoom-control";
+import {
+  documentCounterClassName,
+  documentStepButtonClassName,
+} from "../document-navigation-styles";
 import { setCommentDraft } from "../editor/comment-draft-history";
 import { attachCommentToChat } from "@/lib/comment-chat-context";
 import { isReferencePanelWindow } from "@/lib/panel-window-runtime";
@@ -135,9 +139,6 @@ type FitMode = "fit-width" | "fit-height" | null;
 const DEFAULT_FIT_MODE: Exclude<FitMode, null> = "fit-width";
 const RECOMPILE_BUTTON_WIDTH = 100;
 const RECOMPILE_ICON_BUTTON_WIDTH = 28;
-const PAGE_COUNTER_CLASS =
-  "flex h-7 shrink-0 items-center justify-center gap-0.5 px-[5px] text-xs tabular-nums";
-const PAGE_STEP_CLASS = "h-7 w-5 shrink-0";
 type CompilerChoice = `latexmk:${ConcreteCompilerEngine}` | "tectonic";
 
 /** Per-root zoom state cache: rootFileId → { scale, fitMode } */
@@ -2766,7 +2767,7 @@ export function PdfPreview({
                   <Button
                     variant="ghost"
                     size="icon"
-                    className={PAGE_STEP_CLASS}
+                    className={documentStepButtonClassName}
                     onClick={() => goToPage(currentPage - 1)}
                     disabled={currentPage <= 1}
                     aria-label="Page Up"
@@ -2779,7 +2780,7 @@ export function PdfPreview({
                   <Hint content="Click to jump to page">
                     <button
                       type="button"
-                      className={`${PAGE_COUNTER_CLASS} rounded-md text-muted-foreground hover:bg-muted ${isEditingPage ? "invisible" : ""}`}
+                      className={`${documentCounterClassName} rounded-md text-muted-foreground hover:bg-muted ${isEditingPage ? "invisible" : ""}`}
                       onClick={() => {
                         cancelledPageInputRef.current = false;
                         setIsEditingPage(true);
@@ -2820,7 +2821,7 @@ export function PdfPreview({
                   <Button
                     variant="ghost"
                     size="icon"
-                    className={PAGE_STEP_CLASS}
+                    className={documentStepButtonClassName}
                     onClick={() => goToPage(currentPage + 1)}
                     disabled={currentPage >= numPages}
                     aria-label="Page Down"
@@ -2891,9 +2892,11 @@ export function PdfPreview({
             {level === 0 && (
               <>
                 <div className="flex shrink-0 items-center">
-                  <div className={PAGE_STEP_CLASS} />
-                  <div className={PAGE_COUNTER_CLASS}>{pageCounterLabel}</div>
-                  <div className={PAGE_STEP_CLASS} />
+                  <div className={documentStepButtonClassName} />
+                  <div className={documentCounterClassName}>
+                    {pageCounterLabel}
+                  </div>
+                  <div className={documentStepButtonClassName} />
                 </div>
                 <div className="mx-1 h-4 w-px shrink-0" />
               </>
@@ -2926,8 +2929,14 @@ export function PdfPreview({
             data-pdf-menu-page-count
             className="relative ml-auto inline-flex h-5 min-w-12 shrink-0 items-center justify-end text-muted-foreground text-xs tabular-nums"
           >
-            <span className={cn("px-1", isEditingPage && "invisible")}>
-              {currentPage} / {numPages}
+            <span
+              className={cn(
+                documentCounterClassName,
+                "h-full px-1",
+                isEditingPage && "invisible",
+              )}
+            >
+              {pageCounterLabel}
             </span>
             {isEditingPage && (
               <input

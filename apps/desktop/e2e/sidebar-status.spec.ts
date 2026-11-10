@@ -65,135 +65,65 @@ async function activeFile(page: Page) {
   });
 }
 
+async function setSidebarWidth(page: Page, width: number) {
+  await page
+    .locator('[data-sidebar-file-id="main.tex"]')
+    .evaluate((row, width) => {
+      const sidebar = row.closest<HTMLElement>(
+        "[data-workspace-assistant-mode]",
+      )!;
+      sidebar.style.width = `${width}px`;
+    }, width);
+}
+
 for (const interactive of [false, true]) {
-  test(`${interactive ? "interactive" : "static"} status toggle affects every row without selecting files`, async ({
+  test(`${interactive ? "interactive" : "static"} file indicators follow the sidebar width`, async ({
     page,
-  }) => {
+  }, testInfo) => {
     await setup(page, interactive);
     const main = page.locator('[data-sidebar-file-id="main.tex"]');
     const pair = page.locator('[data-sidebar-file-id="references.bib"]');
     const single = page.locator('[data-sidebar-file-id="template.pdf"]');
-    const initialToggle = main.getByRole("button", {
-      name: "Unstack file indicators",
-      exact: true,
-    });
-    await expect(initialToggle).toHaveAttribute("aria-pressed", "true");
-    await initialToggle.click();
-    await page.mouse.move(800, 600);
-    const toggle = main.getByRole("button", {
-      name: "Stack file indicators",
-      exact: true,
-    });
-    await expect(toggle).toHaveAttribute("aria-pressed", "false");
     await expect(
-      single.getByRole("button", { name: /file indicators/ }),
+      page.getByRole("button", { name: /file indicators/ }),
     ).toHaveCount(0);
-    await expect(page.locator("button button")).toHaveCount(0);
-    await page.screenshot({
-      path: `../../output/playwright/sidebar-separate-${interactive ? "interactive" : "static"}.png`,
-    });
-    await toggle.hover();
-    await expect(page.getByRole("tooltip")).toHaveText("Click to stack");
-    await page.screenshot({
-      path: `../../output/playwright/sidebar-hint-${interactive ? "interactive" : "static"}.png`,
-    });
-    await toggle.click();
-    await expect(main.locator("[data-file-status-stack]")).toHaveAttribute(
-      "data-file-status-stack",
-      "true",
-    );
-    await expect(pair.locator("[data-file-status-stack]")).toHaveAttribute(
-      "data-file-status-stack",
-      "true",
-    );
-    await expect(single.locator("[data-file-status-stack]")).toHaveAttribute(
-      "data-file-status-stack",
-      "false",
-    );
-    expect(await activeFile(page)).toBe("template.pdf");
-    await expect
-      .poll(async () =>
-        main
-          .getByRole("img")
-          .evaluateAll(
-            (icons) =>
-              icons[1].getBoundingClientRect().x -
-              icons[0].getBoundingClientRect().x,
-          ),
-      )
-      .toBe(8);
-    const boxes = await main.getByRole("img").evaluateAll((icons) =>
-      icons.map((icon) => {
-        const rect = icon.getBoundingClientRect();
-        return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
-      }),
-    );
-    for (const [index, box] of boxes.entries()) {
-      expect(box.width).toBe(14);
-      expect(box.height).toBe(14);
-      expect(box.y).toBe(boxes[0].y);
-      if (index) expect(box.x - boxes[index - 1].x).toBe(8);
+    for (const width of [229, 230, 240, 200]) {
+      await setSidebarWidth(page, width);
+      const step = width >= 230 ? 16 : 8;
+      await expect(main.locator(".file-status-strip")).toHaveCSS(
+        "width",
+        `${14 + step * 3}px`,
+      );
+      await expect(pair.locator(".file-status-strip")).toHaveCSS(
+        "width",
+        `${14 + step}px`,
+      );
+      await expect(single.locator(".file-status-strip")).toHaveCSS(
+        "width",
+        "14px",
+      );
+      const positions = await main
+        .getByRole("img")
+        .evaluateAll((icons) =>
+          icons.map((icon) => icon.getBoundingClientRect().x),
+        );
+      expect(
+        positions.slice(1).map((x, index) => x - positions[index]),
+      ).toEqual([step, step, step]);
+      const maskedIcon = main.locator(".file-status-masked-icon").first();
+      const mask = await maskedIcon.evaluate(
+        (icon) => getComputedStyle(icon).maskImage,
+      );
+      expect(mask === "none").toBe(width >= 230);
+      await main.screenshot({
+        path: testInfo.outputPath(`file-indicators-${width}.png`),
+      });
     }
-    const pairToggle = pair.getByRole("button", {
-      name: "Unstack file indicators",
-      exact: true,
-    });
-    await pairToggle.hover();
-    await expect(page.getByRole("tooltip")).toHaveText("Click to unstack");
-    await pairToggle.focus();
-    await page.keyboard.press("Enter");
-    await expect(main.locator("[data-file-status-stack]")).toHaveAttribute(
-      "data-file-status-stack",
-      "false",
-    );
-    expect(await activeFile(page)).toBe("template.pdf");
-    await page.keyboard.press("Space");
-    await expect(main.locator("[data-file-status-stack]")).toHaveAttribute(
-      "data-file-status-stack",
-      "true",
-    );
     expect(await activeFile(page)).toBe("template.pdf");
     await main.getByRole("button", { name: "main.tex", exact: true }).click();
     await expect.poll(() => activeFile(page)).toBe("main.tex");
-    await page.mouse.move(800, 600);
-    await page.screenshot({
-      path: `../../output/playwright/sidebar-toggle-${interactive ? "interactive" : "static"}.png`,
-    });
   });
 }
-
-test("layout preference syncs between windows and survives reloading", async ({
-  page,
-  context,
-}) => {
-  await setup(page, true);
-  const second = await context.newPage();
-  await setup(second, false);
-  const status = (target: Page) =>
-    target.locator(
-      '[data-sidebar-file-id="main.tex"] [data-file-status-stack]',
-    );
-  await page
-    .getByRole("button", { name: "Unstack file indicators", exact: true })
-    .first()
-    .click();
-  await expect(status(second)).toHaveAttribute(
-    "data-file-status-stack",
-    "false",
-  );
-  await setup(page, true);
-  await expect(status(page)).toHaveAttribute("data-file-status-stack", "false");
-  await second
-    .getByRole("button", { name: "Stack file indicators", exact: true })
-    .first()
-    .click();
-  await expect(status(page)).toHaveAttribute("data-file-status-stack", "true");
-  await setup(second, false);
-  await expect(status(second)).toHaveAttribute(
-    "data-file-status-stack",
-    "true",
-  );
-});
 
 async function setMainDiagnostics(
   page: Page,
@@ -225,11 +155,7 @@ for (const mode of ["separate", "stacked", "reduced"] as const) {
       await page.emulateMedia({ reducedMotion: "reduce" });
     await setup(page, true);
     const main = page.locator('[data-sidebar-file-id="main.tex"]');
-    if (mode !== "stacked") {
-      await main
-        .getByRole("button", { name: "Unstack file indicators", exact: true })
-        .click();
-    }
+    await setSidebarWidth(page, mode === "stacked" ? 200 : 320);
     await page.mouse.move(800, 600);
     await page.waitForTimeout(350);
     for (const removing of [true, false]) {
@@ -267,7 +193,7 @@ for (const mode of ["separate", "stacked", "reduced"] as const) {
       const positions = await sampling;
       const start = positions[0];
       const finish = positions.at(-1)!;
-      const distance = mode === "stacked" ? 8 : 18;
+      const distance = mode === "stacked" ? 8 : 16;
       expect(finish - start).toBeCloseTo(removing ? distance : -distance, 1);
       const intermediate = positions.filter(
         (x) => Math.abs(x - start) > 0.1 && Math.abs(x - finish) > 0.1,
@@ -304,7 +230,7 @@ for (const mode of ["separate", "stacked", "reduced"] as const) {
         path: `../../output/playwright/sidebar-burst-${mode}.png`,
       });
     }
-    await expect(main.locator("[data-file-status-stack]")).toHaveCount(0);
+    await expect(main.locator(".file-status-strip")).toHaveCount(0);
     await setMainDiagnostics(page, ["warning"]);
     await expect(main.getByRole("img")).toHaveCount(1);
     await expect(
@@ -344,9 +270,9 @@ for (const mode of ["separate", "stacked", "reduced"] as const) {
     await page.waitForTimeout(350);
     await expect(main.getByRole("img")).toHaveCount(2);
     await expect(main.locator('[data-exiting="true"]')).toHaveCount(0);
-    await expect(main.locator("[data-file-status-stack]")).toHaveAttribute(
-      "data-file-status-stack",
-      mode === "stacked" ? "true" : "false",
+    await expect(main.locator(".file-status-strip")).toHaveCSS(
+      "width",
+      mode === "stacked" ? "22px" : "30px",
     );
     expect(await activeFile(page)).toBe("template.pdf");
   });

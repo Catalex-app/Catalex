@@ -356,19 +356,13 @@ markers. Marker activation uses the existing PDF comment interaction, including
 source synchronization when the editor is visible.
 
 Sidebar file indicators show unresolved human and agent comments in their existing
-yellow and violet colors, followed by compilation warnings and errors. The
-app-wide `sidebarStatusStacked` preference defaults to stacked icons. Clicking a
-row's indicator area toggles one combined stack across windows; only rows with
-two or more indicators expose this button. The saved preference survives restarts.
-The toggle and file-selection button are siblings, so mouse and keyboard activation
-do not select a file or start a drag. Indicators have accessible labels and a standard action-only
-tooltip on rows that can toggle. Stacked icons use silhouette masks so their transparent gaps
-follow the row's current background. The shared indicator component animates new
-icons with a small spring-like pop and retains removed icons for a 220ms bubble
-burst. Exiting icons are hidden from accessibility immediately and never count
-toward the two-icon toggle threshold. A stable icon subtree prevents replay when
-that threshold changes. Icon positions and strip width use a 160ms slide as space
-opens or closes; reduced motion skips these effects.
+yellow and violet colors, followed by compilation warnings and errors. The icons
+stack below a sidebar width of 230 px and sit 2 px apart at wider widths. Stacked
+icons use silhouette masks so their transparent gaps follow the row's current
+background. Each indicator has an accessible label. New icons pop in, and
+removed icons are hidden from accessibility immediately while their 220ms bubble
+burst plays. Icon positions and strip width animate over 160ms. Reduced motion
+skips these effects.
 
 Sidebar file and session context menus use explicit targets with `openPanelWindow`; they do not change the main file or chat selection. Small text files load on demand, and saved sessions restore through `loadChatInBackground` with project and duplicate checks before opening a window. Archived sessions must be restored first.
 

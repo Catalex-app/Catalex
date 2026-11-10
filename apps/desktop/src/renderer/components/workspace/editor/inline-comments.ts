@@ -416,7 +416,8 @@ export class InlineCommentCardWidget extends WidgetType {
 
   private updateBadge(badge: HTMLElement): void {
     const label = commentLabel(this.comment);
-    if (badge.textContent !== label) badge.textContent = label;
+    const text = badge.firstChild;
+    if (text && text.nodeValue !== label) text.nodeValue = label;
   }
 
   private updateTime(time: HTMLElement): void {
@@ -484,6 +485,9 @@ export class InlineCommentCardWidget extends WidgetType {
 
     const badge = document.createElement("span");
     badge.className = "cm-inlineCommentBadge";
+    const hint = document.createElement("span");
+    hint.className = "cm-inlineCommentBadgeHint";
+    badge.append(document.createTextNode(""), hint);
     this.updateBadge(badge);
 
     const time = document.createElement("div");
@@ -505,6 +509,16 @@ export class InlineCommentCardWidget extends WidgetType {
       meta.appendChild(origin);
     }
     header.appendChild(meta);
+    renderDomHint(hint, "", () =>
+      Array.from(
+        meta.querySelectorAll<HTMLElement>(
+          ".cm-inlineCommentTimestamp, .cm-inlineCommentOrigin",
+        ),
+      )
+        .filter((field) => !field.checkVisibility({ visibilityProperty: true }))
+        .map((field) => field.textContent)
+        .join(" · "),
+    );
 
     return header;
   }
@@ -636,6 +650,7 @@ export class InlineCommentCardWidget extends WidgetType {
     let button = card.querySelector<HTMLButtonElement>(
       ".cm-inlineCommentAttach",
     );
+    const badge = card.querySelector<HTMLElement>(".cm-inlineCommentBadge");
     const selected = Boolean(
       attach && this.actions.selectedCommentIds?.includes(this.comment.id),
     );
@@ -643,6 +658,10 @@ export class InlineCommentCardWidget extends WidgetType {
     card.classList.toggle("cm-inlineCommentSelected", selected);
     if (!attach) {
       button?.remove();
+      if (badge) {
+        badge.onmousedown = null;
+        badge.onclick = null;
+      }
       return;
     }
     if (!button) {
@@ -661,6 +680,10 @@ export class InlineCommentCardWidget extends WidgetType {
       event.stopPropagation();
       attach(this.comment);
     };
+    if (badge) {
+      badge.onmousedown = button.onmousedown;
+      badge.onclick = button.onclick;
+    }
   }
 
   private configureCopy(card: HTMLElement): void {
@@ -824,6 +847,10 @@ export class InlineCommentCardWidget extends WidgetType {
     inlineCommentSaveCleanups.delete(dom);
     const origin = dom.querySelector<HTMLElement>(".cm-inlineCommentOrigin");
     if (origin) destroyDomHint(origin);
+    const badgeHint = dom.querySelector<HTMLElement>(
+      ".cm-inlineCommentBadgeHint",
+    );
+    if (badgeHint) destroyDomHint(badgeHint);
     inlineCommentLeaveCleanups.get(dom)?.();
     this.cleanupCardTransition(dom);
     this.cleanupConfirmationReturn(dom);
@@ -1879,6 +1906,10 @@ export const inlineCommentStyles = {
     lineHeight: "1.4",
     whiteSpace: "pre-wrap",
   },
+  ".cm-content .cm-inlineCommentCard": {
+    // Fit the card to the editor without contributing an intrinsic width.
+    contain: "inline-size",
+  },
   ".cm-inlineCommentAttach": {
     position: "absolute",
     inset: "0",
@@ -1930,7 +1961,7 @@ export const inlineCommentStyles = {
     zIndex: "3",
     pointerEvents: "none",
   },
-  ".cm-inlineCommentSelectable .cm-inlineCommentControls, .cm-inlineCommentSelectable .cm-inlineCommentOrigin, .cm-inlineCommentSelectable .cm-inlineCommentFullWidthButton":
+  ".cm-inlineCommentSelectable .cm-inlineCommentControls, .cm-inlineCommentSelectable .cm-inlineCommentOrigin, .cm-inlineCommentSelectable .cm-inlineCommentFullWidthButton, .cm-inlineCommentSelectable .cm-inlineCommentBadge":
     {
       pointerEvents: "auto",
     },
@@ -1939,9 +1970,10 @@ export const inlineCommentStyles = {
   },
   ".cm-inlineCommentMeta": {
     alignItems: "center",
+    containerName: "comment-meta",
+    containerType: "inline-size",
     display: "inline-flex",
     flex: "1 1 0",
-    gap: "6px",
     minWidth: "0",
   },
   ".cm-inlineCommentBadge": {
@@ -1958,8 +1990,16 @@ export const inlineCommentStyles = {
     lineHeight: "1",
     minWidth: "18px",
     padding: "0 5px",
+    position: "relative",
     transition:
       "background-color 100ms ease-out, color 100ms ease-out, border-color 100ms ease-out",
+  },
+  '.cm-inlineCommentBadgeHint [data-slot="tooltip-trigger"]': {
+    position: "absolute",
+    inset: "0",
+  },
+  ".cm-inlineCommentSelectable .cm-inlineCommentBadge": {
+    cursor: "pointer",
   },
   ".cm-inlineCommentTime": {
     position: "relative",
@@ -2282,11 +2322,42 @@ export const inlineCommentStyles = {
   ".cm-inlineCommentOrigin": {
     fontSize: "10px",
     fontWeight: "700",
+    minWidth: "0",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
     whiteSpace: "nowrap",
-    flexShrink: "0",
+  },
+  ".cm-inlineCommentTime, .cm-inlineCommentOrigin": {
+    inlineSize: "max-content",
+    interpolateSize: "allow-keywords",
+    marginInlineStart: "6px",
+    transition:
+      "opacity 120ms ease-out, inline-size 120ms ease-out, margin-inline-start 120ms ease-out, display 120ms allow-discrete",
+  },
+  "@starting-style": {
+    ".cm-inlineCommentTime, .cm-inlineCommentOrigin": { opacity: "0" },
   },
   ".cm-inlineCommentUnplaced:focus-within .cm-inlineCommentOrigin": {
     display: "none",
+    transition: "none",
+  },
+  "@container comment-meta (width < 112px)": {
+    ".cm-inlineCommentAgent:not(.cm-inlineCommentUnplaced:focus-within) .cm-inlineCommentTime":
+      {
+        display: "none",
+        opacity: "0",
+        inlineSize: "0",
+        marginInlineStart: "0",
+      },
+  },
+  "@container comment-meta (width < 72px)": {
+    ".cm-inlineCommentCard:not(.cm-inlineCommentUnplaced:focus-within) .cm-inlineCommentTime, .cm-inlineCommentOrigin":
+      {
+        display: "none",
+        opacity: "0",
+        inlineSize: "0",
+        marginInlineStart: "0",
+      },
   },
   ".cm-inlineCommentCard::before": {
     content: '""',
@@ -2399,7 +2470,7 @@ export const inlineCommentStyles = {
     ".cm-inlineCommentPlacementHint [data-context-glow]": {
       animation: "none !important",
     },
-    ".cm-inlineCommentText, .cm-inlineCommentTimestamp, .cm-inlineCommentPlacementHint, .cm-inlineCommentBadge, .cm-inlineCommentPlacementStatus, .cm-inlineCommentCopyButton":
+    ".cm-inlineCommentText, .cm-inlineCommentTime, .cm-inlineCommentTimestamp, .cm-inlineCommentOrigin, .cm-inlineCommentPlacementHint, .cm-inlineCommentBadge, .cm-inlineCommentPlacementStatus, .cm-inlineCommentCopyButton":
       { transition: "none !important" },
     ".cm-inlineCommentCard::before": { transition: "none" },
     ".cm-inlineCommentCard, .cm-inlineCommentCard::after, .cm-inlineCommentAttach":

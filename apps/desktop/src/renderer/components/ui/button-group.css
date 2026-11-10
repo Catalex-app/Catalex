@@ -1,0 +1,52 @@
+.responsive-button-group {
+  --button-group-switch-duration: 160ms;
+}
+
+.responsive-button-group > [data-button-group-layout] {
+  display: flex;
+  flex: none;
+  align-items: center;
+  inline-size: max-content;
+  interpolate-size: allow-keywords;
+  overflow: clip;
+  overflow-clip-margin: 4px;
+  transition:
+    inline-size var(--button-group-switch-duration) ease-out,
+    opacity var(--button-group-switch-duration) ease-out,
+    visibility 0s;
+}
+
+.responsive-button-group > [data-button-group-layout="normal"] {
+  inline-size: 0;
+  opacity: 0;
+  visibility: hidden;
+  interactivity: inert;
+  transition-delay: 0s, 0s, var(--button-group-switch-duration);
+}
+
+@container (width >= 460px) {
+  /* Keep the menu anchored if the pane widens while it is open. */
+  .responsive-button-group:not(:has([data-slot="dropdown-menu-trigger"][data-state="open"])) {
+    > [data-button-group-layout="normal"] {
+      inline-size: max-content;
+      opacity: 1;
+      visibility: visible;
+      interactivity: auto;
+      transition-delay: 0s;
+    }
+
+    > [data-button-group-layout="compact"] {
+      inline-size: 0;
+      opacity: 0;
+      visibility: hidden;
+      interactivity: inert;
+      transition-delay: 0s, 0s, var(--button-group-switch-duration);
+    }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .responsive-button-group {
+    --button-group-switch-duration: 0s;
+  }
+}

@@ -2,6 +2,72 @@ import { expect, test } from "@playwright/test";
 
 test.use({ viewport: { width: 1280, height: 1000 } });
 
+test("the comment card and its actions fit beside the minimap at minimum pane width", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 800, height: 950 });
+  await page.goto("/?debug=comment-workspace");
+  const card = page.locator(
+    '.cm-inlineCommentCard[data-inline-comment-id="A-7"]',
+  );
+  const timestamp = card.locator(".cm-inlineCommentTimestamp");
+  const agentName = card.locator(".cm-inlineCommentOrigin");
+  const badge = card.locator(".cm-inlineCommentBadge");
+  const tooltip = page.getByRole("tooltip");
+  const pane = page.locator("[data-panel]").filter({ has: card });
+  const minimap = pane.getByRole("complementary", { name: "Document minimap" });
+  await expect(pane).toHaveCSS("width", "280px");
+  await expect(minimap).toBeVisible();
+  await expect(card).toBeVisible();
+  const cardBox = (await card.boundingBox())!;
+  const minimapBox = (await minimap.boundingBox())!;
+  expect(cardBox.x + cardBox.width).toBeLessThan(minimapBox.x);
+  await expect(timestamp).toBeHidden();
+  await expect(agentName).toBeHidden();
+  await badge.hover();
+  await expect(tooltip).toHaveText("Just now · Demo agent");
+  await page.mouse.move(10, 10);
+
+  await page.setViewportSize({ width: 950, height: 950 });
+  await expect(timestamp).toBeHidden();
+  await expect(agentName).toBeVisible();
+  await expect(async () => {
+    await badge.hover();
+    await expect(tooltip).toHaveText("Just now", { timeout: 1200 });
+  }).toPass({ timeout: 5000 });
+  await page.keyboard.press("Escape");
+  await page.mouse.move(10, 10);
+  await expect(tooltip).toBeHidden();
+
+  await page.setViewportSize({ width: 1280, height: 950 });
+  await expect(timestamp).toBeVisible();
+  await expect(agentName).toBeVisible();
+  await badge.hover();
+  await expect(badge.locator('[data-slot="tooltip-trigger"]')).toHaveAttribute(
+    "data-state",
+    "delayed-open",
+  );
+  await expect(tooltip).toBeHidden();
+
+  await page.setViewportSize({ width: 800, height: 950 });
+  await expect(pane).toHaveCSS("width", "280px");
+  await badge.click();
+  await expect(
+    card.getByRole("button", { name: "Add comment A-7 to chat" }),
+  ).toHaveAttribute("aria-pressed", "true");
+
+  await card.getByRole("button", { name: "Edit comment", exact: true }).click();
+  await expect(
+    card.getByRole("textbox", { name: "Comment text" }),
+  ).toBeVisible();
+
+  const humanBadge = page.locator(
+    '.cm-inlineCommentCard[data-inline-comment-id="H-1"] .cm-inlineCommentBadge',
+  );
+  await humanBadge.hover();
+  await expect(tooltip).toHaveText("Just now");
+});
+
 test("header copy appears on hover or keyboard focus and copies saved, lost and draft text", async ({
   page,
   context,

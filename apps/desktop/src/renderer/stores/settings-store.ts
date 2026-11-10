@@ -157,8 +157,6 @@ export interface SettingsState {
   setSpellCheck: (enabled: boolean) => void;
   setSpellingLanguage: (language: SpellingLanguage) => void;
   learnSpellingWord: (word: string) => void;
-  sidebarStatusStacked: boolean;
-  setSidebarStatusStacked: (stacked: boolean) => void;
   showEditorMinimap: boolean;
   setShowEditorMinimap: (visible: boolean) => void;
   editorMinimapLayers: MinimapLayers;
@@ -554,7 +552,6 @@ export function migrateSettingsState(persistedState: unknown, version = 0) {
         spellCheck?: unknown;
         spellingLanguage?: unknown;
         spellingWords?: unknown;
-        sidebarStatusStacked?: unknown;
         showEditorMinimap?: boolean;
         editorMinimapLayers?: Partial<MinimapLayers>;
         displayComments?: boolean;
@@ -689,10 +686,6 @@ export function migrateSettingsState(persistedState: unknown, version = 0) {
     spellCheck: normalizeBoolean(persisted?.spellCheck, true),
     spellingLanguage: normalizeSpellingLanguage(persisted?.spellingLanguage),
     spellingWords: normalizeSpellingWords(persisted?.spellingWords),
-    sidebarStatusStacked: normalizeBoolean(
-      persisted?.sidebarStatusStacked,
-      true,
-    ),
     showEditorMinimap: normalizeBoolean(persisted?.showEditorMinimap, true),
     editorMinimapLayers: normalizeMinimapLayers(persisted?.editorMinimapLayers),
     displayComments: normalizeBoolean(persisted?.displayComments, true),
@@ -896,9 +889,6 @@ export const useSettingsStore = create<SettingsState>()(
         set((state) => ({
           spellingWords: normalizeSpellingWords([...state.spellingWords, word]),
         })),
-      sidebarStatusStacked: true,
-      setSidebarStatusStacked: (stacked) =>
-        set({ sidebarStatusStacked: stacked }),
       showEditorMinimap: true,
       setShowEditorMinimap: (visible) => set({ showEditorMinimap: visible }),
       editorMinimapLayers: DEFAULT_MINIMAP_LAYERS,
@@ -1271,10 +1261,6 @@ export const useSettingsStore = create<SettingsState>()(
           spellCheck: normalizeBoolean(saved?.spellCheck, true),
           spellingLanguage: normalizeSpellingLanguage(saved?.spellingLanguage),
           spellingWords: normalizeSpellingWords(saved?.spellingWords),
-          sidebarStatusStacked: normalizeBoolean(
-            saved?.sidebarStatusStacked,
-            true,
-          ),
           showEditorMinimap: normalizeBoolean(saved?.showEditorMinimap, true),
           editorMinimapLayers: normalizeMinimapLayers(
             saved?.editorMinimapLayers,

@@ -1,4 +1,5 @@
 import { Hint } from "@/components/ui/tooltip";
+import { Button } from "@/components/ui/button";
 import { ButtonGroup } from "@/components/ui/button-group";
 import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
@@ -6,11 +7,16 @@ import {
   XIcon,
   ChevronDown,
   ChevronUp,
+  CircleAlertIcon,
   CircleXIcon,
   TriangleAlertIcon,
   InfoIcon,
   MousePointerClickIcon,
 } from "lucide-react";
+import {
+  documentCounterClassName,
+  documentStepButtonClassName,
+} from "../document-navigation-styles";
 
 export interface DiagnosticItem {
   from: number | null;
@@ -32,6 +38,10 @@ interface ProblemsPanelProps {
 
 function SeverityIcon({ severity }: { severity: string }) {
   switch (severity) {
+    case "all":
+      return (
+        <CircleAlertIcon className="size-3.5 shrink-0 text-muted-foreground" />
+      );
     case "error":
       return (
         <CircleXIcon className="size-3.5 shrink-0 text-red-600 dark:text-red-400" />
@@ -145,77 +155,50 @@ export function ProblemsPanel({
   return (
     <div
       data-problems-panel="true"
-      className="@container/problems flex h-12 shrink-0 items-center gap-3 border-border border-b bg-background pr-2 pl-3"
+      className="@container/problems flex h-12 shrink-0 items-center gap-1 border-border border-b bg-background px-2 text-xs"
     >
-      <div className="flex min-w-0 flex-1 items-center gap-3 text-xs">
-        <div className="flex shrink-0 items-center gap-2">
-          <span className="font-medium text-foreground">Problems</span>
-          <ButtonGroup
-            role="group"
-            aria-label="Problem severity"
-            className="flex h-8 shrink-0 items-center"
-          >
-            {(
-              [
-                {
-                  severity: "all",
-                  label: "All",
-                  count: errorCount + warningCount,
-                  Icon: null,
-                },
-                {
-                  severity: "error",
-                  label: "Errors",
-                  count: errorCount,
-                  Icon: CircleXIcon,
-                },
-                {
-                  severity: "warning",
-                  label: "Warnings",
-                  count: warningCount,
-                  Icon: TriangleAlertIcon,
-                },
-              ] as const
-            ).map(({ severity, label, count, Icon }) => (
-              <Hint
-                content={`Show ${label.toLowerCase()} (${count})`}
-                key={severity}
-              >
-                <button
-                  type="button"
-                  aria-label={label}
-                  aria-pressed={activeSeverity === severity}
-                  className={cn(
-                    "flex h-6 items-center justify-center gap-1 rounded-md px-2 font-medium tabular-nums transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                    activeSeverity === severity
-                      ? "bg-background text-foreground shadow-sm"
-                      : "text-muted-foreground hover:bg-background/70 hover:text-foreground",
-                  )}
-                  onClick={() => {
-                    setSeverityFilter(severity);
-                    setSelectedIndex(0);
-                  }}
-                >
-                  {Icon ? (
-                    <Icon
-                      className={cn(
-                        "size-3",
-                        severity === "error"
-                          ? "text-red-600 dark:text-red-400"
-                          : "text-yellow-600 dark:text-yellow-400",
-                      )}
-                    />
-                  ) : (
-                    <span>All</span>
-                  )}
-                  <span>{count}</span>
-                </button>
-              </Hint>
-            ))}
-          </ButtonGroup>
-        </div>
+      <div className="flex min-w-0 flex-1 items-center gap-1">
+        <ButtonGroup
+          aria-label="Problem severity"
+          selection={{
+            layout: "responsive",
+            compactLabel: "Filter problems",
+            value: activeSeverity,
+            onValueChange: (severity) => {
+              setSeverityFilter(severity);
+              setSelectedIndex(0);
+            },
+            options: [
+              {
+                value: "all",
+                label: "All",
+                shortLabel: "All",
+                icon: <SeverityIcon severity="all" />,
+                count: errorCount + warningCount,
+                hint: `Show all (${errorCount + warningCount})`,
+              },
+              {
+                value: "error",
+                label: "Errors",
+                icon: <SeverityIcon severity="error" />,
+                count: errorCount,
+                hint: `Show errors (${errorCount})`,
+              },
+              {
+                value: "warning",
+                label: "Warnings",
+                icon: <SeverityIcon severity="warning" />,
+                count: warningCount,
+                hint: `Show warnings (${warningCount})`,
+              },
+            ],
+          }}
+        />
         {!currentDiagnostic && (
-          <span className="text-muted-foreground" role="status">
+          <span
+            className="min-w-0 flex-1 truncate text-muted-foreground"
+            role="status"
+          >
             No{" "}
             {activeSeverity === "all"
               ? "problems"
@@ -230,13 +213,17 @@ export function ProblemsPanel({
           >
             <div
               role={currentDiagnostic.from !== null ? "button" : undefined}
-              tabIndex={currentDiagnostic.from !== null ? 0 : undefined}
-              className={`group flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1 text-left transition-colors ${currentDiagnostic.from !== null ? "cursor-pointer hover:bg-muted/50" : ""}`}
+              tabIndex={0}
+              className={`group flex min-w-0 flex-1 items-center gap-1 overflow-hidden rounded-md @[320px]/problems:px-2 px-1 py-1 text-left transition-colors ${currentDiagnostic.from !== null ? "cursor-pointer hover:bg-muted/50" : ""}`}
               onClick={
                 currentDiagnostic.from !== null ? navigateCurrent : undefined
               }
               onKeyDown={(event) => {
-                if (event.key !== "Enter" && event.key !== " ") return;
+                if (
+                  currentDiagnostic.from === null ||
+                  (event.key !== "Enter" && event.key !== " ")
+                )
+                  return;
                 event.preventDefault();
                 navigateCurrent();
               }}
@@ -247,7 +234,7 @@ export function ProblemsPanel({
               </span>
               {currentDiagnostic.line == null && (
                 <Hint content="No reliable source location is available. Recompile to refresh this message.">
-                  <span className="shrink-0 text-muted-foreground">
+                  <span className="@[460px]/problems:inline hidden shrink-0 text-muted-foreground">
                     General
                   </span>
                 </Hint>
@@ -256,41 +243,49 @@ export function ProblemsPanel({
           </Hint>
         )}
       </div>
-      <div className="flex shrink-0 items-center gap-1.5">
+      <div className="flex shrink-0 items-center gap-1">
         {visibleDiagnostics.length > 0 && (
-          <>
-            <span
-              className="px-1 font-mono text-muted-foreground text-xs"
-              role="status"
-              aria-label={`Problem ${currentIndex + 1} of ${visibleDiagnostics.length}`}
-            >
-              {currentIndex + 1}/{visibleDiagnostics.length}
-            </span>
+          <div
+            role="group"
+            aria-label="Problem navigation"
+            className="flex shrink-0 items-center"
+          >
             <Hint content="Previous problem">
-              <button
-                type="button"
+              <Button
+                variant="ghost"
+                size="icon"
+                className={documentStepButtonClassName}
                 onClick={() => navigateIssue(-1)}
-                className="rounded p-1 text-muted-foreground transition-colors hover:bg-background hover:text-foreground"
                 aria-label="Previous problem"
               >
                 <ChevronUp className="size-3.5" />
-              </button>
+              </Button>
             </Hint>
+            <span
+              className={`${documentCounterClassName} text-muted-foreground`}
+              role="status"
+              aria-label={`Problem ${currentIndex + 1} of ${visibleDiagnostics.length}`}
+            >
+              <span>{currentIndex + 1}</span>
+              <span>/</span>
+              <span>{visibleDiagnostics.length}</span>
+            </span>
             <Hint content="Next problem">
-              <button
-                type="button"
+              <Button
+                variant="ghost"
+                size="icon"
+                className={documentStepButtonClassName}
                 onClick={() => navigateIssue(1)}
-                className="rounded p-1 text-muted-foreground transition-colors hover:bg-background hover:text-foreground"
                 aria-label="Next problem"
               >
                 <ChevronDown className="size-3.5" />
-              </button>
+              </Button>
             </Hint>
-          </>
+          </div>
         )}
         {visibleDiagnostics.length > 0 && onFixAllWithChat && (
           <>
-            <div className="mx-0.5 h-4 w-px bg-border" />
+            <div className="@[460px]/problems:block hidden h-4 w-px bg-border" />
             <Hint
               content={`Fix all ${activeSeverity === "all" ? "problems" : activeSeverity === "error" ? "errors" : "warnings"} with AI`}
             >
@@ -298,7 +293,7 @@ export function ProblemsPanel({
                 type="button"
                 onClick={() => onFixAllWithChat(visibleDiagnostics)}
                 className={cn(
-                  "flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2.5 font-medium text-xs transition-colors focus-visible:outline-none focus-visible:ring-2",
+                  "flex h-7 shrink-0 items-center gap-1.5 rounded-md @[460px]/problems:px-2.5 px-2 font-medium text-xs transition-colors focus-visible:outline-none focus-visible:ring-2",
                   activeSeverity === "all"
                     ? "bg-muted text-foreground hover:bg-muted/80 focus-visible:ring-ring"
                     : activeSeverity === "error"
@@ -308,7 +303,7 @@ export function ProblemsPanel({
                 aria-label="Fix with Chat"
               >
                 <MousePointerClickIcon className="size-3" />
-                <span>
+                <span className="@[460px]/problems:inline hidden">
                   Fix
                   <span className="@[640px]/problems:inline hidden">
                     {" "}
@@ -325,7 +320,7 @@ export function ProblemsPanel({
               type="button"
               onClick={onClose}
               aria-label="Hide problems"
-              className="ml-1 flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               <XIcon className="size-3.5" />
             </button>

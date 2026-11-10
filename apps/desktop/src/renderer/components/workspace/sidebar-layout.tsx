@@ -23,6 +23,7 @@ export function SidebarRow({
   className,
   style,
   type = "button",
+  "aria-label": label,
   children,
   trailing,
   ...props
@@ -37,6 +38,7 @@ export function SidebarRow({
   return (
     <Comp
       type={asChild || hasTrailing ? undefined : type}
+      aria-label={hasTrailing ? undefined : label}
       data-sidebar-row
       className={cn(
         "flex min-h-7 w-full min-w-0 items-center gap-2 rounded-md px-2 py-1 text-left text-sm transition-colors hover:bg-sidebar-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring focus-visible:ring-inset disabled:cursor-not-allowed disabled:opacity-45",
@@ -49,6 +51,7 @@ export function SidebarRow({
         <div>
           <button
             type={type}
+            aria-label={label}
             disabled={props.disabled}
             className="flex min-w-0 flex-1 items-center gap-2 rounded-sm text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring"
           >
