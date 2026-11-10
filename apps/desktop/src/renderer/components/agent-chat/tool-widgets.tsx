@@ -392,7 +392,7 @@ export const AskUserQuestionWidget: FC<{
   return (
     <div
       ref={widgetRef}
-      className="flex max-h-[min(20rem,45dvh)] min-h-0 w-full flex-col overflow-hidden px-4 pt-2 pb-3 text-sm"
+      className="flex max-h-[min(280px,45dvh)] min-h-0 w-full flex-col overflow-hidden px-4 pt-2 pb-3 text-sm"
       data-testid="agent-question-widget"
     >
       <div className="flex min-h-0 flex-col gap-3">
@@ -435,12 +435,13 @@ export const AskUserQuestionWidget: FC<{
             </div>
             <div
               data-testid="agent-question-options"
-              className="app-scrollbar -mx-4 -mt-1 min-h-0 space-y-1 overflow-y-auto overscroll-contain px-2 pt-1 pb-3"
+              className="app-scrollbar app-scrollbar-rail -ms-4 -mt-1 min-h-0 space-y-1 overflow-y-auto overscroll-contain px-2 pt-1 pb-3 [--scrollbar-rail-extension:1rem] [--scrollbar-rail-inset:3px]"
               style={{
                 maskImage:
-                  "linear-gradient(to bottom, transparent, black 4px, black calc(100% - 6px), transparent)",
-                WebkitMaskImage:
-                  "linear-gradient(to bottom, transparent, black 4px, black calc(100% - 6px), transparent)",
+                  "linear-gradient(to bottom, transparent, black 4px, black calc(100% - 6px), transparent), linear-gradient(black, black)",
+                maskPosition: "left, right",
+                maskRepeat: "no-repeat",
+                maskSize: "100% 100%, var(--app-scrollbar-size) 100%",
               }}
             >
               {q.details && (

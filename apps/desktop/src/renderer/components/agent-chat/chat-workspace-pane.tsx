@@ -237,7 +237,7 @@ export function ChatWorkspacePane({
       <div
         data-chat-composer-shell="true"
         data-composer-transfer-phase={composerTransferPhase}
-        className="shrink-0"
+        className="flex min-h-0 flex-col"
         style={{
           opacity: forceHideComposer
             ? 0

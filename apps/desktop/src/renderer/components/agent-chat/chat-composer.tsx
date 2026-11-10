@@ -150,6 +150,7 @@ import {
 } from "./agent-question-prompt";
 
 const log = createLogger("chat-composer");
+const MINI_INPUT_TEXT = "app-scrollbar-rail pr-2 pl-1.5 text-sm leading-[18px]";
 
 // Re-export for other modules
 export type { SlashCommand };
@@ -693,6 +694,8 @@ export const ChatComposer: FC<{
     : modelTooltipLabel;
   const [input, setInput] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const miniInlineMeasureRef = useRef<HTMLSpanElement>(null);
+  const [miniControlsBelow, setMiniControlsBelow] = useState(false);
   const [toolbarElement, setToolbarElement] = useState<HTMLDivElement | null>(
     null,
   );
@@ -1026,36 +1029,69 @@ export const ChatComposer: FC<{
   const queueFolded = useAgentChatStore((s) => s.promptQueueFolded[queueMode]);
   const toggleQueueFolded = useAgentChatStore((s) => s.togglePromptQueueFolded);
   const queueListId = useId();
+  const textareaMinHeight = isCollapsed ? 0 : 40;
   const textareaMaxHeight = isCollapsed ? 48 : 160;
+  const updateMiniTextFade = useCallback((textarea: HTMLTextAreaElement) => {
+    textarea.toggleAttribute(
+      "data-mini-text-fade",
+      !!textarea.value &&
+        textarea.clientHeight > 0 &&
+        textarea.scrollHeight - textarea.scrollTop - textarea.clientHeight > 1,
+    );
+  }, []);
   const resizeTextarea = useCallback(
     (textarea: HTMLTextAreaElement | null = textareaRef.current) => {
       if (!textarea) return;
       textarea.style.height = "auto";
-      textarea.style.height = `${Math.min(
-        textarea.scrollHeight,
+      const height = `${Math.min(
+        Math.max(textareaMinHeight, textarea.scrollHeight),
         textareaMaxHeight,
       )}px`;
+      textarea.style.height = height;
+      if (isCollapsed) {
+        textarea.parentElement?.style.setProperty(
+          "--mini-input-height",
+          height,
+        );
+        updateMiniTextFade(textarea);
+      }
     },
-    [textareaMaxHeight],
+    [isCollapsed, textareaMinHeight, textareaMaxHeight, updateMiniTextFade],
   );
-  const attachMiniTextarea = useCallback(
+  const updateMiniControlsLayout = useCallback(() => {
+    const measure = miniInlineMeasureRef.current;
+    const textarea = textareaRef.current;
+    if (!measure || !textarea) return;
+    setMiniControlsBelow(
+      textarea.value.includes("\n") ||
+        measure.scrollWidth > measure.clientWidth,
+    );
+  }, []);
+  const attachTextarea = useCallback(
     (textarea: HTMLTextAreaElement | null) => {
       textareaRef.current = textarea;
       if (!textarea) return;
-      let width = textarea.clientWidth;
+      const miniMeasure = miniInlineMeasureRef.current;
+      resizeTextarea(textarea);
+      let width = textarea.offsetWidth;
       const observer = new ResizeObserver(() => {
-        const nextWidth = textarea.clientWidth;
-        if (nextWidth === width) return;
+        if (miniMeasure) updateMiniControlsLayout();
+        const nextWidth = textarea.offsetWidth;
+        if (nextWidth === width) {
+          if (miniMeasure) updateMiniTextFade(textarea);
+          return;
+        }
         width = nextWidth;
         resizeTextarea(textarea);
       });
       observer.observe(textarea);
+      if (miniMeasure) observer.observe(miniMeasure);
       return () => {
         observer.disconnect();
         textareaRef.current = null;
       };
     },
-    [resizeTextarea],
+    [resizeTextarea, updateMiniControlsLayout, updateMiniTextFade],
   );
   const currentLlmLabel = llmConfigLabel(
     selectedProvider,
@@ -1262,13 +1298,21 @@ export const ChatComposer: FC<{
   );
 
   useLayoutEffect(() => {
+    updateMiniControlsLayout();
     resizeTextarea();
-  }, [input, textareaMaxHeight, isCollapsed, isVisible, resizeTextarea]);
+  }, [
+    input,
+    isVisible,
+    miniControlsBelow,
+    resizeTextarea,
+    updateMiniControlsLayout,
+  ]);
 
   const composerFocusRequestNonce = useAgentChatStore(
     (s) => s.composerFocusRequestNonce,
   );
-  const previousFocusRequest = useRef(0);
+  // A composer mounted during a mode switch should only handle new requests.
+  const previousFocusRequest = useRef(composerFocusRequestNonce);
   useEffect(() => {
     if (previousFocusRequest.current === composerFocusRequestNonce) return;
     previousFocusRequest.current = composerFocusRequestNonce;
@@ -1280,15 +1324,6 @@ export const ChatComposer: FC<{
     );
     return () => cancelAnimationFrame(frame);
   }, [composerFocusRequestNonce, acceptPendingAttachments]);
-
-  // Keep focus without moving the drawer during its entry animation.
-  const prevOpenRef = useRef(false);
-  useEffect(() => {
-    if (isVisible && !prevOpenRef.current) {
-      setTimeout(() => textareaRef.current?.focus({ preventScroll: true }), 0);
-    }
-    prevOpenRef.current = isVisible;
-  }, [isVisible]);
 
   useEffect(() => {
     checkClaudeStatus().catch(() => {});
@@ -2203,6 +2238,8 @@ export const ChatComposer: FC<{
     <ContextBadgeList
       contexts={answerContexts ?? pinnedContexts}
       compact={!!answerContexts}
+      maxRows={activeQuestion ? undefined : isExpanded ? 3 : 2}
+      className={!isExpanded && !activeQuestion ? "shrink" : undefined}
       isLive={(context) =>
         !context.selectionPinned &&
         (Boolean(context.comment) ||
@@ -3204,12 +3241,29 @@ export const ChatComposer: FC<{
                 </div>
               </div>
             ) : activeQuestion ? null : isCollapsed ? (
-              <div className="@container/mini-composer flex shrink-0 items-end gap-1 py-2 pr-2 pl-1.5">
+              <div
+                className={cn(
+                  "@container/mini-composer grid shrink-0 grid-cols-[minmax(0,1fr)_auto] grid-rows-[var(--mini-input-height,1.75rem)_var(--mini-controls-space,0px)] items-end gap-x-1 py-2 pe-(--mini-controls-inset) pl-1.5 transition-[grid-template-rows] duration-150 ease-out [--mini-controls-inset:0.5rem] motion-reduce:transition-none",
+                  miniControlsBelow && "[--mini-controls-space:2rem]",
+                )}
+              >
+                {/* Keep measuring the inline width after the draft grows wider. */}
+                <span
+                  ref={miniInlineMeasureRef}
+                  aria-hidden="true"
+                  className={cn(
+                    "invisible col-start-1 row-start-1 h-0 overflow-hidden whitespace-pre",
+                    MINI_INPUT_TEXT,
+                  )}
+                >
+                  {input.split("\n", 1)[0]}
+                </span>
                 <textarea
-                  ref={attachMiniTextarea}
+                  ref={attachTextarea}
                   data-chat-composer-input="true"
                   value={input}
                   onChange={handleInput}
+                  onScroll={(event) => updateMiniTextFade(event.currentTarget)}
                   onKeyDown={handleKeyDown}
                   onPaste={handlePaste}
                   placeholder={
@@ -3217,11 +3271,17 @@ export const ChatComposer: FC<{
                       ? "Ask about this selection…"
                       : "Message…"
                   }
-                  className="scrollbar-none max-h-12 min-w-0 flex-1 resize-none overflow-y-auto overflow-x-hidden bg-transparent py-[5px] pr-2 pl-1.5 text-sm leading-[18px] outline-none placeholder:truncate placeholder:text-muted-foreground"
+                  className={cn(
+                    "app-scrollbar col-start-1 row-start-1 max-h-full min-w-0 resize-none self-start justify-self-stretch overflow-x-hidden bg-transparent py-[5px] outline-none [--scrollbar-rail-inset:4px] placeholder:truncate placeholder:text-muted-foreground",
+                    MINI_INPUT_TEXT,
+                    input ? "overflow-y-auto" : "overflow-y-hidden",
+                    miniControlsBelow &&
+                      "col-end-3 [--scrollbar-rail-extension:var(--mini-controls-inset)]",
+                  )}
                   rows={1}
                 />
 
-                <div className="flex shrink-0 items-center gap-1">
+                <div className="col-start-2 row-span-2 row-start-1 flex items-center gap-1">
                   {agentControls}
 
                   {submitControl}
@@ -3230,7 +3290,7 @@ export const ChatComposer: FC<{
             ) : (
               <>
                 <textarea
-                  ref={textareaRef}
+                  ref={attachTextarea}
                   data-chat-composer-input="true"
                   value={input}
                   onChange={handleInput}
@@ -3241,7 +3301,10 @@ export const ChatComposer: FC<{
                       ? "Ask about this selection…"
                       : `Write with ${PRODUCT_NAME}…`
                   }
-                  className="scrollbar-none max-h-40 min-h-10 w-full shrink-0 resize-none overflow-y-auto overflow-x-hidden bg-transparent pt-[13px] pr-4 pb-[3px] pl-3 text-sm outline-none placeholder:text-muted-foreground"
+                  className={cn(
+                    "app-scrollbar app-scrollbar-rail max-h-40 min-h-0 resize-none overflow-x-hidden bg-transparent pt-[13px] pr-2 pb-[3px] pl-3 text-sm outline-none placeholder:text-muted-foreground",
+                    input ? "overflow-y-auto" : "overflow-y-hidden",
+                  )}
                   rows={1}
                 />
 

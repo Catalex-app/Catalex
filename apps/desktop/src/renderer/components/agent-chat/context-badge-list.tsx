@@ -8,6 +8,7 @@ import {
 import "./context-badge-list.css";
 
 import type { ChatContextBadge } from "@/lib/chat-context";
+import { cn } from "@/lib/utils";
 export type { ChatContextBadge } from "@/lib/chat-context";
 
 interface Entry {
@@ -20,6 +21,7 @@ interface Entry {
 }
 
 const EXIT_MS = 120;
+const BADGE_ROW_HEIGHT = 22;
 const keyOf = (context: ChatContextBadge) =>
   context.selectionKey ?? `${context.label}\u0000${context.selectedText}`;
 
@@ -27,14 +29,19 @@ const keyOf = (context: ChatContextBadge) =>
 export function ContextBadgeList({
   contexts,
   compact = false,
+  maxRows,
+  className,
   isLive,
   renderContext,
 }: {
   contexts: ChatContextBadge[];
   compact?: boolean;
+  maxRows?: number;
+  className?: string;
   isLive: (context: ChatContextBadge) => boolean;
   renderContext: (context: ChatContextBadge, index: number) => ReactNode;
 }) {
+  const scrollable = maxRows !== undefined;
   const nextId = useRef(0);
   const [previousContexts, setPreviousContexts] = useState(contexts);
   const [entries, setEntries] = useState<Entry[]>(() =>
@@ -117,7 +124,15 @@ export function ContextBadgeList({
       const reduced = window.matchMedia(
         "(prefers-reduced-motion: reduce)",
       ).matches;
-      const target = row.getBoundingClientRect().height;
+      const measured = row.offsetHeight;
+      // Include the 6px gaps between rows and the 12px top padding.
+      const target =
+        maxRows === undefined
+          ? measured
+          : Math.min(
+              measured,
+              BADGE_ROW_HEIGHT * maxRows + (maxRows - 1) * 6 + 12,
+            );
       if (shell.style.height !== `${target}px`) {
         const current = shell.getBoundingClientRect().height;
         heightAnimation.current?.cancel();
@@ -163,7 +178,7 @@ export function ContextBadgeList({
     const observer = new ResizeObserver(resize);
     observer.observe(row);
     return () => observer.disconnect();
-  }, [entries]);
+  }, [entries, maxRows]);
 
   useEffect(() => () => heightAnimation.current?.cancel(), []);
 
@@ -171,12 +186,19 @@ export function ContextBadgeList({
     <div
       ref={shellRef}
       data-context-row-shell="true"
-      className="relative shrink-0 overflow-hidden"
+      // Leave room for the draft and send controls when height is constrained.
+      className={cn(
+        "relative shrink-0",
+        scrollable
+          ? "app-scrollbar app-scrollbar-rail max-h-[max(0px,calc(100%_-_4.5rem))] overflow-y-auto overflow-x-hidden"
+          : "overflow-hidden",
+        className,
+      )}
       style={{ height: 0 }}
     >
       <div
         ref={rowRef}
-        className={`relative space-y-1.5 ${compact ? (entries.length ? "pb-1" : "") : `pr-4 pl-3 ${entries.length ? "pt-3" : ""}`}`}
+        className={`relative space-y-1.5 ${compact ? (entries.length ? "pb-1" : "") : `pl-3 ${scrollable ? "pr-2" : "pr-4"} ${entries.length ? "pt-3" : ""}`}`}
       >
         {[
           entries.filter(
@@ -213,7 +235,10 @@ export function ContextBadgeList({
                     data-context-presence={
                       entry.exitingAt === undefined ? "present" : "exiting"
                     }
-                    className="context-badge-presence inline-flex max-w-full"
+                    className="context-badge-presence inline-flex max-w-full items-center"
+                    style={
+                      scrollable ? { minHeight: BADGE_ROW_HEIGHT } : undefined
+                    }
                     inert={entry.exitingAt !== undefined}
                     aria-hidden={entry.exitingAt !== undefined || undefined}
                   >

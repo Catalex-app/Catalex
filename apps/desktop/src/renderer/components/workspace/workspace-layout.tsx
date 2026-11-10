@@ -205,6 +205,8 @@ const DRAWER_ANCHOR_STABILIZE_FRAME_CAP = 6;
 const DRAWER_ANCHOR_STABILIZE_TIMEOUT_MS = 120;
 const DRAWER_ANCHOR_UNLOCK_DELAY_MS = 240;
 
+type ChatDisplay = "Collapsed" | "Expanded" | "Workspace";
+
 type DrawerHostAnchor = {
   shellTop: number;
   shellLeft: number;
@@ -474,6 +476,11 @@ function ProjectWorkspaceLayout() {
   const isWorkspaceChat =
     workspaceMode === "duet" && chatLayout === "workspace";
   const isDrawerChat = workspaceMode === "duet" && chatLayout === "drawer";
+  const chatDisplay: ChatDisplay = isWorkspaceChat
+    ? "Workspace"
+    : chatDrawerOpen
+      ? "Expanded"
+      : "Collapsed";
   // Acknowledge the destination in the sidebar before the composer transfer commits.
   const [sidebarTarget, setSidebarTarget] =
     useState<ProjectWorkspacePreferences | null>(null);
@@ -2043,15 +2050,102 @@ function ProjectWorkspaceLayout() {
       chatLayout: current.chatLayout,
     });
   }, []);
+  const pendingChatFocus = useRef<{
+    display: ChatDisplay;
+    project: typeof projectRoot;
+    tabId: string;
+    source: HTMLTextAreaElement;
+    start: number;
+    end: number;
+    direction: HTMLTextAreaElement["selectionDirection"];
+  } | null>(null);
+  const focusedChatInput = useCallback(() => {
+    const input = document.activeElement;
+    return input instanceof HTMLTextAreaElement &&
+      input.hasAttribute("data-chat-composer-input") &&
+      modeAreaRef.current?.contains(input)
+      ? input
+      : null;
+  }, []);
+  const preserveChatFocus = useCallback(
+    (display: ChatDisplay) => {
+      const source = focusedChatInput();
+      pendingChatFocus.current = source
+        ? {
+            display,
+            project: projectRoot,
+            tabId: useAgentChatStore.getState().activeTabId,
+            source,
+            start: source.selectionStart,
+            end: source.selectionEnd,
+            direction: source.selectionDirection,
+          }
+        : null;
+    },
+    [focusedChatInput, projectRoot],
+  );
+  const changeChatDrawerOpen = useCallback(
+    (open: boolean) => {
+      if (open === chatDrawerOpen) return;
+      if (isDrawerChat) preserveChatFocus(open ? "Expanded" : "Collapsed");
+      setChatDrawerOpen(open);
+    },
+    [chatDrawerOpen, isDrawerChat, preserveChatFocus],
+  );
+
+  useLayoutEffect(() => {
+    const pending = pendingChatFocus.current;
+    if (!pending) return;
+    if (
+      pending.project !== projectRoot ||
+      (!isDrawerChat && !isWorkspaceChat)
+    ) {
+      pendingChatFocus.current = null;
+      return;
+    }
+    if (
+      chatDisplay !== pending.display ||
+      modeTransitionPhase !== "idle" ||
+      composerTransferPhase !== "idle"
+    )
+      return;
+
+    pendingChatFocus.current = null;
+    if (pending.tabId !== useAgentChatStore.getState().activeTabId) return;
+    const host = isWorkspaceChat
+      ? "[data-workspace-chat-pane]"
+      : "[data-chat-drawer-panel]";
+    const input = modeAreaRef.current?.querySelector<HTMLTextAreaElement>(
+      `${host} textarea[data-chat-composer-input]`,
+    );
+    const active = document.activeElement;
+    // Leave focus alone if the user moved it during the handoff.
+    if (
+      !input ||
+      input.closest("[inert]") ||
+      (active !== document.body &&
+        active !== pending.source &&
+        active !== input)
+    )
+      return;
+    input.focus({ preventScroll: true });
+    input.setSelectionRange(pending.start, pending.end, pending.direction);
+  }, [
+    chatDisplay,
+    composerTransferPhase,
+    isDrawerChat,
+    isWorkspaceChat,
+    modeTransitionPhase,
+    projectRoot,
+  ]);
+
   const chatDisplayControl = (
     <ButtonGroup
       aria-label="Chat display"
       className="flex w-max items-center gap-1"
     >
       {(["Collapsed", "Expanded", "Workspace"] as const).map((label) => {
-        const selected = isWorkspaceChat
-          ? label === "Workspace"
-          : label === (chatDrawerOpen ? "Expanded" : "Collapsed");
+        const selected = label === chatDisplay;
         const fillTop =
           label === "Collapsed" ? 16 : label === "Expanded" ? 11 : 5.5;
         return (
@@ -2070,7 +2164,12 @@ function ProjectWorkspaceLayout() {
                 ? "bg-background text-foreground shadow-sm"
                 : "text-muted-foreground hover:bg-background/70 hover:text-foreground",
             )}
+            onMouseDown={(event) => {
+              if (event.button === 0 && focusedChatInput())
+                event.preventDefault();
+            }}
             onClick={() => {
+              if (!selected) preserveChatFocus(label);
               if (label === "Workspace")
                 requestWorkspacePreferences({
                   mode: "duet",
@@ -2560,18 +2659,6 @@ function ProjectWorkspaceLayout() {
     observer.observe(controls);
     return () => observer.disconnect();
   }, [isSidebarCollapsed, collapsedHeaderInset, isWorkspaceChat]);
-
-  useEffect(() => {
-    if (!isWorkspaceChat || modeTransitionPhase !== "idle") return;
-    const rafId = window.requestAnimationFrame(() => {
-      const target = modeAreaRef.current?.querySelector(
-        "[data-workspace-chat-pane='true'] textarea[data-chat-composer-input='true']",
-      ) as HTMLTextAreaElement | null;
-      if (!target) return;
-      target.focus({ preventScroll: true });
-    });
-    return () => window.cancelAnimationFrame(rafId);
-  }, [workspacePreferences, modeTransitionPhase]);
 
   useEffect(() => {
     return () => {
@@ -3491,9 +3578,10 @@ function ProjectWorkspaceLayout() {
                           <AgentChatDrawer
                             displayControl={chatDisplayControl}
                             open={chatDrawerOpen}
-                            onOpenChange={setChatDrawerOpen}
+                            onOpenChange={changeChatDrawerOpen}
                             preferredHeight={chatDrawerHeight}
                             onHeightChange={setChatDrawerHeight}
+                            availableHeight={drawerAnchor?.clipHeight}
                             isExiting={drawerPresence === "exiting"}
                             transitionMorphActive={
                               drawerPresence === "transfer"

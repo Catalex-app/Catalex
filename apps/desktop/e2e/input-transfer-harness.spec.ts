@@ -532,7 +532,71 @@ for (const provider of ["claude", "codex"] as const) {
   });
 }
 
-test("Full to Half keeps the drawer stationary when focusing a chat with history", async ({
+test("switching chat displays preserves a focused caret or selection", async ({
+  page,
+}) => {
+  await page.goto("/?debug=input-transfer");
+  const drawer = page.locator("[data-chat-drawer-panel]");
+  const drawerInput = drawer.locator("[data-chat-composer-input]");
+  const fullInput = page.locator(
+    "[data-workspace-chat-pane] [data-chat-composer-input]",
+  );
+  const draft = "Please review the introduction.";
+  await drawerInput.fill(draft);
+  await drawerInput.evaluate((input: HTMLTextAreaElement) => {
+    input.setSelectionRange(7, 7);
+  });
+  await drawer.getByRole("button", { name: "Toggle drawer" }).click();
+  await expect(drawer.locator("[data-chat-messages]")).toBeVisible();
+  await expect(drawerInput).toBeFocused();
+  expect(
+    await drawerInput.evaluate((input: HTMLTextAreaElement) => [
+      input.selectionStart,
+      input.selectionEnd,
+    ]),
+  ).toEqual([7, 7]);
+
+  await drawerInput.evaluate((input: HTMLTextAreaElement) => {
+    input.setSelectionRange(7, 13, "backward");
+  });
+  for (const [source, mode, input] of [
+    ["Half", "Full", fullInput],
+    ["Full", "Mini", drawerInput],
+    ["Mini", "Full", fullInput],
+    ["Full", "Half", drawerInput],
+    ["Half", "Mini", drawerInput],
+  ] as const) {
+    if (mode === "Full" && (await drawer.isVisible())) {
+      await drawer
+        .getByRole("button", { name: "Toggle drawer" })
+        .locator("..")
+        .hover();
+    }
+    await page.getByRole("button", { name: mode, exact: true }).click();
+    if (source === "Full") {
+      const visibility = await page.waitForFunction(() => {
+        const panel = document
+          .querySelector(
+            '[data-chat-composer-shell][data-composer-transfer-phase="drawer_enter_prep"]',
+          )
+          ?.closest("[data-chat-drawer-panel]");
+        return panel && getComputedStyle(panel).visibility;
+      });
+      expect(await visibility.jsonValue()).toBe("visible");
+    }
+    await expect(input).toBeFocused();
+    await expect(input).toHaveValue(draft);
+    expect(
+      await input.evaluate((input: HTMLTextAreaElement) => [
+        input.selectionStart,
+        input.selectionEnd,
+        input.selectionDirection,
+      ]),
+    ).toEqual([7, 13, "backward"]);
+  }
+});
+
+test("Full to Half keeps the drawer stationary when showing a chat with history", async ({
   page,
 }) => {
   await page.goto("/?onboarding-demo&project&chats");
@@ -547,6 +611,9 @@ test("Full to Half keeps the drawer stationary when focusing a chat with history
   await expect(
     page.getByText("Here is a possible opening:").filter({ visible: true }),
   ).toBeVisible();
+  await expect(
+    page.locator("[data-workspace-chat-pane] textarea"),
+  ).not.toBeFocused();
   const samples = await page.evaluate(async () => {
     const duet = document.querySelector<HTMLElement>(
       '[data-chat-display="Expanded"]',
@@ -579,9 +646,10 @@ test("Full to Half keeps the drawer stationary when focusing a chat with history
   expect(samples.opacities).toContain(0);
   expect(samples.opacities.some((value) => value > 0 && value < 1)).toBe(true);
   expect(samples.opacities.at(-1)).toBe(1);
-  await expect(
-    page.locator('[data-chat-drawer-panel="true"] textarea'),
-  ).toBeFocused();
+  const input = page.locator('[data-chat-drawer-panel="true"] textarea');
+  await expect(input).not.toBeFocused();
+  await page.keyboard.press("ControlOrMeta+t");
+  await expect(input).toBeFocused();
 });
 
 test("Duet remembers expanded and collapsed drawer states across mode switches", async ({

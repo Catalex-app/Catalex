@@ -283,7 +283,7 @@ async function createWindow(id: string, query = "") {
     width: settings ? 720 : debug ? 560 : 1400,
     height: settings ? 520 : debug ? 700 : 900,
     minWidth: settings ? 720 : debug ? 400 : 800,
-    minHeight: settings ? 420 : debug ? 400 : 600,
+    minHeight: settings ? 420 : debug ? 400 : 700,
     ...(settings ? { maxWidth: 720, maxHeight: 900 } : {}),
     show: false,
     backgroundColor: settings

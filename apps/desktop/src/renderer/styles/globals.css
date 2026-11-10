@@ -372,6 +372,7 @@ html.solar-mode body::after {
 }
 
 .app-scrollbar {
+  --app-scrollbar-size: 6px;
   scrollbar-width: thin;
   scrollbar-color: color-mix(
       in oklch,
@@ -382,8 +383,8 @@ html.solar-mode body::after {
 }
 
 .app-scrollbar::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: var(--app-scrollbar-size);
+  height: var(--app-scrollbar-size);
   background: transparent;
 }
 
@@ -416,6 +417,32 @@ html.solar-mode body::after {
     var(--muted-foreground) 70%,
     transparent
   );
+}
+
+/* Use Chromium's styled scrollbar so the rail stays visible during overflow. */
+.app-scrollbar-rail {
+  margin-inline-end: calc(3px - var(--scrollbar-rail-extension, 0px));
+  scrollbar-width: auto;
+  scrollbar-color: auto;
+}
+
+.app-scrollbar-rail::-webkit-scrollbar-track {
+  margin-block: var(--scrollbar-rail-inset, var(--radius-xl) 8px);
+  border-radius: 999px;
+  background-color: color-mix(
+    in oklch,
+    var(--muted-foreground) 14%,
+    transparent
+  );
+}
+
+/* Fade clipped text and keep the scrollbar fully visible. */
+textarea[data-mini-text-fade] {
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 8px), transparent),
+    linear-gradient(#000, #000);
+  mask-position: left, right;
+  mask-repeat: no-repeat;
+  mask-size: 100% 100%, var(--app-scrollbar-size) 100%;
 }
 
 .scrollbar-none {
