@@ -39,6 +39,29 @@ const debugMode = urlParams.get("debug");
 const log = createLogger("app");
 const isDesktopRuntime = isDesktop();
 
+if (window.catalex) {
+  const html = document.documentElement;
+  let lastColor: string | undefined;
+  const syncWindowBackground = () => {
+    if (!html.matches(".light, .dark")) return;
+    const color = getComputedStyle(html)
+      .getPropertyValue("--background")
+      .trim();
+    if (!color || color === lastColor) return;
+    lastColor = color;
+    // Match the native surface that can be exposed before Chromium repaints.
+    void invoke("desktop:window:setBackgroundColor", { color }).catch((error) =>
+      log.error("Failed to update the window background", {
+        error: String(error),
+      }),
+    );
+  };
+  const observer = new MutationObserver(syncWindowBackground);
+  observer.observe(html, { attributeFilter: ["class", "data-ui-theme"] });
+  syncWindowBackground();
+  if (import.meta.hot) import.meta.hot.dispose(() => observer.disconnect());
+}
+
 function reportFrontendHealth(source: string) {
   if (!isDesktopRuntime) return;
   try {

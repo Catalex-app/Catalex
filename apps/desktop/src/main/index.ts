@@ -201,7 +201,7 @@ function configureWindowOpening(win: BrowserWindow, ownerId: string) {
           minWidth: 480,
           minHeight: 360,
           show: false,
-          backgroundColor: "#ffffff",
+          backgroundColor: win.getBackgroundColor(),
           ...(process.platform === "darwin"
             ? {
                 titleBarStyle: "hidden" as const,
@@ -285,7 +285,9 @@ async function createWindow(id: string, query = "") {
     minHeight: settings ? 420 : debug ? 400 : 600,
     ...(settings ? { maxWidth: 720, maxHeight: 900 } : {}),
     show: false,
-    backgroundColor: "#ffffff",
+    backgroundColor: settings
+      ? windows.get("main")?.getBackgroundColor()
+      : undefined,
     ...(process.platform === "darwin"
       ? {
           titleBarStyle: "hidden" as const,
@@ -739,6 +741,14 @@ async function hostCommand(
       return { result: null };
     case "desktop:window:show":
       win.show();
+      return { result: null };
+    case "desktop:window:setBackgroundColor":
+      if (
+        typeof args.color !== "string" ||
+        !/^#[\da-f]{3}(?:[\da-f]{3})?$/i.test(args.color)
+      )
+        throw new Error("Invalid window background color.");
+      win.setBackgroundColor(args.color);
       return { result: null };
     case "desktop:window:focusOwner": {
       const owner = panelOwners.get(win.id);
