@@ -1,6 +1,6 @@
 import { OnboardingTitle } from "@/components/onboarding-title";
 import { useEffect, useRef, useState } from "react";
-import { useTheme } from "next-themes";
+import { useAppTheme } from "@/lib/app-theme";
 import { useSettingsStore } from "@/stores/settings-store";
 import {
   SettingsGroup,
@@ -74,7 +74,7 @@ type ExampleFile = keyof typeof examples;
 
 export function OnboardingAppearance() {
   const settings = useSettingsStore();
-  const { theme, setTheme } = useTheme();
+  const { theme, setTheme } = useAppTheme();
   const [activeFile, setActiveFile] = useState<ExampleFile>("paper.tex");
   const container = useRef<HTMLDivElement>(null);
   const [previewReady, setPreviewReady] = useState(false);

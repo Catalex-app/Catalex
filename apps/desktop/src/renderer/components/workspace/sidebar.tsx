@@ -88,7 +88,7 @@ import {
   type DragStartEvent,
   type DragEndEvent,
 } from "@dnd-kit/core";
-import { useTheme } from "next-themes";
+import { useAppTheme } from "@/lib/app-theme";
 import { useDocumentStore, type ProjectFile } from "@/stores/document-store";
 import { useHistoryStore } from "@/stores/history-store";
 import { useProposedChangesStore } from "@/stores/proposed-changes-store";
@@ -186,7 +186,7 @@ function openSettingsWindow(section?: "about") {
 function SidebarUtilityControls() {
   const { notice: updateStatus } = useUpdater();
   const hasUpdate = updateStatus.state === "available";
-  const { theme, setTheme } = useTheme();
+  const { theme, setTheme } = useAppTheme();
   const ThemeIcon =
     theme === "system" ? MonitorIcon : theme === "dark" ? MoonIcon : SunIcon;
   const themeLabel =

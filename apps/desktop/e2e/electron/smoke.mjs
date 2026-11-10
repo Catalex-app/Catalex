@@ -47,6 +47,10 @@ function readBackgroundToken(page) {
   );
 }
 
+function readNativeThemeSource() {
+  return app.evaluate(({ nativeTheme }) => nativeTheme.themeSource);
+}
+
 try {
   const page = await app.firstWindow();
   const window = await app.browserWindow(page);
@@ -63,6 +67,7 @@ try {
       !!window.catalex && document.querySelector("#root")?.children.length > 0,
   );
   await page.locator("#loading-screen").waitFor({ state: "hidden" });
+  await expect.poll(readNativeThemeSource).toBe("light");
   // This suite exercises workspace I/O; the setup wizard has its own coverage.
   await page.evaluate(() =>
     localStorage.setItem(
@@ -210,11 +215,15 @@ try {
     .locator('[data-settings-row-id="appearance-editor-font-size"] button')
     .click();
   await settings.getByRole("option", { name: "18px", exact: true }).click();
-  await settings
+  const appearancePicker = settings
     .locator('[data-settings-row-id="appearance-theme"]')
-    .getByRole("combobox")
-    .click();
-  await settings.getByRole("option", { name: "Dark", exact: true }).click();
+    .getByRole("combobox");
+  const chooseAppearance = async (name) => {
+    await appearancePicker.click();
+    await settings.getByRole("option", { name, exact: true }).click();
+  };
+  await chooseAppearance("Dark");
+  await expect.poll(readNativeThemeSource).toBe("dark");
   await expect(page.locator("html")).toHaveClass(/dark/);
   const darkBackground = await readBackgroundToken(page);
   assert.notEqual(darkBackground, lightBackground);
@@ -258,6 +267,21 @@ try {
   });
   await window.evaluate((win) => win.setSize(1440, 1000));
 
+  await page.getByRole("button", { name: "Appearance", exact: true }).click();
+  await page.getByRole("button", { name: "Light", exact: true }).click();
+  await expect.poll(readNativeThemeSource).toBe("light");
+  await expect(settings.locator("html")).toHaveClass(/\blight\b/);
+  await chooseAppearance("System");
+  await expect.poll(readNativeThemeSource).toBe("system");
+  const osIsDark = await app.evaluate(
+    ({ nativeTheme }) => nativeTheme.shouldUseDarkColors,
+  );
+  await expect(page.locator("html")).toHaveClass(
+    osIsDark ? /\bdark\b/ : /\blight\b/,
+  );
+  await chooseAppearance("Dark");
+  await expect.poll(readNativeThemeSource).toBe("dark");
+
   await expect
     .poll(() =>
       page
@@ -291,6 +315,7 @@ try {
     "Production browser state survives a full process restart",
   );
   await expect(restored.locator("html")).toHaveClass(/dark/);
+  await expect.poll(readNativeThemeSource).toBe("dark");
   const restoredWindow = await app.browserWindow(restored);
   await expect
     .poll(() => restoredWindow.evaluate((win) => win.getBackgroundColor()))

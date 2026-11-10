@@ -14,6 +14,7 @@ import {
   subscribeProjectChats,
 } from "@/lib/project-chat-lifecycle";
 import { ThemeProvider } from "next-themes";
+import { DEFAULT_APP_THEME } from "@/lib/app-theme";
 import { ErrorBoundary } from "react-error-boundary";
 import { GitCredentialRecovery } from "@/components/workspace/git-credential-recovery";
 import { Toaster } from "@/components/ui/sonner";
@@ -213,7 +214,11 @@ export function App({ onReady }: { onReady?: () => void }) {
 
   return (
     <ErrorBoundary FallbackComponent={ErrorFallback}>
-      <ThemeProvider attribute="class" defaultTheme="light" enableSystem>
+      <ThemeProvider
+        attribute="class"
+        defaultTheme={DEFAULT_APP_THEME}
+        enableSystem
+      >
         <TooltipProvider>
           <SolarModeEffect />
           <ProjectChangedDialog />

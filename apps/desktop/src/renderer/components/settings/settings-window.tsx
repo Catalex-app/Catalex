@@ -81,7 +81,7 @@ import {
   SunIcon,
 } from "lucide-react";
 import { open } from "@/lib/desktop/dialog";
-import { useTheme } from "next-themes";
+import { useAppTheme } from "@/lib/app-theme";
 import {
   type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
@@ -820,7 +820,7 @@ export function SettingsWindow() {
   }, []);
   const [version, setVersion] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
-  const { theme, setTheme } = useTheme();
+  const { theme, setTheme } = useAppTheme();
   const modeThemes = useSettingsStore((s) => s.modeThemes);
   const setModeTheme = useSettingsStore((s) => s.setModeTheme);
   const defaultAutoCompile = useSettingsStore((s) => s.defaultAutoCompile);

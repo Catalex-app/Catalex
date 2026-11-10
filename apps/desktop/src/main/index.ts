@@ -14,6 +14,7 @@ import {
   clipboard,
   dialog,
   ipcMain,
+  nativeTheme,
   net,
   powerMonitor,
   protocol,
@@ -723,6 +724,13 @@ async function hostCommand(
       return { result: null };
     case "desktop:app:getVersion":
       return { result: app.getVersion() };
+    case "desktop:appearance:setThemeSource": {
+      const { theme } = args;
+      if (theme !== "light" && theme !== "dark" && theme !== "system")
+        throw new Error("Invalid appearance preference.");
+      nativeTheme.themeSource = theme;
+      return { result: null };
+    }
     case "desktop:webview:setZoom":
       if (
         typeof args.scaleFactor !== "number" ||

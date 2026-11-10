@@ -11,6 +11,7 @@ import { isDesktop } from "@/lib/desktop/bridge";
 import { getCurrentWindow } from "@/lib/desktop/window";
 import { listen } from "@/lib/desktop/event";
 import { ThemeProvider } from "next-themes";
+import { DEFAULT_APP_THEME, syncNativeTheme } from "./lib/app-theme";
 import { initializeAppZoom } from "./lib/app-zoom";
 import { createLogger } from "./lib/debug/logger";
 import { APP_VISIBILITY_RESTORED } from "./lib/debug/log-store";
@@ -222,6 +223,14 @@ function hideLoadingScreen() {
 
 async function bootstrap() {
   let announceRecovery = () => {};
+  if (window.catalex?.windowId === "main") {
+    const theme = localStorage.getItem("theme");
+    syncNativeTheme(
+      theme === "light" || theme === "dark" || theme === "system"
+        ? theme
+        : DEFAULT_APP_THEME,
+    );
+  }
   if (window.catalex && !urlParams.has("panel-window")) {
     const { migrateBrowserWorkspaceState, showWorkspaceMigrationNotice } =
       await import("./lib/workspace-state-storage");
@@ -301,7 +310,11 @@ async function bootstrap() {
     );
     root.render(
       <React.StrictMode>
-        <ThemeProvider attribute="class" defaultTheme="light" enableSystem>
+        <ThemeProvider
+          attribute="class"
+          defaultTheme={DEFAULT_APP_THEME}
+          enableSystem
+        >
           <SolarModeEffect />
           <SettingsWindow />
         </ThemeProvider>
