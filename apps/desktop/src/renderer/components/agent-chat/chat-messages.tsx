@@ -377,6 +377,9 @@ const ChatMessagesForTab: FC<{
       key={activeTabId}
       ref={listRef}
       scrollerRef={attachScroller}
+      // Override Virtuoso's percentage height: Half's intrinsic drawer height
+      // does not provide a definite percentage basis for this flex child.
+      style={{ position: "absolute", inset: 0, height: "auto" }}
       className={`app-scrollbar absolute inset-0 overflow-y-auto ${
         revealHistory === undefined
           ? ""

@@ -9,14 +9,8 @@ test("expanding a long chat starts at the bottom without a scroll animation", as
   });
   await toggle.waitFor();
   await page.evaluate(async () => {
-    const resource = performance
-      .getEntriesByType("resource")
-      .find(
-        (item) =>
-          new URL(item.name).pathname ===
-          "/src/renderer/stores/agent-chat-store.ts",
-      );
-    const { useAgentChatStore } = await import(resource!.name);
+    const path = "/src/renderer/stores/agent-chat-store.ts";
+    const { useAgentChatStore } = await import(path);
     const messages = Array.from({ length: 100 }, (_, i) => ({
       type: "user",
       message: {
@@ -40,6 +34,8 @@ test("expanding a long chat starts at the bottom without a scroll animation", as
   await page.waitForTimeout(400);
   await toggle.click();
   await expect(viewport).toBeVisible();
+  await expect(viewport).toHaveCSS("opacity", "1");
+  await expect(viewport.getByText(/^Message 99:/)).toBeInViewport();
   const gaps = await viewport.evaluate(async (element) => {
     const result = [];
     for (let i = 0; i < 15; i++) {
@@ -51,5 +47,11 @@ test("expanding a long chat starts at the bottom without a scroll animation", as
     return result;
   });
   expect(Math.max(...gaps)).toBeLessThan(3);
-  await page.screenshot({ path: "/tmp/chat-expand-scroll.png" });
+  await page.screenshot({
+    path: test.info().outputPath("chat-expand-scroll.png"),
+  });
+  await viewport.evaluate((element) => {
+    element.scrollTop = 0;
+  });
+  await expect(viewport.getByText(/^Message 0:/)).toBeInViewport();
 });
