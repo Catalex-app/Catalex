@@ -11,7 +11,7 @@ import { getActiveComment, subscribeActiveComment } from "./active-comment";
 import {
   documentBarButtonClassName,
   documentBarClassName,
-  documentBarSummaryButtonClassName,
+  editorBarSummaryButtonClassName,
 } from "../document-navigation-styles";
 
 export type CommentFilter = EditorCommentFilter;
@@ -86,18 +86,21 @@ export function CommentsSummaryButton({
   const humans = comments.filter((comment) => !comment.origin).length;
   const agents = comments.length - humans;
   return (
-    <Hint content="Show comments">
+    <Hint content={`Show comments (${humans} human, ${agents} agent)`}>
       <button
         type="button"
         onClick={onOpen}
         aria-label={`Show comments: ${humans} human, ${agents} agent`}
-        className={documentBarSummaryButtonClassName}
+        className={editorBarSummaryButtonClassName}
       >
-        <span className="flex items-center gap-1">
+        <span data-summary-icon="" className="hidden">
+          <AuthorBadge filter="all" />
+        </span>
+        <span data-summary-count="" className="flex items-center gap-1">
           <AuthorBadge filter="human" />
           {humans}
         </span>
-        <span className="flex items-center gap-1">
+        <span data-summary-count="" className="flex items-center gap-1">
           <AuthorBadge filter="agent" />
           {agents}
         </span>

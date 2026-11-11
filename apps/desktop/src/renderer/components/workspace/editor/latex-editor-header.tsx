@@ -185,7 +185,7 @@ export function LatexEditorHeader({
         </>
       }
       data-testid="latex-editor-toolbar"
-      className="flex h-12 shrink-0 items-center gap-2 border-border border-b bg-background px-2"
+      className="@container/editor-header flex h-12 shrink-0 items-center gap-2 border-border border-b bg-background px-2"
     >
       <FormattingControls
         statisticsOverflow={overflow}

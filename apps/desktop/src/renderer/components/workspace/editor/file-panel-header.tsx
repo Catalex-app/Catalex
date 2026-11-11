@@ -110,7 +110,7 @@ export function FilePanelHeader({
         hasTrailingContent={
           (!overflow && !!textStatistics) || otherControlsVisible
         }
-        className="gap-2"
+        className="@container/editor-header gap-2"
         onActionsOpenChange={setActionsOpen}
         overflowContent={
           overflow && textStatistics ? (
