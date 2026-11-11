@@ -7,7 +7,6 @@ import {
   TextSelectIcon,
   ExternalLinkIcon,
   LinkIcon,
-  MessageSquarePlusIcon,
   type LucideIcon,
 } from "lucide-react";
 import { Fragment, useEffect, useRef, useState } from "react";
@@ -37,7 +36,6 @@ const actionIcons: Record<string, LucideIcon> = {
   "Select All": TextSelectIcon,
   "Open Link": ExternalLinkIcon,
   "Copy Link": LinkIcon,
-  "Add Comment": MessageSquarePlusIcon,
 };
 
 function ActionIcon({ label }: { label: string }) {

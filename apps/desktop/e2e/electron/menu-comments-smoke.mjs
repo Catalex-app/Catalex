@@ -32,6 +32,7 @@ delete env.ELECTRON_RUN_AS_NODE;
 let app;
 const errors = [];
 async function ready(page) {
+  await page.emulateMedia({ reducedMotion: "reduce" });
   page.on("pageerror", (error) => errors.push(error.message));
   await page.locator("#loading-screen").waitFor({ state: "hidden" });
   await page.evaluate(async () =>
@@ -89,6 +90,38 @@ async function selectHello(page) {
   await page.keyboard.press("ArrowLeft");
   for (let i = 0; i < 5; i++) await page.keyboard.press("Shift+ArrowRight");
 }
+async function selectMarkdownMenuWord(page) {
+  const text = page
+    .frameLocator('iframe[title="notes.md preview"]')
+    .locator("#write [data-comment-start]")
+    .filter({ hasText: /^Hello menu$/ });
+  await text.click();
+  await text.evaluate((element) => {
+    const node = element.firstChild;
+    const start = node.textContent.indexOf("menu");
+    const range = element.ownerDocument.createRange();
+    range.setStart(node, start);
+    range.setEnd(node, start + 4);
+    const selection = element.ownerDocument.getSelection();
+    selection.removeAllRanges();
+    selection.addRange(range);
+  });
+  return text;
+}
+async function checkMarkdownCopyMenu(page, view) {
+  const text = await selectMarkdownMenuWord(page);
+  await expect(
+    page.getByRole("button", { name: "Comment", exact: true }),
+  ).toBeEnabled();
+  await text.click({ button: "right" });
+  await expect(page.getByRole("menuitem")).toHaveText(["Copy"]);
+  await page.screenshot({
+    animations: "disabled",
+    path: path.join(artifacts, `markdown-context-menu-${view}.png`),
+  });
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("menu")).toHaveCount(0);
+}
 async function openProject(page) {
   await focus(page);
   await page.evaluate(async (root) => {
@@ -133,6 +166,27 @@ async function openProject(page) {
 try {
   const page = await launch();
   await openProject(page);
+  await checkMarkdownCopyMenu(page, "normal");
+  await page
+    .getByRole("button", { name: "More Preview view actions", exact: true })
+    .click();
+  await page
+    .getByRole("menuitem", { name: "Expand Preview", exact: true })
+    .click();
+  const expandedPreview = page.getByRole("dialog", {
+    name: "Preview expanded",
+    exact: true,
+  });
+  await expect(expandedPreview).toBeVisible();
+  await expect(expandedPreview).not.toHaveAttribute(
+    "data-panel-expansion-motion",
+  );
+  await checkMarkdownCopyMenu(page, "expanded");
+  await expandedPreview
+    .getByRole("button", { name: "Restore Preview", exact: true })
+    .click();
+  await expect(expandedPreview).toHaveCount(0);
+  await page.locator(".cm-content").click();
   await click("manage-comments");
   const manager = page.getByRole("dialog", {
     name: "Manage comments",
@@ -155,6 +209,7 @@ try {
   const panel = await ready(await opened);
   await focus(panel);
   await expect.poll(async () => await menu("manage-comments")).toBe(null);
+  await checkMarkdownCopyMenu(panel, "pop-out");
   const closed = panel.waitForEvent("close");
   await (await app.browserWindow(panel)).evaluate((win) => win.close());
   await closed;
@@ -196,27 +251,10 @@ try {
 
   // The iframe selection must win over the previous CodeMirror selection.
   await selectHello(page);
-  const preview = page.frameLocator('iframe[title="notes.md preview"]');
-  await preview.locator("#write").click();
-  await preview.locator("#write").evaluate((element) => {
-    const walker = element.ownerDocument.createTreeWalker(
-      element,
-      NodeFilter.SHOW_TEXT,
-    );
-    let text;
-    while ((text = walker.nextNode()) && !text.textContent.includes("menu")) {}
-    const offset = text.textContent.indexOf("menu");
-    const range = element.ownerDocument.createRange();
-    range.setStart(text, offset);
-    range.setEnd(text, offset + 4);
-    const selection = element.ownerDocument.getSelection();
-    selection.removeAllRanges();
-    selection.addRange(range);
-  });
+  await selectMarkdownMenuWord(page);
   await expect
     .poll(async () => (await menu("inline:bold"))?.enabled)
     .toBe(false);
-  await expect(preview.locator("#write")).toContainText("menu");
   await click("add-comment");
   await expect(
     page.getByRole("textbox", { name: "Comment text", exact: true }).last(),
@@ -355,7 +393,7 @@ try {
   ).toBeVisible();
   assert.deepEqual(errors, []);
   console.log(
-    "Native comment menus: existing project manager, editor and Markdown preview creation, visibility toggles, standalone PDF comments, preview-only management, and restart persistence passed.",
+    "Native comment menus: project manager, editor and Markdown preview creation, Markdown context menus in all preview layouts, visibility toggles, standalone PDF comments, and restart persistence passed.",
   );
 } catch (error) {
   await app

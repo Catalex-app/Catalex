@@ -5,7 +5,6 @@ import { getActiveComment, setActiveComment } from "../editor/active-comment";
 import type { CommentRange } from "../editor/comment-range";
 import { attachCommentToChat } from "@/lib/comment-chat-context";
 import { isReferencePanelWindow } from "@/lib/panel-window-runtime";
-import { registerSelectionContextActions } from "@/lib/context-menu";
 import { createPortal } from "react-dom";
 import { CommentsPanel, CommentsSummaryButton } from "../editor/comments-panel";
 import { ProblemsMotion } from "../editor/problems-motion";
@@ -493,24 +492,6 @@ export function MarkdownComments({
     frameDocument.getSelection()?.removeAllRanges();
     setSelection(null);
   };
-  useEffect(
-    () =>
-      registerSelectionContextActions(frameDocument.body, () => {
-        if (!context) return [];
-        const selected = frameDocument.getSelection();
-        const sourceRange = selected
-          ? markdownSelectionRange(selected, source)
-          : null;
-        return [
-          {
-            label: "Add Comment",
-            disabled: !sourceRange || !commentsLoaded,
-            run: () => addComment(sourceRange),
-          },
-        ];
-      }),
-    [frameDocument, context, source, filePath, setFiles, commentsLoaded],
-  );
   const commentTarget = useActionTarget(
     () => frameDocument.body,
     filePath,

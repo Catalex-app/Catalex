@@ -36,19 +36,6 @@ export function registerEditorContextActions(
   editorContextActions.set(view, actions);
   return () => editorContextActions.delete(view);
 }
-const selectionActions = new WeakMap<Element, () => ContextAction[]>();
-
-/** Preview owners supply source-aware actions without coupling the shell to them. */
-export function registerSelectionContextActions(
-  element: Element,
-  actions: () => ContextAction[],
-) {
-  selectionActions.set(element, actions);
-  return () => {
-    if (selectionActions.get(element) === actions)
-      selectionActions.delete(element);
-  };
-}
 
 const readableSelector =
   '[data-selectable-content], .selectable-content, .chat-markdown, .select-text, .cm-inlineCommentText, pre, [data-testid="pdf-scroll-container"], #write';
@@ -285,7 +272,7 @@ function resolveActions(target: Element): ContextAction[] {
   )
     return [];
   const text = selection.toString();
-  const actions: ContextAction[] = [
+  return [
     {
       label: "Copy",
       run: async () => {
@@ -310,18 +297,6 @@ function resolveActions(target: Element): ContextAction[] {
       },
     },
   ];
-  for (
-    let element: Element | null = target;
-    element;
-    element = element.parentElement
-  ) {
-    const extra = selectionActions.get(element);
-    if (extra) {
-      actions.push(...extra());
-      break;
-    }
-  }
-  return actions;
 }
 
 /** Install per document: iframe events do not bubble to the app document. */
