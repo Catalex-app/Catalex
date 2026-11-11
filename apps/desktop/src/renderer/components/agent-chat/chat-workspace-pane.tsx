@@ -5,6 +5,7 @@ import {
   type WorkspacePanelExpansion,
 } from "../workspace/workspace-panel";
 import { type ReactNode, useLayoutEffect, useRef, useState } from "react";
+import { usePreviewSearch } from "../workspace/preview/preview-search-panel";
 import { AgentDraftNotice } from "./agent-question-prompt";
 import { ChatComposer } from "./chat-composer";
 import { ChatMessages } from "./chat-messages";
@@ -28,6 +29,7 @@ export function ChatWorkspacePane({
   composerTransferPhase = "idle",
   forceHideComposer = false,
   acceptPendingAttachments = true,
+  searchAvailable = true,
 }: {
   expansion?: WorkspacePanelExpansion;
   displayControl?: ReactNode;
@@ -39,9 +41,21 @@ export function ChatWorkspacePane({
     | "panel_enter";
   forceHideComposer?: boolean;
   acceptPendingAttachments?: boolean;
+  searchAvailable?: boolean;
 }) {
   const activeTab = useAgentChatStore((s) =>
     s.tabs.find((tab) => tab.id === s.activeTabId),
+  );
+  const projectRoot = useAgentChatStore((s) => s.chatProjectRoot);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const [searchHost, setSearchHost] = useState<HTMLDivElement | null>(null);
+  const search = usePreviewSearch(
+    panelRef,
+    JSON.stringify([projectRoot, activeTab?.id]),
+    {
+      active: searchAvailable,
+      panelTestId: "chat-search-panel",
+    },
   );
   const promptsPinned = useSettingsStore((s) => s.keepMiniPromptsOpen);
   const promptsFolded = !useLibraryPromptsExpanded(activeTab, promptsPinned);
@@ -180,11 +194,16 @@ export function ChatWorkspacePane({
 
   return (
     <WorkspacePanel
+      ref={panelRef}
       expansion={expansion}
       data-workspace-panel-screen="true"
       className="flex h-full min-h-0 flex-col overflow-hidden rounded-panel border border-border/70 bg-card"
     >
-      <WorkspacePanelHeader actionsLabel="Chat">
+      <WorkspacePanelHeader
+        actionsLabel="Chat"
+        findAction={searchAvailable ? search.show : undefined}
+        findOpen={search.open}
+      >
         <div
           data-chat-panel-title
           className="flex min-w-0 flex-1 items-center px-1 font-medium text-sm"
@@ -211,11 +230,16 @@ export function ChatWorkspacePane({
           </div>
         </div>
       </WorkspacePanelHeader>
+      <div ref={setSearchHost} className="shrink-0" />
       <div
         data-chat-messages
         className="chat-conversation-fade relative min-h-0 flex-1 overflow-hidden"
       >
-        <ChatMessages reservePromptSpace />
+        <ChatMessages
+          reservePromptSpace
+          search={search}
+          searchHost={searchHost}
+        />
       </div>
       <AgentDraftNotice />
       {(displayControl || promptsFolded) && (

@@ -1,3 +1,4 @@
+import { collectChatMatches } from "../../chat-message-search";
 import {
   remapCommentFiles,
   type CommentPathChange,
@@ -111,6 +112,19 @@ function chatCheckpointCommand(cmd: string, args: Record<string, any>) {
     )
       tab.messages.push(structuredClone(args.message));
     return tab.messages.length;
+  }
+  if (cmd === "desktop:chat:search") {
+    const messages =
+      previous?.tabs.find((tab: any) => tab.id === args.tabId)?.messages ?? [];
+    const results = collectChatMatches(args.query);
+    const complete = messages.every((message: any, index: number) =>
+      results.add(message, index),
+    );
+    return {
+      matches: results.matches,
+      total: messages.length,
+      truncated: !complete,
+    };
   }
   if (cmd === "desktop:chat:messages") {
     const tab = previous?.tabs.find((tab: any) => tab.id === args.tabId);
@@ -954,6 +968,7 @@ Making some problems
           "desktop:chat:checkpoint-load",
           "desktop:chat:checkpoint-save",
           "desktop:chat:messages",
+          "desktop:chat:search",
           "desktop:chat:append-review",
           "desktop:chat:fork",
           "desktop:chat:cancel-fork",

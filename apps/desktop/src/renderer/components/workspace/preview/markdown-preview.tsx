@@ -693,7 +693,11 @@ export function MarkdownPreview({
   const activeFile = files.find((file) => file.id === activeFileId);
   const markdownSource =
     activeFile && isMarkdownFile(activeFile) ? (activeFile.content ?? "") : "";
-  const search = usePreviewSearch(searchScope, activeFileId, frameDocument);
+  const search = usePreviewSearch(searchScope, activeFileId, {
+    frameDocument,
+    available: !editorVisible,
+    infoBarProjectKey: JSON.stringify(projectRoot),
+  });
   const beforeSearchScroll = useCallback((scrollTop: number) => {
     // Search can take over before the scroll poll observes the last synced jump.
     lastPreviewScrollTopRef.current = scrollTop;
@@ -1522,6 +1526,8 @@ export function MarkdownPreview({
       style={previewPanelStyle}
     >
       <WorkspacePanelHeader
+        findAction={editorVisible ? undefined : search.show}
+        findOpen={search.open}
         trailingContent={<div ref={setCommentToolbar} />}
         hasTrailingContent={commentToolbarVisible}
         className="flex h-12 shrink-0 items-center border-border border-b bg-background px-2"
@@ -1825,6 +1831,7 @@ export function MarkdownPreview({
             toolbarHost={commentToolbar}
             onToolbarVisibilityChange={setCommentToolbarVisible}
             panelHost={commentPanel}
+            closeSearch={search.open ? search.close : undefined}
             source={markdownSource}
             filePath={activeFile.relativePath}
           />

@@ -1,3 +1,4 @@
+import type { SearchScope } from "@/lib/preview-search";
 import { useAppAction, useAppActions } from "@/hooks/use-app-actions";
 import { saveFile } from "@/lib/save-file";
 import { useActionTarget } from "@/hooks/use-action-target";
@@ -340,7 +341,7 @@ interface EditorSearchState {
   showReplace: boolean;
   preserveCase: boolean;
   findInSelection: boolean;
-  includeComments: boolean;
+  scope: SearchScope;
 }
 
 type HistoryField = "find" | "replace";
@@ -359,7 +360,7 @@ const DEFAULT_SEARCH_STATE: EditorSearchState = {
   showReplace: false,
   preserveCase: false,
   findInSelection: false,
-  includeComments: true,
+  scope: "all",
 };
 const EMPTY_SEARCH_QUERY = new SearchQuery({ search: "" });
 
@@ -1213,6 +1214,7 @@ export function clearEditorStateCache(): void {
 }
 
 interface LatexEditorProps {
+  searchAvailable?: boolean;
   layoutAnimating?: boolean;
   layoutTarget?: PdfLayoutTarget;
   expansion?: WorkspacePanelExpansion;
@@ -1260,6 +1262,7 @@ function sendDiagnosticToChat(view: EditorView, issues: DiagnosticChatIssue[]) {
 }
 
 export function LatexEditor({
+  searchAvailable = true,
   layoutAnimating = false,
   layoutTarget,
   expansion,
@@ -1427,22 +1430,13 @@ export function LatexEditor({
   const problemsPanelPreference = useSettingsStore(
     (s) => s.editorProblemsPanelOpenByProject[panelsProjectKey],
   );
-  const saveProblemsPanelOpen = useSettingsStore(
-    (s) => s.setEditorProblemsPanelOpen,
-  );
-  const setProblemsPanelOpen = (open: boolean) =>
-    saveProblemsPanelOpen(panelsProjectKey, open);
+  const setEditorInfoBar = useSettingsStore((s) => s.setEditorInfoBar);
   const displayComments = useSettingsStore((s) => s.displayComments);
   const commentsPanelOpen = useSettingsStore(
     (s) =>
       s.displayComments &&
       (s.editorCommentsPanelOpenByProject[panelsProjectKey] ?? false),
   );
-  const saveCommentsPanelOpen = useSettingsStore(
-    (s) => s.setEditorCommentsPanelOpen,
-  );
-  const setCommentsPanelOpen = (open: boolean) =>
-    saveCommentsPanelOpen(panelsProjectKey, open);
   const commentFilter = useSettingsStore(
     (s) => s.editorCommentFilterByProject[panelsProjectKey] ?? "all",
   );
@@ -1738,13 +1732,14 @@ export function LatexEditor({
     searchStateRef.current = searchState;
   }, [searchState]);
 
-  const searchQueryObject = useMemo(
-    () =>
-      isSearchOpen
-        ? buildSearchQuery(searchState, searchScopeRange)
-        : EMPTY_SEARCH_QUERY,
-    [isSearchOpen, searchState, searchScopeRange],
+  const findQuery = useMemo(
+    () => buildSearchQuery(searchState, searchScopeRange),
+    [searchState, searchScopeRange],
   );
+  const searchQueryObject =
+    isSearchOpen && searchState.scope !== "comments"
+      ? findQuery
+      : EMPTY_SEARCH_QUERY;
 
   const pushFindHistory = useCallback((value: string) => {
     setFindHistory((prev) => pushHistoryEntry(prev, value));
@@ -1777,8 +1772,13 @@ export function LatexEditor({
     [searchQueryObject],
   );
 
+  const searchAvailableRef = useRef(searchAvailable);
+  useLayoutEffect(() => {
+    searchAvailableRef.current = searchAvailable;
+  }, [searchAvailable]);
   const openSearch = useCallback(
     (showReplace = false, seedFindText?: string) => {
+      if (!searchAvailableRef.current) return;
       if (isSearchOpenRef.current) {
         if (showReplace) {
           setSearchState((previous) => ({ ...previous, showReplace: true }));
@@ -1814,6 +1814,7 @@ export function LatexEditor({
       if (showSidecarUi) {
         requestDrawerCollapse();
       }
+      setEditorInfoBar(panelsProjectKey, null);
       setIsSearchOpen(true);
       setSearchState((prev) => {
         return {
@@ -1827,7 +1828,7 @@ export function LatexEditor({
         findHistoryDraftRef.current = "";
       }
     },
-    [requestDrawerCollapse, showSidecarUi],
+    [panelsProjectKey, requestDrawerCollapse, setEditorInfoBar, showSidecarUi],
   );
 
   const closeSearch = useCallback(() => {
@@ -1847,6 +1848,17 @@ export function LatexEditor({
     setCurrentMatch(0);
     viewRef.current?.focus();
   }, [pushFindHistory, pushReplaceHistory]);
+
+  useEffect(() => {
+    if (
+      isSearchOpen &&
+      (!searchAvailable || commentsPanelOpen || problemsPanelOpen)
+    ) {
+      setIsSearchOpen(false);
+      setSearchScopeRange(null);
+      setSearchState((previous) => ({ ...previous, findInSelection: false }));
+    }
+  }, [isSearchOpen, searchAvailable, commentsPanelOpen, problemsPanelOpen]);
 
   const navigateHistory = useCallback(
     (field: HistoryField, direction: HistoryDirection) => {
@@ -2664,7 +2676,7 @@ export function LatexEditor({
         }
       }
     } else {
-      previousFindSignatureRef.current = findSignature;
+      previousFindSignatureRef.current = "";
     }
     updateSearchMetrics(view, searchQueryObject);
   }, [
@@ -2681,7 +2693,7 @@ export function LatexEditor({
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (!(e.metaKey || e.ctrlKey)) return;
+      if (!searchAvailable || !(e.metaKey || e.ctrlKey)) return;
       const target = e.target;
       if (!(target instanceof Element)) return;
       // Chat shares the drawer host with the editor. Scope shortcuts to the
@@ -2699,7 +2711,7 @@ export function LatexEditor({
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [openSearch]);
+  }, [openSearch, searchAvailable]);
 
   const handleFindNext = useCallback(() => {
     const view = viewRef.current;
@@ -3152,9 +3164,10 @@ export function LatexEditor({
                     state.setActiveFile(file.id);
                     const settings = useSettingsStore.getState();
                     settings.setDisplayComments(true);
-                    settings.setEditorCommentsPanelOpen(
+                    if (isSearchOpenRef.current) closeSearch();
+                    settings.setEditorInfoBar(
                       JSON.stringify(projectRoot),
-                      true,
+                      "comments",
                     );
                   },
                 },
@@ -3302,6 +3315,7 @@ export function LatexEditor({
         {
           key: "Mod-f",
           run: (view) => {
+            if (!searchAvailableRef.current) return false;
             const selection = view.state.selection.main;
             const selectedText = selection.empty
               ? ""
@@ -3313,6 +3327,7 @@ export function LatexEditor({
         {
           key: "Mod-h",
           run: (view) => {
+            if (!searchAvailableRef.current) return false;
             const selection = view.state.selection.main;
             const selectedText = selection.empty
               ? ""
@@ -4844,6 +4859,7 @@ export function LatexEditor({
   const [pdfCommentRequest, setPdfCommentRequest] = useState<{
     filePath: string;
     commentId: string;
+    searchSource?: HTMLElement;
   } | null>(null);
   useEffect(() => {
     const navigate = (event: Event) => {
@@ -4852,9 +4868,15 @@ export function LatexEditor({
           projectRoot: string;
           filePath: string;
           commentId: string;
+          searchSource?: HTMLElement;
         }>
       ).detail;
       if (detail.projectRoot !== commentProjectRoot) return;
+      if (
+        detail.searchSource &&
+        !searchPanelRef.current?.contains(detail.searchSource)
+      )
+        return;
       const file = useDocumentStore
         .getState()
         .files.find((file) => file.relativePath === detail.filePath);
@@ -4879,8 +4901,11 @@ export function LatexEditor({
     ).find((item) => item.id === pdfCommentRequest.commentId);
     const view = viewRef.current;
     if (!view || !comment) return;
-    saveCommentsPanelOpen(panelsProjectKey, true);
-    saveCommentFilter(panelsProjectKey, comment.origin ? "agent" : "human");
+    if (!pdfCommentRequest.searchSource) {
+      if (isSearchOpenRef.current) closeSearch();
+      setEditorInfoBar(panelsProjectKey, "comments");
+      saveCommentFilter(panelsProjectKey, comment.origin ? "agent" : "human");
+    }
     pendingInlineCommentCenterIdRef.current = null;
     const from = Math.max(0, Math.min(comment.from, view.state.doc.length));
     scrollToEditorPosition(view, from, { commentId: comment.id });
@@ -4892,7 +4917,8 @@ export function LatexEditor({
     inlineCommentsByFile,
     editorReadyRevision,
     panelsProjectKey,
-    saveCommentsPanelOpen,
+    closeSearch,
+    setEditorInfoBar,
     saveCommentFilter,
   ]);
 
@@ -5583,13 +5609,15 @@ export function LatexEditor({
     enabled: editorActionsAvailable && isTextEditorEditable,
     menu: { group: "File", section: 2, order: 0 },
   });
-  useAppActions(
+  const editorFindAvailable = searchAvailable && editorActionsAvailable;
+  const [findAction] = useAppActions(
     [
       {
         id: "find",
         label: "Find…",
         run: () => openSearch(false),
-        enabled: editorActionsAvailable,
+        visible: searchAvailable,
+        enabled: editorFindAvailable,
         shortcut: "Mod+KeyF",
         menu: { group: "Edit", section: 1, order: 0 },
       },
@@ -5597,7 +5625,8 @@ export function LatexEditor({
         id: "replace",
         label: "Find and Replace…",
         run: () => openSearch(true),
-        enabled: editorActionsAvailable && isTextEditorEditable,
+        visible: searchAvailable,
+        enabled: editorFindAvailable && isTextEditorEditable,
         shortcut: "Mod+Alt+KeyF",
         menu: { group: "Edit", section: 1, order: 1 },
       },
@@ -5642,6 +5671,17 @@ export function LatexEditor({
     !isReviewDisplay &&
     allActiveFileInlineComments.length > 0;
 
+  const showSearchBar =
+    searchAvailable &&
+    isSearchOpen &&
+    !commentsPanelOpen &&
+    !problemsPanelOpen &&
+    !isWholeFileReview &&
+    !activeGitFileConflict &&
+    !isPdf &&
+    !isFilePreview &&
+    !isLargeFileNotLoaded;
+
   const problemsSummary = (
     <div className="flex shrink-0 items-center">
       <ProblemsMotion
@@ -5656,8 +5696,8 @@ export function LatexEditor({
           <ProblemsSummaryButton
             diagnostics={problemDiagnostics}
             onOpen={() => {
-              setProblemsPanelOpen(true);
-              setCommentsPanelOpen(false);
+              if (showSearchBar) closeSearch();
+              setEditorInfoBar(panelsProjectKey, "problems");
             }}
           />
         </div>
@@ -5674,8 +5714,8 @@ export function LatexEditor({
           <CommentsSummaryButton
             comments={allActiveFileInlineComments}
             onOpen={() => {
-              setCommentsPanelOpen(true);
-              setProblemsPanelOpen(false);
+              if (showSearchBar) closeSearch();
+              setEditorInfoBar(panelsProjectKey, "comments");
             }}
           />
         </div>
@@ -5776,6 +5816,8 @@ export function LatexEditor({
             wordCount={editorTextStatistics.wordCount}
             characterCount={editorTextStatistics.characterCount}
             trailingContent={problemsSummary}
+            findAction={editorFindAvailable ? findAction.run : undefined}
+            findOpen={showSearchBar}
             actionTarget={editorActionTarget}
             actionsEnabled={isTextEditorEditable}
             onInlineFormat={applyMarkdownInlineFormat}
@@ -5789,6 +5831,8 @@ export function LatexEditor({
             wordCount={editorTextStatistics.wordCount}
             characterCount={editorTextStatistics.characterCount}
             trailingContent={problemsSummary}
+            findAction={editorFindAvailable ? findAction.run : undefined}
+            findOpen={showSearchBar}
             actionTarget={editorActionTarget}
             actionsEnabled={isTextEditorEditable}
             onInlineFormat={applyLatexInlineFormat}
@@ -5801,6 +5845,8 @@ export function LatexEditor({
           (!(isMarkdownDocument || isLatexDocument) || reviewingSnapshot) && (
             <FilePanelHeader
               textEditor
+              findAction={editorFindAvailable ? findAction.run : undefined}
+              findOpen={showSearchBar}
               fileName={activeFile?.name}
               textStatistics={
                 isTextFile && !isLargeFileNotLoaded
@@ -5973,7 +6019,7 @@ export function LatexEditor({
                   ? minimapProblemSelection
                   : undefined
               }
-              onClose={() => setProblemsPanelOpen(false)}
+              onClose={() => setEditorInfoBar(panelsProjectKey, null)}
               diagnostics={problemDiagnostics}
               onFixAllWithChat={
                 showSidecarUi
@@ -6016,7 +6062,7 @@ export function LatexEditor({
               comments={allActiveFileInlineComments}
               filter={commentFilter}
               onFilter={setCommentFilter}
-              onClose={() => setCommentsPanelOpen(false)}
+              onClose={() => setEditorInfoBar(panelsProjectKey, null)}
               onNavigate={(comment) => {
                 const view = viewRef.current;
                 if (!view) return;
@@ -6036,95 +6082,91 @@ export function LatexEditor({
             />
           </div>
         </ProblemsMotion>
-        {isSearchOpen &&
-          !isWholeFileReview &&
-          !activeGitFileConflict &&
-          !isPdf &&
-          !isFilePreview &&
-          !isLargeFileNotLoaded && (
-            <div ref={searchPanelRef} className="shrink-0">
-              <SearchPanel
-                findText={searchState.findText}
-                replaceText={searchState.replaceText}
-                isReplaceOpen={searchState.showReplace}
-                isCaseSensitive={searchState.caseSensitive}
-                isWholeWord={searchState.wholeWord}
-                isRegex={searchState.useRegex}
-                includeComments={searchState.includeComments}
-                preserveCase={searchState.preserveCase}
-                findInSelection={searchState.findInSelection}
-                canEnableFindInSelection={canToggleFindInSelection}
-                isQueryValid={searchQueryObject.valid}
-                canReplace={canReplace}
-                onFindTextChange={(findText) => {
-                  setFindHistoryIndex(-1);
-                  findHistoryDraftRef.current = "";
-                  setSearchState((prev) => ({ ...prev, findText }));
-                }}
-                onReplaceTextChange={(replaceText) => {
-                  setReplaceHistoryIndex(-1);
-                  replaceHistoryDraftRef.current = "";
-                  setSearchState((prev) => ({ ...prev, replaceText }));
-                }}
-                onToggleReplace={() =>
-                  setSearchState((prev) => ({
-                    ...prev,
-                    showReplace: !prev.showReplace,
-                  }))
-                }
-                onToggleCaseSensitive={() =>
-                  setSearchState((prev) => ({
-                    ...prev,
-                    caseSensitive: !prev.caseSensitive,
-                  }))
-                }
-                onToggleWholeWord={() =>
-                  setSearchState((prev) => ({
-                    ...prev,
-                    wholeWord: !prev.wholeWord,
-                  }))
-                }
-                onToggleRegex={() =>
-                  setSearchState((prev) => ({
-                    ...prev,
-                    useRegex: !prev.useRegex,
-                  }))
-                }
-                onTogglePreserveCase={() =>
-                  setSearchState((prev) => ({
-                    ...prev,
-                    preserveCase: !prev.preserveCase,
-                  }))
-                }
-                onToggleFindInSelection={() => {
-                  setSearchState((prev) => {
-                    if (prev.findInSelection) {
-                      setSearchScopeRange(null);
-                      return { ...prev, findInSelection: false };
-                    }
-                    if (!selectionRangeForSearch) return prev;
-                    setSearchScopeRange(selectionRangeForSearch);
-                    return { ...prev, findInSelection: true };
-                  });
-                }}
-                onToggleComments={() =>
-                  setSearchState((prev) => ({
-                    ...prev,
-                    includeComments: !prev.includeComments,
-                  }))
-                }
-                onHistoryNavigate={navigateHistory}
-                onClose={closeSearch}
-                onFindNext={handleFindNext}
-                onFindPrevious={handleFindPrevious}
-                onReplaceNext={handleReplaceNext}
-                onReplaceAll={handleReplaceAll}
-                commentRange={searchScopeRange}
-                matchCount={matchCount}
-                currentMatch={currentMatch}
-              />
-            </div>
-          )}
+        {showSearchBar && (
+          <div ref={searchPanelRef} className="shrink-0">
+            <SearchPanel
+              findText={searchState.findText}
+              replaceText={searchState.replaceText}
+              isReplaceOpen={searchState.showReplace}
+              isCaseSensitive={searchState.caseSensitive}
+              isWholeWord={searchState.wholeWord}
+              isRegex={searchState.useRegex}
+              scope={searchState.scope}
+              preserveCase={searchState.preserveCase}
+              findInSelection={searchState.findInSelection}
+              canEnableFindInSelection={canToggleFindInSelection}
+              isQueryValid={findQuery.valid}
+              canReplace={canReplace}
+              onFindTextChange={(findText) => {
+                setFindHistoryIndex(-1);
+                findHistoryDraftRef.current = "";
+                setSearchState((prev) => ({ ...prev, findText }));
+              }}
+              onReplaceTextChange={(replaceText) => {
+                setReplaceHistoryIndex(-1);
+                replaceHistoryDraftRef.current = "";
+                setSearchState((prev) => ({ ...prev, replaceText }));
+              }}
+              onToggleReplace={() =>
+                setSearchState((prev) => ({
+                  ...prev,
+                  showReplace: !prev.showReplace,
+                }))
+              }
+              onToggleCaseSensitive={() =>
+                setSearchState((prev) => ({
+                  ...prev,
+                  caseSensitive: !prev.caseSensitive,
+                }))
+              }
+              onToggleWholeWord={() =>
+                setSearchState((prev) => ({
+                  ...prev,
+                  wholeWord: !prev.wholeWord,
+                }))
+              }
+              onToggleRegex={() =>
+                setSearchState((prev) => ({
+                  ...prev,
+                  useRegex: !prev.useRegex,
+                }))
+              }
+              onTogglePreserveCase={() =>
+                setSearchState((prev) => ({
+                  ...prev,
+                  preserveCase: !prev.preserveCase,
+                }))
+              }
+              onToggleFindInSelection={() => {
+                setSearchState((prev) => {
+                  if (prev.findInSelection) {
+                    setSearchScopeRange(null);
+                    return { ...prev, findInSelection: false };
+                  }
+                  if (!selectionRangeForSearch) return prev;
+                  setSearchScopeRange(selectionRangeForSearch);
+                  return { ...prev, findInSelection: true };
+                });
+              }}
+              onScopeChange={(scope) =>
+                setSearchState((prev) => ({ ...prev, scope }))
+              }
+              onHistoryNavigate={navigateHistory}
+              onClose={closeSearch}
+              onFindNext={handleFindNext}
+              onFindPrevious={handleFindPrevious}
+              onFindCurrent={() => {
+                const view = viewRef.current;
+                if (view) navigateSearchMatch(view, view.state.selection.main);
+              }}
+              onReplaceNext={handleReplaceNext}
+              onReplaceAll={handleReplaceAll}
+              commentRange={searchScopeRange}
+              matchCount={matchCount}
+              currentMatch={currentMatch}
+            />
+          </div>
+        )}
         {/* Main content area */}
         <div
           ref={

@@ -198,3 +198,26 @@ test("standalone PDF comments share saved geometry and edits across main and pop
     animations: "disabled",
   });
 });
+
+test("standalone PDF search reveals the matching comment card with its info bar folded", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await openStandalonePdf(page);
+  const card = await addComment(page, "Review this standalone PDF passage");
+  const scroller = page.getByTestId("pdf-scroll-container");
+  await scroller.click({ position: { x: 10, y: 10 } });
+  await expect(card).toBeHidden();
+  const find = page.getByRole("button", { name: "Find", exact: true });
+  await find.click();
+  const search = page.getByTestId("preview-search-panel");
+  const input = search.getByRole("textbox", { name: "Search", exact: true });
+  await input.fill("standalone PDF passage");
+  await expect(search.getByRole("status")).toHaveText("0/1");
+  await input.press("Enter");
+  await expect(card).toContainText("Review this standalone PDF passage");
+  await expect(input).toBeFocused();
+  await expect(page.locator("[data-comments-panel]:visible")).toHaveCount(0);
+  await search.getByRole("button", { name: "Close", exact: true }).click();
+  await expect(find).toBeVisible();
+});

@@ -902,6 +902,7 @@ function ProjectWorkspaceLayout() {
   const visibleColumnCount = openColumns.length;
   const isChatVisible = openColumns.includes("chat");
   const isEditorVisible = openColumns.includes("editor");
+  const editorPaneVisible = isEditorVisible && expandedPanel !== "pdf";
   const isPdfVisible = openColumns.includes("pdf");
   const isPreviewOnly = isPdfVisible && !isEditorVisible;
   const isIncomingVisible = openColumns.includes("incoming");
@@ -3103,6 +3104,11 @@ function ProjectWorkspaceLayout() {
                                 )}
                               >
                                 <ChatWorkspacePane
+                                  searchAvailable={
+                                    isWorkspaceChat &&
+                                    isChatVisible &&
+                                    (!expandedPanel || expandedPanel === "chat")
+                                  }
                                   expansion={panelExpansion("chat", "Chat")}
                                   displayControl={
                                     isWorkspaceChat
@@ -3141,6 +3147,7 @@ function ProjectWorkspaceLayout() {
                                 className="h-full min-h-0"
                               >
                                 <LatexEditor
+                                  searchAvailable={editorPaneVisible}
                                   layoutAnimating={isColumnLayoutAnimating}
                                   layoutTarget={pdfLayoutTargets?.editor}
                                   expansion={panelExpansion(
@@ -3363,10 +3370,7 @@ function ProjectWorkspaceLayout() {
                                       <CsvTable />
                                     ) : isMarkdownDocument ? (
                                       <MarkdownPreview
-                                        editorVisible={
-                                          isEditorVisible &&
-                                          expandedPanel !== "pdf"
-                                        }
+                                        editorVisible={editorPaneVisible}
                                         layoutAnimating={
                                           isColumnLayoutAnimating
                                         }
@@ -3426,10 +3430,7 @@ function ProjectWorkspaceLayout() {
                                             );
                                           else setViewMode("split");
                                         }}
-                                        editorVisible={
-                                          isEditorVisible &&
-                                          expandedPanel !== "pdf"
-                                        }
+                                        editorVisible={editorPaneVisible}
                                         layoutAnimating={
                                           isColumnLayoutAnimating
                                         }

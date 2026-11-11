@@ -14,6 +14,7 @@ import "./button-group.css";
 type ButtonGroupSelection<Value extends string> = {
   layout?: "normal" | "compact" | "responsive";
   compactLabel: string;
+  compactIconsOnly?: boolean;
   value: Value;
   onValueChange: (value: Value) => void;
   options: readonly {
@@ -107,7 +108,8 @@ function ButtonGroup<Value extends string>({
         className="flex h-7 shrink-0 items-center gap-1 rounded-md border border-border/70 bg-background px-2 font-medium text-foreground text-xs tabular-nums shadow-sm transition-colors hover:bg-background/90 focus-visible:ring-2 focus-visible:ring-ring"
       >
         {selected?.icon}
-        {(!selected?.icon || selected.count === undefined) &&
+        {(!selected?.icon ||
+          (!selection.compactIconsOnly && selected.count === undefined)) &&
           (selected?.shortLabel ?? selected?.label ?? selection.compactLabel)}
         {selected?.count}
         <ChevronDownIcon className="size-3 text-muted-foreground" />

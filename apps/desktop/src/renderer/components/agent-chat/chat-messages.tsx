@@ -1,3 +1,9 @@
+import { createPortal } from "react-dom";
+import {
+  PreviewSearchPanel,
+  type usePreviewSearch,
+} from "../workspace/preview/preview-search-panel";
+import { useChatMessageSearch } from "./use-chat-message-search";
 import { useLibraryPromptsExpanded } from "@/hooks/use-library-prompts-expanded";
 import { RoundElapsedTime } from "./round-elapsed-time";
 import { Separator } from "@/components/ui/separator";
@@ -8,6 +14,7 @@ import { formatRoundDuration } from "@/lib/agent-round-timing";
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
 import {
   type FC,
+  type ReactNode,
   memo,
   useCallback,
   useEffect,
@@ -27,12 +34,15 @@ import {
 import { TooltipIconButton } from "@/components/assistant-ui/tooltip-icon-button";
 import {
   useAgentChatStore,
+  readChatHistoryWindow,
   type AgentStreamMessage,
   type ContentBlock,
 } from "@/stores/agent-chat-store";
 import { MarkdownRenderer } from "./markdown-renderer";
 import { ChatImagePreview } from "./chat-image-preview";
 import { ThinkingWidget, ToolWidget } from "./tool-widgets";
+
+const HISTORY_WINDOW_SIZE = 600;
 
 const readingPositions = new Map<
   string,
@@ -84,10 +94,17 @@ const StreamingIndicator: FC = memo(() => {
 
 // ─── Chat Messages (main component) ───
 
-export const ChatMessages: FC<{
-  revealHistory?: boolean;
-  reservePromptSpace?: boolean;
-}> = ({ revealHistory, reservePromptSpace = false }) => {
+type ChatMessageSearch = {
+  search?: ReturnType<typeof usePreviewSearch>;
+  searchHost?: HTMLElement | null;
+};
+
+export const ChatMessages: FC<
+  ChatMessageSearch & {
+    revealHistory?: boolean;
+    reservePromptSpace?: boolean;
+  }
+> = ({ revealHistory, reservePromptSpace = false, search, searchHost }) => {
   const activeTabId = useAgentChatStore((s) => s.activeTabId);
   const projectRoot = useAgentChatStore((s) => s.chatProjectRoot);
   const activeTab = useAgentChatStore((s) =>
@@ -99,16 +116,20 @@ export const ChatMessages: FC<{
     <ChatMessagesForTab
       key={`${projectRoot}:${activeTabId}`}
       revealHistory={revealHistory}
+      search={search}
+      searchHost={searchHost}
       reservePromptSpace={reservePromptSpace && promptsFolded}
     />
   );
 };
 
 // Keep pending page requests and scroll observers scoped to the displayed chat.
-const ChatMessagesForTab: FC<{
-  revealHistory?: boolean;
-  reservePromptSpace: boolean;
-}> = ({ revealHistory, reservePromptSpace }) => {
+const ChatMessagesForTab: FC<
+  ChatMessageSearch & {
+    revealHistory?: boolean;
+    reservePromptSpace: boolean;
+  }
+> = ({ revealHistory, reservePromptSpace, search, searchHost }) => {
   const [historyReady, setHistoryReady] = useState(false);
   const revealFrame = useRef<number | null>(null);
   const historyMeasured = useRef(false);
@@ -137,7 +158,7 @@ const ChatMessagesForTab: FC<{
     [],
   );
   const activeTabId = useAgentChatStore((s) => s.activeTabId);
-  const messages = useAgentChatStore((s) => s.messages) ?? [];
+  const conversationMessages = useAgentChatStore((s) => s.messages);
   const isStreaming = useAgentChatStore((s) => s.isStreaming);
   const isPaused = useAgentChatStore(
     (s) =>
@@ -150,14 +171,85 @@ const ChatMessagesForTab: FC<{
   const forkSessionAtMessage = useAgentChatStore((s) => s.forkSessionAtMessage);
   const projectRoot = useAgentChatStore((s) => s.chatProjectRoot);
   const positionKey = `${projectRoot}:${activeTabId}`;
-  const history = useAgentChatStore(
+  const conversationHistory = useAgentChatStore(
     (s) => s.tabs.find((tab) => tab.id === s.activeTabId)?.history,
   );
+  // Reading an older match must not replace the writable streaming suffix.
+  const [viewWindow, setViewWindow] = useState<{
+    start: number;
+    messages: AgentStreamMessage[];
+  } | null>(null);
+  const conversationStart = conversationHistory?.start ?? 0;
+  const conversationTotal =
+    conversationHistory?.total ?? conversationMessages.length;
+  const history = useMemo(
+    () =>
+      viewWindow
+        ? { start: viewWindow.start, total: conversationTotal }
+        : conversationHistory,
+    [viewWindow, conversationTotal, conversationHistory],
+  );
+  const messages = useMemo(() => {
+    if (!viewWindow) return conversationMessages;
+    const end = viewWindow.start + viewWindow.messages.length;
+    const liveStart = Math.max(viewWindow.start, conversationStart);
+    const liveEnd = Math.min(
+      viewWindow.start + HISTORY_WINDOW_SIZE,
+      conversationStart + conversationMessages.length,
+    );
+    if (liveStart > end || liveEnd <= liveStart) return viewWindow.messages;
+    return [
+      ...viewWindow.messages.slice(0, liveStart - viewWindow.start),
+      ...conversationMessages.slice(
+        liveStart - conversationStart,
+        liveEnd - conversationStart,
+      ),
+      ...viewWindow.messages.slice(
+        Math.max(liveEnd, viewWindow.start) - viewWindow.start,
+      ),
+    ];
+  }, [viewWindow, conversationStart, conversationMessages]);
+
+  const loadMatch = useCallback(
+    async (index: number, signal: AbortSignal) => {
+      if (!projectRoot) return;
+      const state = useAgentChatStore.getState();
+      if (
+        state.chatProjectRoot !== projectRoot ||
+        state.activeTabId !== activeTabId
+      )
+        return;
+      const tab = state.tabs.find((item) => item.id === activeTabId);
+      if (!tab) return;
+      const localStart = tab.history?.start ?? 0;
+      if (index >= localStart && index < localStart + tab.messages.length) {
+        setViewWindow(null);
+        return;
+      }
+      const total = Math.max(
+        index + 1,
+        tab.history?.total ?? tab.messages.length,
+      );
+      const start = Math.max(
+        0,
+        Math.min(index - HISTORY_WINDOW_SIZE / 2, total - HISTORY_WINDOW_SIZE),
+      );
+      const messages = await readChatHistoryWindow(
+        projectRoot,
+        activeTabId,
+        start,
+        HISTORY_WINDOW_SIZE,
+      );
+      if (!signal.aborted) setViewWindow({ start, messages });
+    },
+    [projectRoot, activeTabId],
+  );
+
   const listRef = useRef<VirtuosoHandle>(null);
   const scrollerRef = useRef<HTMLElement | null>(null);
   const atBottom = useRef(true);
   const userScrolled = useRef(false);
-  const scrollDirection = useRef<"up" | "down" | null>(null);
+  const scrollDirection = useRef<"up" | "down" | "search" | null>(null);
   const previousScrollTop = useRef(0);
   useEffect(() => {
     userScrolled.current = readingPositions.has(positionKey);
@@ -166,7 +258,7 @@ const ChatMessagesForTab: FC<{
   const loading = useRef(false);
   const pendingAnchor = useRef<{ index: number; offset: number } | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const loadWindow = async (start: number, limit = 600) => {
+  const loadWindow = async (start: number, limit = HISTORY_WINDOW_SIZE) => {
     if (loading.current) return;
     loading.current = true;
     const viewport = scrollerRef.current;
@@ -193,7 +285,22 @@ const ChatMessagesForTab: FC<{
           };
     }
     try {
-      await useAgentChatStore.getState().loadHistory(activeTabId, start, limit);
+      if (viewWindow && projectRoot) {
+        if (start === conversationStart) setViewWindow(null);
+        else {
+          const messages = await readChatHistoryWindow(
+            projectRoot,
+            activeTabId,
+            start,
+            limit,
+          );
+          setViewWindow({ start, messages });
+        }
+      } else {
+        await useAgentChatStore
+          .getState()
+          .loadHistory(activeTabId, start, limit);
+      }
       setLoadError(null);
     } catch (error) {
       setLoadError(String(error));
@@ -205,7 +312,7 @@ const ChatMessagesForTab: FC<{
     if (history && messages.length === 0 && history.total > 0)
       void loadWindow(
         readingPositions.get(positionKey)?.start ??
-          Math.max(0, history.total - 600),
+          Math.max(0, history.total - HISTORY_WINDOW_SIZE),
       );
   }, [activeTabId, history, messages.length]);
 
@@ -292,6 +399,37 @@ const ChatMessagesForTab: FC<{
       });
   }, [messages, history?.start]);
 
+  const beforeSearchScroll = useCallback(() => {
+    userScrolled.current = true;
+    scrollDirection.current = "search";
+  }, []);
+  const results = useChatMessageSearch({
+    search,
+    messages: conversationMessages,
+    projectRoot,
+    tabId: activeTabId,
+    history: conversationHistory,
+    displayedStart: history?.start ?? 0,
+    displayedCount: messages.length,
+    rows: displayMessages,
+    loadMatch,
+    listRef,
+    scrollerRef,
+    beforeScroll: beforeSearchScroll,
+  });
+  const searchBar =
+    search &&
+    searchHost &&
+    createPortal(
+      <PreviewSearchPanel
+        search={search}
+        {...results}
+        testId="chat-search-panel"
+        textOnly
+      />,
+      searchHost,
+    );
+
   const initialPosition = useMemo(
     () => ({
       index: readingPositions.has(positionKey)
@@ -349,30 +487,39 @@ const ChatMessagesForTab: FC<{
     [positionKey],
   );
 
+  const withSearchBar = (messages: ReactNode) => (
+    <>
+      {searchBar}
+      {messages}
+    </>
+  );
+
   if (loadError)
-    return (
+    return withSearchBar(
       <div className="p-4 text-destructive text-sm">
         Could not load chat history: {loadError}
         <button
           type="button"
           className="ml-2 underline"
           onClick={() =>
-            void loadWindow(Math.max(0, (history?.total ?? 0) - 600))
+            void loadWindow(
+              Math.max(0, (history?.total ?? 0) - HISTORY_WINDOW_SIZE),
+            )
           }
         >
           Retry
         </button>
-      </div>
+      </div>,
     );
   if (displayMessages.length === 0 && !isStreaming)
-    return (
+    return withSearchBar(
       <div className="app-scrollbar flex h-full flex-col items-center overflow-y-auto p-4">
         {history?.total ? (
           <span className="text-muted-foreground text-sm">Loading chat…</span>
         ) : null}
-      </div>
+      </div>,
     );
-  return (
+  return withSearchBar(
     <Virtuoso
       key={activeTabId}
       ref={listRef}
@@ -403,6 +550,7 @@ const ChatMessagesForTab: FC<{
       onScroll={(event) => {
         const viewport = event.currentTarget;
         requestAnimationFrame(rememberPosition);
+        if (scrollDirection.current === "search") return;
         if (userScrolled.current && scrollDirection.current === null)
           scrollDirection.current =
             viewport.scrollTop < previousScrollTop.current ? "up" : "down";
@@ -431,7 +579,13 @@ const ChatMessagesForTab: FC<{
           history.start + messages.length < history.total
         )
           void loadWindow(
-            Math.max(0, Math.min(history.total - 600, history.start + 200)),
+            Math.max(
+              0,
+              Math.min(
+                history.total - HISTORY_WINDOW_SIZE,
+                history.start + 200,
+              ),
+            ),
           );
       }}
       onKeyDown={(event) => {
@@ -547,7 +701,7 @@ const ChatMessagesForTab: FC<{
           </div>
         );
       }}
-    />
+    />,
   );
 };
 
@@ -709,7 +863,10 @@ const UserMessage: FC<{ message: AgentStreamMessage }> = ({ message }) => {
   ) => (
     <div className="flex w-full flex-col items-end py-1.5">
       <div className="group/user-message flex max-w-[85%] flex-col items-end">
-        <div className="rounded-xl bg-muted px-3 py-2 text-foreground text-sm">
+        <div
+          data-chat-search-text
+          className="rounded-xl bg-muted px-3 py-2 text-foreground text-sm"
+        >
           <div className="mb-2 rounded-lg border border-red-500/20 bg-red-500/10 px-2.5 py-2">
             <div className="mb-1.5 font-medium text-red-400 text-xs">
               {title}
@@ -908,7 +1065,10 @@ const ResultMessage: FC<{
     <div className="w-full py-1.5">
       <div className="px-1 text-foreground text-sm leading-relaxed">
         {isError ? (
-          <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-destructive text-sm">
+          <div
+            data-chat-search-text
+            className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-destructive text-sm"
+          >
             {resultText}
           </div>
         ) : (

@@ -52,6 +52,7 @@ export function MarkdownComments({
   layoutAnimating,
   toolbarHost,
   panelHost,
+  closeSearch,
   onToolbarVisibilityChange,
 }: {
   frameDocument: Document;
@@ -61,6 +62,7 @@ export function MarkdownComments({
   layoutAnimating: boolean;
   toolbarHost: HTMLDivElement | null;
   panelHost: HTMLDivElement | null;
+  closeSearch?: () => void;
   onToolbarVisibilityChange?: (visible: boolean) => void;
 }) {
   const projectRoot = useDocumentStore((s) => s.projectRoot);
@@ -103,7 +105,7 @@ export function MarkdownComments({
   const filter = useSettingsStore(
     (s) => s.editorCommentFilterByProject[panelsProjectKey] ?? "all",
   );
-  const savePanelOpen = useSettingsStore((s) => s.setEditorCommentsPanelOpen);
+  const setEditorInfoBar = useSettingsStore((s) => s.setEditorInfoBar);
   const saveFilter = useSettingsStore((s) => s.setEditorCommentFilter);
   const activeComments = (files[filePath] ?? []).filter(
     (comment) => !comment.resolved,
@@ -541,7 +543,10 @@ export function MarkdownComments({
               />
               <CommentsSummaryButton
                 comments={activeComments}
-                onOpen={() => savePanelOpen(panelsProjectKey, true)}
+                onOpen={() => {
+                  closeSearch?.();
+                  setEditorInfoBar(panelsProjectKey, "comments");
+                }}
               />
             </div>
           </ProblemsMotion>,
@@ -554,7 +559,7 @@ export function MarkdownComments({
               comments={activeComments}
               filter={filter}
               onFilter={(value) => saveFilter(panelsProjectKey, value)}
-              onClose={() => savePanelOpen(panelsProjectKey, false)}
+              onClose={() => setEditorInfoBar(panelsProjectKey, null)}
               onNavigate={(comment) => {
                 if (!comment.isEditing)
                   attachCommentToChat(projectRoot, filePath, comment);

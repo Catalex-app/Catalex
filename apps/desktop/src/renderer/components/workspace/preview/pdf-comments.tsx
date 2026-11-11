@@ -1,6 +1,9 @@
 import { pdfFileCommentRegions } from "./pdf-file-comments";
 import { canHandleEscape, consumeKey } from "@/lib/keyboard-events";
-import { COMMENT_SEARCH_NAVIGATE_EVENT } from "@/lib/workspace-events";
+import {
+  COMMENT_SEARCH_NAVIGATE_EVENT,
+  type CommentSearchNavigation,
+} from "@/lib/workspace-events";
 import {
   getActiveComment,
   setActiveComment,
@@ -299,6 +302,8 @@ export function PdfCommentInteraction({
   requestedCommentId: externalRequestedId,
   requestRevision: externalRevision = 0,
   centerRequested: externalCenter = false,
+  onSearchNavigate,
+  searchActive = true,
   actionsFor,
   fullWidth = false,
   onToggleFullWidth,
@@ -311,6 +316,8 @@ export function PdfCommentInteraction({
   requestedCommentId?: string | null;
   requestRevision?: number;
   centerRequested?: boolean;
+  onSearchNavigate?: (commentId: string | null, filePath: string) => void;
+  searchActive?: boolean;
   actionsFor: (target: PdfCommentTarget) => InlineCommentActions;
   fullWidth?: boolean;
   onToggleFullWidth?: () => void;
@@ -341,33 +348,41 @@ export function PdfCommentInteraction({
     return null;
   }, []);
   const surface = useRef<HTMLDivElement>(null);
+  const commentRequestRevision = useRef(0);
   const [searchRequest, setSearchRequest] = useState<{
     id: string;
+    filePath: string;
     revision: number;
+    fromSearch?: boolean;
   } | null>(null);
   useEffect(() => {
+    if (!searchActive) return;
     const navigate = (event: Event) => {
-      const detail = (
-        event as CustomEvent<{ filePath: string; commentId: string }>
-      ).detail;
-      if (
-        !surface.current?.parentElement?.getClientRects().length ||
-        !context?.targets.some(
-          (target) =>
-            target.filePath === detail.filePath &&
-            target.comment.id === detail.commentId,
+      const detail = (event as CustomEvent<CommentSearchNavigation>).detail;
+      if (!surface.current || !detail.pane?.contains(surface.current)) return;
+      if (detail.dismiss) {
+        if (
+          !searchRequest?.fromSearch ||
+          searchRequest.id !== detail.commentId ||
+          searchRequest.filePath !== detail.filePath
         )
-      )
+          return;
+        onSearchNavigate?.(null, detail.filePath);
+        setSearchRequest(null);
+        if (getActiveComment() === detail.commentId) setActiveComment(null);
         return;
-      setSearchRequest((previous) => ({
+      }
+      setSearchRequest({
         id: detail.commentId,
-        revision: (previous?.revision ?? 0) + 1,
-      }));
+        filePath: detail.filePath,
+        revision: ++commentRequestRevision.current,
+        fromSearch: true,
+      });
     };
     window.addEventListener(COMMENT_SEARCH_NAVIGATE_EVENT, navigate);
     return () =>
       window.removeEventListener(COMMENT_SEARCH_NAVIGATE_EVENT, navigate);
-  }, [context]);
+  }, [onSearchNavigate, searchActive, searchRequest]);
   useEffect(
     () => setSearchRequest(null),
     [externalRequestedId, externalRevision],
@@ -377,16 +392,20 @@ export function PdfCommentInteraction({
     ? `search:${searchRequest.revision}`
     : externalRevision;
   const centerRequested = Boolean(searchRequest) || externalCenter;
+  const showInEditor = editorVisible && !searchRequest?.fromSearch;
 
   const handledRequest = useRef<string | null>(null);
+  const locatedSearchRequest = useRef<string | null>(null);
   useEffect(() => {
     const requestKey = `${requestedCommentId}:${requestRevision}`;
     if (!requestedCommentId || handledRequest.current === requestKey) return;
     const target = context?.targets.find(
-      (target) => target.comment.id === requestedCommentId,
+      (target) =>
+        target.comment.id === requestedCommentId &&
+        (!searchRequest || target.filePath === searchRequest.filePath),
     );
     if (!target) return;
-    if (editorVisible) {
+    if (showInEditor) {
       handledRequest.current = requestKey;
       setActiveComment(requestedCommentId);
       context?.navigate(target);
@@ -419,6 +438,19 @@ export function PdfCommentInteraction({
         attributes: true,
         attributeFilter: ["data-pdf-comment-id"],
       });
+    if (
+      searchRequest?.fromSearch &&
+      onSearchNavigate &&
+      locatedSearchRequest.current !== requestKey &&
+      !Array.from(
+        surface.current?.querySelectorAll<HTMLElement>(
+          "[data-pdf-comment-id]",
+        ) ?? [],
+      ).some((anchor) => anchor.dataset.pdfCommentId === requestedCommentId)
+    ) {
+      locatedSearchRequest.current = requestKey;
+      onSearchNavigate(requestedCommentId, searchRequest.filePath);
+    }
     focusDraft();
     return () => observer.disconnect();
   }, [
@@ -426,6 +458,9 @@ export function PdfCommentInteraction({
     requestRevision,
     centerRequested,
     editorVisible,
+    searchRequest,
+    onSearchNavigate,
+    showInEditor,
     context,
   ]);
   const [layoutRequest, setLayoutRequest] = useState<{
@@ -557,7 +592,7 @@ export function PdfCommentInteraction({
           frame = requestAnimationFrame(scroll);
           return;
         }
-        if (editorVisible) context?.navigate(selected);
+        if (showInEditor) context?.navigate(selected);
         setLayoutRequest(null);
       };
       frame = requestAnimationFrame(scroll);
@@ -568,6 +603,7 @@ export function PdfCommentInteraction({
     layoutRequest,
     layoutAnimating,
     editorVisible,
+    showInEditor,
     selected,
     focus,
     context,
@@ -584,6 +620,7 @@ export function PdfCommentInteraction({
       if (canHandleEscape(event) && (selected || focus)) {
         consumeKey(event);
         setFocus(null);
+        setSearchRequest(null);
         setActiveComment(null);
         context?.clearSelection?.();
       }
@@ -619,7 +656,7 @@ export function PdfCommentInteraction({
     surface.current?.querySelector<HTMLElement>("[data-pdf-scroll-content]") ??
     surface.current;
   useLayoutEffect(() => {
-    if (!focus || editorVisible || !host) return;
+    if (!focus || showInEditor || !host) return;
     let frame = 0;
     const measure = () => {
       const block = surface.current?.querySelector<HTMLElement>(
@@ -685,17 +722,18 @@ export function PdfCommentInteraction({
     };
     measure();
     return () => cancelAnimationFrame(frame);
-  }, [focus, editorVisible, host, fullWidth, onToggleFullWidth]);
+  }, [focus, showInEditor, host, fullWidth, onToggleFullWidth]);
   return (
     <PdfCommentsContext.Provider value={context}>
       <FocusContext.Provider
         value={{
           selected,
           reveal: (target) => {
-            setSearchRequest((previous) => ({
+            setSearchRequest({
               id: target.comment.id,
-              revision: (previous?.revision ?? 0) + 1,
-            }));
+              filePath: target.filePath,
+              revision: ++commentRequestRevision.current,
+            });
             if (!target.comment.isEditing)
               actionsFor(target).onAttach?.(target.comment);
           },
@@ -731,9 +769,16 @@ export function PdfCommentInteraction({
         <div
           className="contents"
           ref={surface}
-          onClick={() => {
+          onClick={(event) => {
+            if (
+              (event.target as Element).closest(
+                '[data-testid="preview-search-panel"]',
+              )
+            )
+              return;
             setActiveComment(null);
             setFocus(null);
+            setSearchRequest(null);
             context?.clearSelection?.();
           }}
           data-pdf-comment-surface="true"
@@ -744,7 +789,7 @@ export function PdfCommentInteraction({
           createPortal(
             <PdfCommentPopup
               target={
-                editorVisible || layoutRequest || layoutAnimating
+                showInEditor || layoutRequest || layoutAnimating
                   ? null
                   : selected
               }

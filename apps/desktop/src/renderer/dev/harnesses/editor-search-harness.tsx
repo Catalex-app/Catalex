@@ -1,3 +1,4 @@
+import type { SearchScope } from "@/lib/preview-search";
 import { useMemo, useState } from "react";
 import { SearchPanel } from "@/components/workspace/editor/search-panel";
 
@@ -41,7 +42,7 @@ function pushHistoryEntry(entries: string[], nextValue: string): string[] {
 }
 
 export function EditorSearchHarness() {
-  const [includeComments, setIncludeComments] = useState(true);
+  const [scope, setScope] = useState<SearchScope>("all");
   const [isSearchOpen, setIsSearchOpen] = useState(true);
   const [findText, setFindText] = useState("Search");
   const [replaceText, setReplaceText] = useState("Locate");
@@ -183,7 +184,7 @@ export function EditorSearchHarness() {
               findInSelection={findInSelection}
               canEnableFindInSelection={!!selectionRange || findInSelection}
               isQueryValid={query.valid}
-              canReplace={canReplace}
+              canReplace={scope !== "comments" && canReplace}
               onFindTextChange={(next) => {
                 setFindHistoryIndex(-1);
                 setFindText(next);
@@ -196,8 +197,8 @@ export function EditorSearchHarness() {
               onToggleReplace={() => setShowReplace((prev) => !prev)}
               onToggleCaseSensitive={() => setCaseSensitive((prev) => !prev)}
               onToggleWholeWord={() => setWholeWord((prev) => !prev)}
-              includeComments={includeComments}
-              onToggleComments={() => setIncludeComments((value) => !value)}
+              scope={scope}
+              onScopeChange={setScope}
               onToggleRegex={() => setUseRegex((prev) => !prev)}
               onTogglePreserveCase={() => setPreserveCase((prev) => !prev)}
               onToggleFindInSelection={() => {

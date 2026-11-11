@@ -1,3 +1,5 @@
+export type SearchScope = "all" | "text" | "comments";
+
 import type { Rect, StructuredTextData } from "./mupdf/types";
 
 export interface PreviewSearchQuery {
@@ -29,6 +31,54 @@ export function findPreviewMatches(text: string, query: PreviewSearchQuery) {
     if (matches.length >= PREVIEW_SEARCH_LIMIT) break;
   }
   return matches;
+}
+
+/** Map matches back to rendered text nodes without changing the rendered DOM. */
+export function findRenderedTextRanges(
+  root: Element,
+  query: PreviewSearchQuery,
+  exclude = "script, style, .katex-mathml, [data-comment-popup]",
+) {
+  const document = root.ownerDocument;
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  const nodes: Array<{ node: Text; start: number; end: number }> = [];
+  let text = "",
+    previousBlock: Element | null = null;
+  for (
+    let node = walker.nextNode() as Text | null;
+    node;
+    node = walker.nextNode() as Text | null
+  ) {
+    if (node.parentElement?.closest(exclude)) continue;
+    const block =
+      node.parentElement?.closest(
+        "p, h1, h2, h3, h4, h5, h6, li, pre, td, th, blockquote",
+      ) ?? null;
+    if (previousBlock && block !== previousBlock) text += "\n";
+    previousBlock = block;
+    nodes.push({
+      node,
+      start: text.length,
+      end: text.length + node.length,
+    });
+    text += node.data;
+  }
+  let offset = 0;
+  const found: Range[] = [];
+  for (const match of findPreviewMatches(text, query)) {
+    while (offset < nodes.length && nodes[offset].end <= match.start) offset++;
+    const first = nodes[offset];
+    if (!first || first.start > match.start) continue;
+    let end = offset;
+    while (end < nodes.length - 1 && nodes[end].end < match.end) end++;
+    const last = nodes[end];
+    if (!last || last.end < match.end) continue;
+    const range = document.createRange();
+    range.setStart(first.node, match.start - first.start);
+    range.setEnd(last.node, match.end - last.start);
+    found.push(range);
+  }
+  return found;
 }
 
 export function searchPdfText(

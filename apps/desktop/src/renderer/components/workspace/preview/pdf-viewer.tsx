@@ -19,7 +19,13 @@ import {
   measurePdfSelection,
   pdfSelectionFragments,
 } from "./pdf-selection-geometry";
-import { useCallback, useRef, useEffect, useState } from "react";
+import {
+  useCallback,
+  useRef,
+  useEffect,
+  useLayoutEffect,
+  useState,
+} from "react";
 import { LoaderIcon, ChevronLeftIcon } from "lucide-react";
 import { open as shellOpen } from "@/lib/desktop/shell";
 import { ask } from "@/lib/desktop/dialog";
@@ -103,12 +109,20 @@ interface PdfViewerProps {
   ) => void;
   onCurrentPageChange?: (page: number) => void;
   onScrollIntent?: () => void;
+  searchAvailable?: boolean;
+  infoBarProjectKey?: string;
+  onSearchChange?: (search: PdfViewerSearch | null) => void;
   onScrollPositionChange?: (position: PdfScrollPosition) => void;
   readingAnchorRef?: React.RefObject<PdfReadingAnchorControl | null>;
   scrollToPageRef?: React.RefObject<
     ((page: number, pdfY?: number) => void) | null
   >;
 }
+
+export type PdfViewerSearch = Pick<
+  ReturnType<typeof usePreviewSearch>,
+  "open" | "show" | "close"
+>;
 
 export function PdfViewer({
   dataSource,
@@ -132,6 +146,9 @@ export function PdfViewer({
   onCurrentPageChange,
   onScrollPositionChange,
   onScrollIntent,
+  searchAvailable = true,
+  infoBarProjectKey,
+  onSearchChange,
   scrollToPageRef,
   readingAnchorRef,
 }: PdfViewerProps) {
@@ -307,7 +324,17 @@ export function PdfViewer({
   }
 
   // Recompiling replaces the worker document while search still belongs to the same file.
-  const search = usePreviewSearch(searchScope, rootFileId, undefined, isActive);
+  const search = usePreviewSearch(searchScope, rootFileId, {
+    active: isActive,
+    available: searchAvailable,
+    infoBarProjectKey,
+  });
+  const { open, show, close } = search;
+  useLayoutEffect(() => {
+    if (!isActive || !searchAvailable || !onSearchChange) return;
+    onSearchChange({ open, show, close });
+    return () => onSearchChange(null);
+  }, [isActive, searchAvailable, onSearchChange, open, show, close]);
   const { ownsFocus } = search;
   const navigateSearch = useCallback(
     (page: number, y: number) => {

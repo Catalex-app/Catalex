@@ -52,6 +52,8 @@ interface MarkdownEditorHeaderProps {
   wordCount: number;
   characterCount: number;
   trailingContent?: ReactNode;
+  findAction?: () => void;
+  findOpen?: boolean;
   actionTarget?: boolean;
   actionsEnabled?: boolean;
   onInlineFormat: (format: MarkdownInlineFormat) => void;
@@ -108,6 +110,8 @@ export function MarkdownEditorHeader({
   wordCount,
   characterCount,
   trailingContent,
+  findAction,
+  findOpen,
   actionTarget = true,
   actionsEnabled = true,
   onInlineFormat,
@@ -118,14 +122,18 @@ export function MarkdownEditorHeader({
     statisticsRef,
     otherControlsRef,
     overflow,
+    findInOverflow,
     otherControlsVisible,
     setActionsOpen,
-  } = useEditorStatisticsOverflow();
+  } = useEditorStatisticsOverflow(!!findAction && !findOpen);
   const words = `${selectedCharacters > 0 ? `${selectedWords.toLocaleString()}/` : ""}${wordCount.toLocaleString()}`;
   const characters = `${selectedCharacters > 0 ? `${selectedCharacters.toLocaleString()}/` : ""}${characterCount.toLocaleString()}`;
   return (
     <WorkspacePanelHeader
       ref={headerRef}
+      findAction={findAction}
+      findOpen={findOpen}
+      findInOverflow={findInOverflow}
       actionsLabel="Editor"
       data-editor-statistics-overflow={overflow}
       hasTrailingContent={!overflow || otherControlsVisible}

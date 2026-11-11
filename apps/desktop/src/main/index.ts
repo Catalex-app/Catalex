@@ -1,3 +1,4 @@
+import { Worker } from "node:worker_threads";
 import { isApplicationMenuState } from "../application-menu";
 import { installApplicationMenu } from "./application-menu";
 import {
@@ -125,6 +126,37 @@ function cleanupWindowProjects(id: string) {
   });
 }
 const chatCheckpointWrites = new Map<string, Promise<unknown>>();
+const chatSearchRequests = new Map<string, AbortController>();
+
+function searchChatCheckpoint(
+  directory: string,
+  tabId: string,
+  query: unknown,
+  signal: AbortSignal,
+) {
+  signal.throwIfAborted();
+  // Regex and Markdown parsing run off the Electron event loop.
+  return new Promise((resolve, reject) => {
+    const worker = new Worker(path.join(__dirname, "chat-search-worker.cjs"), {
+      workerData: { directory, tabId, query },
+    });
+    const stop = () => {
+      void worker.terminate();
+    };
+    const timeout = setTimeout(stop, 10_000);
+    signal.addEventListener("abort", stop, { once: true });
+    worker.once("message", (result) => {
+      if ("error" in result) reject(new Error(result.error));
+      else resolve(result);
+    });
+    worker.once("error", reject);
+    worker.once("exit", () => {
+      clearTimeout(timeout);
+      signal.removeEventListener("abort", stop);
+      reject(new Error("Chat search stopped."));
+    });
+  });
+}
 const closeHandlers = new Set<number>();
 const approvedClose = new Set<number>();
 const files = new FileAccess();
@@ -472,6 +504,7 @@ async function hostCommand(
     case "desktop:chat:sync-shared":
     case "desktop:chat:append-review":
     case "desktop:chat:messages":
+    case "desktop:chat:search":
     case "desktop:chat:checkpoint-load":
     case "desktop:chat:checkpoint-save": {
       const projectRoot = await files.check(
@@ -495,6 +528,15 @@ async function hostCommand(
         "sessions",
         "checkpoints",
       );
+      const searchKey =
+        command === "desktop:chat:search"
+          ? JSON.stringify([win.id, directory, args.tabId])
+          : null;
+      const searchRequest = searchKey === null ? null : new AbortController();
+      if (searchKey !== null && searchRequest) {
+        chatSearchRequests.get(searchKey)?.abort();
+        chatSearchRequests.set(searchKey, searchRequest);
+      }
       const previous = chatCheckpointWrites.get(directory) ?? Promise.resolve();
       const operation = previous
         .catch(() => {})
@@ -557,6 +599,13 @@ async function hostCommand(
               args.runtimeSessionKey,
               args.message,
             );
+          if (searchRequest)
+            return searchChatCheckpoint(
+              directory,
+              args.tabId,
+              args.query,
+              searchRequest.signal,
+            );
           return command === "desktop:chat:checkpoint-save"
             ? saveChatCheckpoint(directory, args.snapshot)
             : command === "desktop:chat:messages"
@@ -569,6 +618,11 @@ async function hostCommand(
       } finally {
         if (chatCheckpointWrites.get(directory) === operation)
           chatCheckpointWrites.delete(directory);
+        if (
+          searchKey !== null &&
+          chatSearchRequests.get(searchKey) === searchRequest
+        )
+          chatSearchRequests.delete(searchKey);
       }
     }
     case "desktop:chat:attachment": {

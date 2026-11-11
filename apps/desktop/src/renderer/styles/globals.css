@@ -872,3 +872,11 @@ button, [role="button"], [role="tab"], .cm-gutters {
 @media (prefers-reduced-motion: reduce) {
   .onboarding-page-enter, .onboarding-title-character { animation: none; }
 }
+
+::highlight(catalex-chat-search) {
+  background-color: rgba(250, 204, 21, 0.4);
+}
+
+::highlight(catalex-chat-search-active) {
+  background-color: rgba(249, 115, 22, 0.55);
+}

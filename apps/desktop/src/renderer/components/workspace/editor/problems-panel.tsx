@@ -15,6 +15,7 @@ import {
 import {
   documentBarButtonClassName,
   documentBarClassName,
+  documentBarSummaryButtonClassName,
 } from "../document-navigation-styles";
 
 export interface DiagnosticItem {
@@ -70,7 +71,7 @@ export function ProblemsSummaryButton({
         type="button"
         onClick={onOpen}
         aria-label={`Show problems: ${errors} errors, ${warnings} warnings`}
-        className="flex h-7 shrink-0 items-center gap-2 rounded-md px-2 text-muted-foreground text-xs tabular-nums transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className={documentBarSummaryButtonClassName}
       >
         <span className="flex items-center gap-1">
           <SeverityIcon severity="error" />

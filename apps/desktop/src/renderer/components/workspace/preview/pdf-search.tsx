@@ -23,7 +23,14 @@ export function usePdfSearch(
     setMatches([]);
     setIndex(0);
     setStatus(undefined);
-    if (!search.open || !search.valid || !search.query.text || !docId) return;
+    if (
+      !search.open ||
+      search.scope === "comments" ||
+      !search.valid ||
+      !search.query.text ||
+      !docId
+    )
+      return;
     const timer = setTimeout(async () => {
       const results: Array<{ page: number; rects: Rect[] }> = [];
       try {
@@ -55,7 +62,7 @@ export function usePdfSearch(
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [search.open, search.query, search.valid, docId, pages]);
+  }, [search.open, search.scope, search.query, search.valid, docId, pages]);
   const active = matches[index];
   useEffect(() => {
     if (active) navigate(active.page + 1, active.rects[0].y);
@@ -77,7 +84,7 @@ export function usePdfSearch(
     status,
     move: (delta: number) => {
       if (!active) return;
-      if (matches.length === 1) {
+      if (delta === 0 || matches.length === 1) {
         navigate(active.page + 1, active.rects[0].y);
         return;
       }

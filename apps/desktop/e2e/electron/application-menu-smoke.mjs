@@ -182,7 +182,7 @@ try {
       .setActiveFile("notes.md"),
   );
   await expect(page.locator(".cm-content")).toContainText("**Hello** menu");
-  // Moving into the Markdown iframe must release editor formatting and keep local Find.
+  // The iframe releases editor formatting. Find follows the visible workspace layout.
   await selectHello(page);
   const markdownFrame = page.frameLocator('iframe[title="notes.md preview"]');
   await markdownFrame.locator("#write").click();
@@ -190,13 +190,25 @@ try {
     .poll(async () => (await menu("inline:bold"))?.enabled)
     .toBe(false);
   await page.keyboard.press("Meta+f");
+  await expect(editorSearch).toBeVisible();
+  await expect(page.getByTestId("preview-search-panel")).toHaveCount(0);
+  const viewModes = page.getByRole("tablist", { name: "Workspace view mode" });
+  await viewModes.getByRole("tab", { name: "Preview", exact: true }).click();
+  await markdownFrame.locator("#write").evaluate((element) => {
+    element.tabIndex = -1;
+    element.focus();
+  });
+  await expect.poll(async () => (await menu("find"))?.enabled).toBe(true);
+  await click("find");
   const markdownSearch = page
     .getByTestId("markdown-preview")
     .getByTestId("preview-search-panel");
   await expect(markdownSearch).toBeVisible();
+  await expect(editorSearch).toHaveCount(0);
   await markdownSearch
     .getByRole("button", { name: "Close", exact: true })
     .click();
+  await viewModes.getByRole("tab", { name: "Split", exact: true }).click();
   const pdfPath = path.join(artifacts, "notes.pdf");
   await app.evaluate(({ dialog }, filePath) => {
     dialog.showSaveDialog = async () => ({ canceled: false, filePath });
@@ -355,6 +367,58 @@ try {
     .toBe("CommandOrControl+Alt+N");
   await openProject(page);
   await expect(page.locator(".cm-content")).toContainText("**Hello** menu");
+  // Exercise the bundled search worker through the real checkpoint IPC.
+  const savedMatches = await page.evaluate(async (projectRoot) => {
+    const { invoke } = await import("/src/renderer/lib/desktop/core.ts");
+    const { saveProjectChats } = await import(
+      "/src/renderer/lib/project-chat-lifecycle.ts"
+    );
+    await saveProjectChats();
+    const checkpoint = await invoke("desktop:chat:checkpoint-load", {
+      projectRoot,
+    });
+    const tabId = "native-chat-search-fixture";
+    const messages = Array.from({ length: 701 }, (_, index) => ({
+      type: "assistant",
+      message: {
+        content: [
+          {
+            type: "text",
+            text:
+              index === 12 || index === 650
+                ? "Find the **quartz** in this reply."
+                : `Message ${index}`,
+          },
+        ],
+      },
+    }));
+    await invoke("desktop:chat:checkpoint-save", {
+      projectRoot,
+      snapshot: {
+        ...checkpoint,
+        version: 1,
+        tabs: [...(checkpoint?.tabs ?? []), { id: tabId, messages }],
+      },
+    });
+    return invoke("desktop:chat:search", {
+      projectRoot,
+      tabId,
+      query: {
+        text: "the quartz",
+        caseSensitive: false,
+        wholeWord: false,
+        regex: false,
+      },
+    });
+  }, project);
+  assert.deepEqual(savedMatches, {
+    matches: [
+      { messageIndex: 12, count: 1 },
+      { messageIndex: 650, count: 1 },
+    ],
+    total: 701,
+    truncated: false,
+  });
   assert.deepEqual(errors, []);
   console.log(
     "Native menus: formatting, focus gating, find/replace, file dialogs, PDF export, project lifecycle, multi-window shortcuts and full restart passed.",

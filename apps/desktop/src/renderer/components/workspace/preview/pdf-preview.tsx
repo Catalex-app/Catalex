@@ -22,6 +22,7 @@ import {
 import { isComposingKey } from "@/lib/keyboard-events";
 import { DocumentZoomControl } from "../document-zoom-control";
 import {
+  documentBarFindControlWidth,
   documentCounterClassName,
   documentStepButtonClassName,
 } from "../document-navigation-styles";
@@ -109,6 +110,7 @@ import {
   PdfViewer,
   type PdfTextSelection,
   type PdfScrollPosition,
+  type PdfViewerSearch,
 } from "./pdf-viewer";
 import type {
   PdfReadingAnchor,
@@ -262,7 +264,8 @@ export function PdfPreview({
     ((page: number, pdfY?: number) => void) | null
   >(null);
   const [scale, setScale] = useState<number>(1.0);
-  const [toolbarCompactLevel, setToolbarCompactLevel] = useState(0);
+  const [{ level: toolbarCompactLevel, findInOverflow }, setToolbarLayout] =
+    useState({ level: 0, findInOverflow: false });
   // Shrink Recompile first, then overflow page navigation, fits, and export.
   const hideRecompileLabel = toolbarCompactLevel >= 1;
   const hidePageNavigation = toolbarCompactLevel >= 2;
@@ -470,6 +473,11 @@ export function PdfPreview({
   const setPdfCommentFullWidth = useSettingsStore(
     (s) => s.setPdfCommentFullWidth,
   );
+  const [activeSearch, setActiveSearch] = useState<PdfViewerSearch | null>(
+    null,
+  );
+  const searchOpen = activeSearch?.open ?? false;
+  const showFind = !!activeSearch && !searchOpen && !editorVisible;
   const [newCommentId, setNewCommentId] = useState<string | null>(null);
   const [commentRequestRevision, setCommentRequestRevision] = useState(0);
   const [centerRequestedComment, setCenterRequestedComment] = useState(false);
@@ -481,9 +489,7 @@ export function PdfPreview({
   const commentFilter = useSettingsStore(
     (s) => s.editorCommentFilterByProject[panelsProjectKey] ?? "all",
   );
-  const saveCommentsPanelOpen = useSettingsStore(
-    (s) => s.setEditorCommentsPanelOpen,
-  );
+  const setEditorInfoBar = useSettingsStore((s) => s.setEditorInfoBar);
   const saveCommentFilter = useSettingsStore((s) => s.setEditorCommentFilter);
   const activeFileComments = activeFile
     ? (projectComments[activeFile.relativePath] ?? []).filter(
@@ -498,6 +504,7 @@ export function PdfPreview({
     !isolatedSnapshot &&
     !agentWorkspaceRoot &&
     activeFileComments.length > 0;
+  const showPdfCommentSummary = showPdfCommentControls && !commentsPanelOpen;
   const selectedChatCommentsJson = useAgentChatStore((state) =>
     JSON.stringify(
       state.tabs
@@ -651,21 +658,25 @@ export function PdfPreview({
     contentGeneration,
   ]);
   const navigateCommentInPdf = useCallback(
-    async (commentId: string) => {
+    async (commentId: string, searchFilePath?: string) => {
       const token = ++commentNavigationToken.current;
       const isCurrentCompileContext = captureCompileContext();
       const target = commentTargets.find(
         (target) =>
           target.comment.id === commentId &&
-          target.filePath === activeFile?.relativePath,
+          target.filePath === (searchFilePath ?? activeFile?.relativePath),
       );
       if (!target || !commentLookup) return;
-      if (target.comment.pdf) {
-        const region = target.comment.pdf.regions[0];
-        scrollToPageRef.current?.(region.page, region.y);
+      const reveal = (page: number, y: number) => {
+        scrollToPageRef.current?.(page, y);
+        if (searchFilePath) return;
         setCenterRequestedComment(true);
         setNewCommentId(commentId);
         setCommentRequestRevision((revision) => revision + 1);
+      };
+      if (target.comment.pdf) {
+        const region = target.comment.pdf.regions[0];
+        reveal(region.page, region.y);
         return;
       }
       const controller = new AbortController();
@@ -681,12 +692,9 @@ export function PdfPreview({
           ),
         );
         if (!box) continue;
-        if (!target.comment.isEditing)
+        if (!searchFilePath && !target.comment.isEditing)
           commentActions(target).onAttach?.(target.comment);
-        scrollToPageRef.current?.(page, box.y);
-        setCenterRequestedComment(true);
-        setNewCommentId(commentId);
-        setCommentRequestRevision((revision) => revision + 1);
+        reveal(page, box.y);
         return;
       }
       if (!isCurrentCompileContext()) return;
@@ -712,6 +720,13 @@ export function PdfPreview({
       commentActions,
       isStandalonePdf,
     ],
+  );
+  const locateSearchComment = useCallback(
+    (commentId: string | null, filePath: string) => {
+      if (commentId) void navigateCommentInPdf(commentId, filePath);
+      else commentNavigationToken.current += 1;
+    },
+    [navigateCommentInPdf],
   );
   const navigateComment = useCallback(
     (target: PdfCommentTarget) => {
@@ -855,7 +870,8 @@ export function PdfPreview({
       commentWidth -
       56 -
       41;
-    setToolbarCompactLevel((previous) => {
+    setToolbarLayout((previous) => {
+      const findWidth = showFind ? documentBarFindControlWidth : 0;
       for (let level = 0; level <= 5; level++) {
         const rightWidth = hasCurrentPdfData
           ? (toolbarProbeRefs.current[Math.max(0, Math.min(level - 1, 3))]
@@ -867,10 +883,16 @@ export function PdfPreview({
           (level >= 5 ? exportWidth : 0) -
           (level >= 1 ? labelWidth : 0);
         // Collapse as needed during a morph, but only reveal controls after it settles.
-        if (level < previous && layoutAnimating) continue;
-        if (required + (level < previous ? 16 : 0) <= available) return level;
+        if (level < previous.level && layoutAnimating) continue;
+        const expanding = level < previous.level || previous.findInOverflow;
+        if (required + findWidth + (expanding ? 16 : 0) > available) continue;
+        return level === previous.level && !previous.findInOverflow
+          ? previous
+          : { level, findInOverflow: false };
       }
-      return 5;
+      return previous.level === 5 && previous.findInOverflow === showFind
+        ? previous
+        : { level: 5, findInOverflow: showFind };
     });
   }, [
     hasCurrentPdfData,
@@ -878,6 +900,7 @@ export function PdfPreview({
     actionsOpen,
     isEditingPage,
     layoutAnimating,
+    showFind,
   ]);
 
   useLayoutEffect(() => {
@@ -2460,6 +2483,8 @@ export function PdfPreview({
                   requestedCommentId={newCommentId}
                   requestRevision={commentRequestRevision}
                   centerRequested={centerRequestedComment}
+                  onSearchNavigate={locateSearchComment}
+                  searchActive={isActive}
                 >
                   <PdfViewer
                     dataSource={dataSource}
@@ -2470,6 +2495,11 @@ export function PdfPreview({
                     isolatedSelection={isolatedSnapshot}
                     documentReloadRevision={isolatedSnapshot ? pdfRevision : 0}
                     isActive={isActive}
+                    searchAvailable={!editorVisible}
+                    infoBarProjectKey={
+                      isolatedSnapshot ? undefined : panelsProjectKey
+                    }
+                    onSearchChange={setActiveSearch}
                     isCompiling={!isStandalonePdf && isCompiling}
                     onError={isActive ? setPdfError : undefined}
                     onLoadSuccess={isActive ? handleLoadSuccess : undefined}
@@ -3032,6 +3062,9 @@ export function PdfPreview({
     >
       <WorkspacePanelHeader
         actionsLabel="PDF"
+        findAction={editorVisible ? undefined : activeSearch?.show}
+        findOpen={searchOpen}
+        findInOverflow={findInOverflow}
         overflowContent={overflowContent}
         onActionsEscapeKeyDown={(event) => {
           if (!isEditingPage) return;
@@ -3054,10 +3087,7 @@ export function PdfPreview({
             className="flex shrink-0 items-center"
           >
             <div className="flex items-center gap-1">{pageControls}</div>
-            <ProblemsMotion
-              kind="button"
-              open={showPdfCommentControls && !commentsPanelOpen}
-            >
+            <ProblemsMotion kind="button" open={showPdfCommentSummary}>
               <div
                 data-pdf-comments-summary
                 className="flex shrink-0 items-center"
@@ -3068,15 +3098,16 @@ export function PdfPreview({
                 />
                 <CommentsSummaryButton
                   comments={activeFileComments}
-                  onOpen={() => saveCommentsPanelOpen(panelsProjectKey, true)}
+                  onOpen={() => {
+                    if (searchOpen) activeSearch?.close();
+                    setEditorInfoBar(panelsProjectKey, "comments");
+                  }}
                 />
               </div>
             </ProblemsMotion>
           </div>
         }
-        hasTrailingContent={
-          hasCurrentPdfData || (showPdfCommentControls && !commentsPanelOpen)
-        }
+        hasTrailingContent={hasCurrentPdfData || showPdfCommentSummary}
         ref={toolbarRowRef}
         data-pdf-toolbar
         className={
@@ -3120,7 +3151,7 @@ export function PdfPreview({
           comments={activeFileComments}
           filter={commentFilter}
           onFilter={(filter) => saveCommentFilter(panelsProjectKey, filter)}
-          onClose={() => saveCommentsPanelOpen(panelsProjectKey, false)}
+          onClose={() => setEditorInfoBar(panelsProjectKey, null)}
           onNavigate={(comment) => void navigateCommentInPdf(comment.id)}
         />
       </ProblemsMotion>

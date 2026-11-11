@@ -72,12 +72,15 @@ test("editor search harness supports VS Code style search controls", async ({
     "Search",
   );
 
-  const findInSelectionButton = page.getByRole("button", {
+  const findInSelectionButton = findField.getByRole("button", {
     name: "Find in Selection",
   });
   await expect(findInSelectionButton).toBeDisabled();
   await page.getByTestId("selection-toggle").click();
   await expect(findInSelectionButton).toBeEnabled();
+  await findInSelectionButton.click();
+  await expect(findInSelectionButton).toHaveAttribute("aria-pressed", "true");
+  await findInSelectionButton.click();
 
   await searchInput.fill("Locate");
   await page.keyboard.press("ArrowUp");
