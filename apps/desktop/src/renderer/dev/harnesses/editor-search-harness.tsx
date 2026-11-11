@@ -3,7 +3,7 @@ import { SearchPanel } from "@/components/workspace/editor/search-panel";
 
 const SEARCH_HISTORY_LIMIT = 20;
 const SAMPLE_TEXT = `\\section{Introduction}
-Search should feel floating.
+Search is above the document.
 Another Search line.
 search term appears again.
 word words sword word.
@@ -41,6 +41,7 @@ function pushHistoryEntry(entries: string[], nextValue: string): string[] {
 }
 
 export function EditorSearchHarness() {
+  const [includeComments, setIncludeComments] = useState(true);
   const [isSearchOpen, setIsSearchOpen] = useState(true);
   const [findText, setFindText] = useState("Search");
   const [replaceText, setReplaceText] = useState("Locate");
@@ -168,97 +169,97 @@ export function EditorSearchHarness() {
         <h1 className="mb-3 font-semibold text-sm">Editor Search Harness</h1>
         <div
           data-testid="editor-search-harness-shell"
-          className="relative h-[520px] overflow-hidden rounded-2xl border border-border/70 bg-card"
+          className="relative flex h-[520px] flex-col overflow-hidden rounded-2xl border border-border/70 bg-card"
         >
           {isSearchOpen ? (
-            <div className="pointer-events-none absolute inset-x-0 top-3 z-30 flex justify-center px-4">
-              <SearchPanel
-                findText={findText}
-                replaceText={replaceText}
-                isReplaceOpen={showReplace}
-                isCaseSensitive={caseSensitive}
-                isWholeWord={wholeWord}
-                isRegex={useRegex}
-                preserveCase={preserveCase}
-                findInSelection={findInSelection}
-                canEnableFindInSelection={!!selectionRange || findInSelection}
-                isQueryValid={query.valid}
-                canReplace={canReplace}
-                onFindTextChange={(next) => {
-                  setFindHistoryIndex(-1);
-                  setFindText(next);
-                  setCurrentMatch(next ? 1 : 0);
-                }}
-                onReplaceTextChange={(next) => {
-                  setReplaceHistoryIndex(-1);
-                  setReplaceText(next);
-                }}
-                onToggleReplace={() => setShowReplace((prev) => !prev)}
-                onToggleCaseSensitive={() => setCaseSensitive((prev) => !prev)}
-                onToggleWholeWord={() => setWholeWord((prev) => !prev)}
-                onToggleRegex={() => setUseRegex((prev) => !prev)}
-                onTogglePreserveCase={() => setPreserveCase((prev) => !prev)}
-                onToggleFindInSelection={() => {
-                  if (findInSelection) {
-                    setFindInSelection(false);
-                  } else if (selectionRange) {
-                    setFindInSelection(true);
-                  }
-                }}
-                onHistoryNavigate={handleHistoryNavigate}
-                onClose={() => setIsSearchOpen(false)}
-                onFindNext={() => {
-                  pushFindHistory();
-                  setCurrentMatch((prev) =>
-                    matches.length === 0 ? 0 : (prev % matches.length) + 1,
-                  );
-                }}
-                onFindPrevious={() => {
-                  pushFindHistory();
-                  setCurrentMatch((prev) =>
-                    matches.length === 0
-                      ? 0
-                      : prev <= 1
-                        ? matches.length
-                        : prev - 1,
-                  );
-                }}
-                onReplaceNext={() => {
-                  if (!canReplace) return;
-                  pushFindHistory();
-                  pushReplaceHistory();
-                  const nextIndex =
-                    matches.length === 0
-                      ? -1
-                      : Math.max(0, (currentMatch || 1) - 1);
-                  replaceAtIndex(nextIndex);
-                }}
-                onReplaceAll={() => {
-                  if (!canReplace) return;
-                  pushFindHistory();
-                  pushReplaceHistory();
-                  const allMatches = matches.slice().reverse();
-                  setDocumentText((prev) => {
-                    let nextDoc = prev;
-                    for (const match of allMatches) {
-                      const replacement =
-                        preserveCase && !useRegex
-                          ? applyPreserveCase(match.text, replaceText)
-                          : replaceText;
-                      nextDoc =
-                        nextDoc.slice(0, match.from) +
-                        replacement +
-                        nextDoc.slice(match.to);
-                    }
-                    return nextDoc;
-                  });
-                }}
-                matchCount={matches.length}
-                currentMatch={
-                  matches.length === 0 ? 0 : Math.max(1, currentMatch)
+            <SearchPanel
+              findText={findText}
+              replaceText={replaceText}
+              isReplaceOpen={showReplace}
+              isCaseSensitive={caseSensitive}
+              isWholeWord={wholeWord}
+              isRegex={useRegex}
+              preserveCase={preserveCase}
+              findInSelection={findInSelection}
+              canEnableFindInSelection={!!selectionRange || findInSelection}
+              isQueryValid={query.valid}
+              canReplace={canReplace}
+              onFindTextChange={(next) => {
+                setFindHistoryIndex(-1);
+                setFindText(next);
+                setCurrentMatch(next ? 1 : 0);
+              }}
+              onReplaceTextChange={(next) => {
+                setReplaceHistoryIndex(-1);
+                setReplaceText(next);
+              }}
+              onToggleReplace={() => setShowReplace((prev) => !prev)}
+              onToggleCaseSensitive={() => setCaseSensitive((prev) => !prev)}
+              onToggleWholeWord={() => setWholeWord((prev) => !prev)}
+              includeComments={includeComments}
+              onToggleComments={() => setIncludeComments((value) => !value)}
+              onToggleRegex={() => setUseRegex((prev) => !prev)}
+              onTogglePreserveCase={() => setPreserveCase((prev) => !prev)}
+              onToggleFindInSelection={() => {
+                if (findInSelection) {
+                  setFindInSelection(false);
+                } else if (selectionRange) {
+                  setFindInSelection(true);
                 }
-              />
-            </div>
+              }}
+              onHistoryNavigate={handleHistoryNavigate}
+              onClose={() => setIsSearchOpen(false)}
+              onFindNext={() => {
+                pushFindHistory();
+                setCurrentMatch((prev) =>
+                  matches.length === 0 ? 0 : (prev % matches.length) + 1,
+                );
+              }}
+              onFindPrevious={() => {
+                pushFindHistory();
+                setCurrentMatch((prev) =>
+                  matches.length === 0
+                    ? 0
+                    : prev <= 1
+                      ? matches.length
+                      : prev - 1,
+                );
+              }}
+              onReplaceNext={() => {
+                if (!canReplace) return;
+                pushFindHistory();
+                pushReplaceHistory();
+                const nextIndex =
+                  matches.length === 0
+                    ? -1
+                    : Math.max(0, (currentMatch || 1) - 1);
+                replaceAtIndex(nextIndex);
+              }}
+              onReplaceAll={() => {
+                if (!canReplace) return;
+                pushFindHistory();
+                pushReplaceHistory();
+                const allMatches = matches.slice().reverse();
+                setDocumentText((prev) => {
+                  let nextDoc = prev;
+                  for (const match of allMatches) {
+                    const replacement =
+                      preserveCase && !useRegex
+                        ? applyPreserveCase(match.text, replaceText)
+                        : replaceText;
+                    nextDoc =
+                      nextDoc.slice(0, match.from) +
+                      replacement +
+                      nextDoc.slice(match.to);
+                  }
+                  return nextDoc;
+                });
+              }}
+              matchCount={matches.length}
+              currentMatch={
+                matches.length === 0 ? 0 : Math.max(1, currentMatch)
+              }
+            />
           ) : null}
 
           <div className="absolute top-28 right-4 z-20 flex gap-2">
@@ -283,7 +284,7 @@ export function EditorSearchHarness() {
 
           <pre
             data-testid="harness-document"
-            className="absolute inset-0 overflow-auto p-5 font-mono text-muted-foreground text-sm leading-7"
+            className="min-h-0 flex-1 overflow-auto p-5 font-mono text-muted-foreground text-sm leading-7"
           >
             {documentText}
           </pre>

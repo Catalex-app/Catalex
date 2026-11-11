@@ -148,6 +148,12 @@ try {
     page.getByPlaceholder("Replace...", { exact: true }),
   ).toBeVisible();
   await page.keyboard.press("Escape");
+  const editorSearch = page.getByTestId("editor-search-panel");
+  await expect(editorSearch).toBeVisible();
+  await editorSearch
+    .getByRole("button", { name: "Close", exact: true })
+    .click();
+  await expect(page.locator(".cm-content")).toBeFocused();
   await click("new-file");
   await expect(page.getByRole("dialog")).toBeVisible();
   await page.screenshot({ path: path.join(artifacts, "new-file.png") });
@@ -184,10 +190,13 @@ try {
     .poll(async () => (await menu("inline:bold"))?.enabled)
     .toBe(false);
   await page.keyboard.press("Meta+f");
-  await expect(
-    page.getByTestId("markdown-preview").getByTestId("preview-search-panel"),
-  ).toBeVisible();
-  await page.keyboard.press("Escape");
+  const markdownSearch = page
+    .getByTestId("markdown-preview")
+    .getByTestId("preview-search-panel");
+  await expect(markdownSearch).toBeVisible();
+  await markdownSearch
+    .getByRole("button", { name: "Close", exact: true })
+    .click();
   const pdfPath = path.join(artifacts, "notes.pdf");
   await app.evaluate(({ dialog }, filePath) => {
     dialog.showSaveDialog = async () => ({ canceled: false, filePath });
@@ -225,10 +234,10 @@ try {
     .poll(async () => (await menu("zoom-in"))?.accelerator)
     .toBeFalsy();
   await click("find");
-  await expect(page.getByTestId("preview-search-panel")).toBeVisible();
-  await page.keyboard.press("Escape");
-  // Search restores focus to its wrapper; local zoom belongs to the PDF content.
-  await page.locator("[data-local-zoom-shortcuts]").first().click();
+  const pdfSearch = page.getByTestId("preview-search-panel");
+  await expect(pdfSearch).toBeVisible();
+  await pdfSearch.getByRole("button", { name: "Close", exact: true }).click();
+  await expect(page.getByTestId("pdf-scroll-container")).toBeFocused();
   await expect
     .poll(async () => (await menu("zoom-in"))?.accelerator)
     .toBeFalsy();

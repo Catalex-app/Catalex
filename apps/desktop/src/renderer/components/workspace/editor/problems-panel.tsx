@@ -1,3 +1,4 @@
+import { DocumentBarNavigation } from "../document-bar-navigation";
 import { Hint } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
 import { ButtonGroup } from "@/components/ui/button-group";
@@ -5,8 +6,6 @@ import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
 import {
   XIcon,
-  ChevronDown,
-  ChevronUp,
   CircleAlertIcon,
   CircleXIcon,
   TriangleAlertIcon,
@@ -14,8 +13,8 @@ import {
   MousePointerClickIcon,
 } from "lucide-react";
 import {
-  documentCounterClassName,
-  documentStepButtonClassName,
+  documentBarButtonClassName,
+  documentBarClassName,
 } from "../document-navigation-styles";
 
 export interface DiagnosticItem {
@@ -155,7 +154,7 @@ export function ProblemsPanel({
   return (
     <div
       data-problems-panel="true"
-      className="@container/problems flex h-12 shrink-0 items-center gap-1 border-border border-b bg-background px-2 text-xs"
+      className={`@container/problems ${documentBarClassName}`}
     >
       <div className="flex min-w-0 flex-1 items-center gap-1">
         <ButtonGroup
@@ -245,43 +244,16 @@ export function ProblemsPanel({
       </div>
       <div className="flex shrink-0 items-center gap-1">
         {visibleDiagnostics.length > 0 && (
-          <div
-            role="group"
-            aria-label="Problem navigation"
-            className="flex shrink-0 items-center"
-          >
-            <Hint content="Previous problem">
-              <Button
-                variant="ghost"
-                size="icon"
-                className={documentStepButtonClassName}
-                onClick={() => navigateIssue(-1)}
-                aria-label="Previous problem"
-              >
-                <ChevronUp className="size-3.5" />
-              </Button>
-            </Hint>
-            <span
-              className={`${documentCounterClassName} text-muted-foreground`}
-              role="status"
-              aria-label={`Problem ${currentIndex + 1} of ${visibleDiagnostics.length}`}
-            >
-              <span>{currentIndex + 1}</span>
-              <span>/</span>
-              <span>{visibleDiagnostics.length}</span>
-            </span>
-            <Hint content="Next problem">
-              <Button
-                variant="ghost"
-                size="icon"
-                className={documentStepButtonClassName}
-                onClick={() => navigateIssue(1)}
-                aria-label="Next problem"
-              >
-                <ChevronDown className="size-3.5" />
-              </Button>
-            </Hint>
-          </div>
+          <DocumentBarNavigation
+            label="Problem navigation"
+            previousLabel="Previous problem"
+            nextLabel="Next problem"
+            itemLabel="Problem"
+            current={currentIndex + 1}
+            total={visibleDiagnostics.length}
+            onPrevious={() => navigateIssue(-1)}
+            onNext={() => navigateIssue(1)}
+          />
         )}
         {visibleDiagnostics.length > 0 && onFixAllWithChat && (
           <>
@@ -316,14 +288,16 @@ export function ProblemsPanel({
         )}
         {onClose && (
           <Hint content="Hide problems">
-            <button
+            <Button
               type="button"
+              variant="ghost"
+              size="icon-xs"
               onClick={onClose}
               aria-label="Hide problems"
-              className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className={documentBarButtonClassName}
             >
               <XIcon className="size-3.5" />
-            </button>
+            </Button>
           </Hint>
         )}
       </div>

@@ -749,3 +749,28 @@ test("accepting one review block in a pop-out updates the shared review baseline
   });
   await editor.close();
 });
+
+test("search in a PDF pop-out keeps its own query and Escape leaves it open", async ({
+  page,
+}) => {
+  await page.goto("/?debug=comment-workspace&pdf");
+  await expect(page.locator(".mupdf-text-layer").first()).toBeVisible();
+  await stores(page);
+  const child = await open(page, "preview");
+  const pdf = child.getByTestId("pdf-scroll-container");
+  await expect(child.locator(".mupdf-text-layer").first()).toBeVisible();
+  await pdf.focus();
+  await child.keyboard.press("Control+f");
+  const search = child.getByTestId("preview-search-panel");
+  const input = search.getByRole("textbox", { name: "Search", exact: true });
+  await input.fill("evaluation");
+  await expect(search).toContainText(/1\/\d+/);
+  await child.keyboard.press("Escape");
+  await expect(input).toBeFocused();
+  await expect(page.getByTestId("preview-search-panel")).toHaveCount(0);
+  await search.getByRole("button", { name: "Close", exact: true }).click();
+  await expect(search).toHaveCount(0);
+  await child.keyboard.press("Control+f");
+  await expect(input).toHaveValue("evaluation");
+  await child.close();
+});

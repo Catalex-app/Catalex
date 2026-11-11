@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { findPreviewMatches, PREVIEW_SEARCH_LIMIT } from "@/lib/preview-search";
 import type { usePreviewSearch } from "./preview-search-panel";
 
@@ -6,6 +6,7 @@ export function useMarkdownSearch(
   search: ReturnType<typeof usePreviewSearch>,
   document: Document | null,
   contentIdentity: unknown,
+  beforeScroll: (scrollTop: number) => void,
 ) {
   const [ranges, setRanges] = useState<Range[]>([]);
   const [index, setIndex] = useState(0);
@@ -83,14 +84,21 @@ export function useMarkdownSearch(
       win.CSS.highlights.delete("catalex-search-active");
     };
   }, [document, ranges, index, search.open]);
+  const { ownsFocus } = search;
+  const scrollToMatch = useCallback(
+    (range: Range | undefined) => {
+      const scrolling = document?.scrollingElement;
+      if (!range || !scrolling || !ownsFocus()) return;
+      beforeScroll(scrolling.scrollTop);
+      scrolling.scrollTop +=
+        range.getBoundingClientRect().top -
+        document.documentElement.clientHeight * 0.35;
+    },
+    [document, ownsFocus, beforeScroll],
+  );
   useEffect(() => {
-    const range = ranges[index];
-    const scrolling = document?.scrollingElement;
-    if (!range || !scrolling) return;
-    scrolling.scrollTop +=
-      range.getBoundingClientRect().top -
-      (document?.documentElement.clientHeight ?? 0) * 0.35;
-  }, [ranges, index, document]);
+    scrollToMatch(ranges[index]);
+  }, [ranges, index, scrollToMatch]);
   return {
     count: ranges.length,
     current: ranges.length ? index + 1 : 0,
@@ -98,9 +106,15 @@ export function useMarkdownSearch(
       ranges.length === PREVIEW_SEARCH_LIMIT
         ? `First ${PREVIEW_SEARCH_LIMIT} results`
         : undefined,
-    move: (delta: number) =>
-      setIndex((previous) =>
-        ranges.length ? (previous + delta + ranges.length) % ranges.length : 0,
-      ),
+    move: (delta: number) => {
+      if (!ranges.length) return;
+      if (ranges.length === 1) {
+        scrollToMatch(ranges[0]);
+        return;
+      }
+      setIndex(
+        (previous) => (previous + delta + ranges.length) % ranges.length,
+      );
+    },
   };
 }

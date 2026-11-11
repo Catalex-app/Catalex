@@ -198,7 +198,7 @@ export function WorkspacePanel({
     panel.addEventListener("focusin", focusin);
     panel.addEventListener("pointerdown", pointerdown, true);
     const keydown = (event: KeyboardEvent) => {
-      // Menus, dialogs and editor search get the first chance to handle Escape.
+      // Menus and dialogs get the first chance to handle Escape.
       if (event.defaultPrevented) return;
       const target = event.target;
       if (

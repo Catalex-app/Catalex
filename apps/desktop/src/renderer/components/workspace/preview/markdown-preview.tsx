@@ -7,6 +7,7 @@ import { usePreviewSearch, PreviewSearchPanel } from "./preview-search-panel";
 import { useMarkdownSearch } from "./markdown-search";
 import { installContextMenus } from "@/lib/context-menu";
 import { installMouseBoundary } from "@/lib/mouse-events";
+import { canHandleEscape } from "@/lib/keyboard-events";
 import { Hint } from "@/components/ui/tooltip";
 import { MarkdownComments } from "./markdown-comments";
 import { MarkdownThemeSwatch } from "./markdown-theme-swatch";
@@ -532,12 +533,13 @@ export function MarkdownPreview({
   const onScrollSyncToEditorRef = useRef(onScrollSyncToEditor);
   const ignorePreviewScrollUntilRef = useRef(0);
   const lastPreviewScrollPositionRef = useRef<number | null>(null);
+  const lastPreviewScrollTopRef = useRef(0);
   const [frameDocument, setFrameDocument] = useState<Document | null>(null);
   const expansion = useWorkspacePanelExpansion();
   useEffect(() => {
     if (!frameDocument || !expansion?.expanded) return;
     const keydown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || event.defaultPrevented) return;
+      if (!canHandleEscape(event)) return;
       event.preventDefault();
       expansion.onExpandedChange?.(false);
     };
@@ -692,10 +694,16 @@ export function MarkdownPreview({
   const markdownSource =
     activeFile && isMarkdownFile(activeFile) ? (activeFile.content ?? "") : "";
   const search = usePreviewSearch(searchScope, activeFileId, frameDocument);
+  const beforeSearchScroll = useCallback((scrollTop: number) => {
+    // Search can take over before the scroll poll observes the last synced jump.
+    lastPreviewScrollTopRef.current = scrollTop;
+    ignorePreviewScrollUntilRef.current = 0;
+  }, []);
   const markdownSearch = useMarkdownSearch(
     search,
     frameDocument,
     markdownSource,
+    beforeSearchScroll,
   );
   const lineStartOffsets = useMemo(() => {
     const offsets = [0];
@@ -1081,7 +1089,8 @@ export function MarkdownPreview({
 
   useEffect(() => {
     if (!frameDocument) return;
-    let lastScrollTop = frameDocument.scrollingElement?.scrollTop ?? 0;
+    lastPreviewScrollTopRef.current =
+      frameDocument.scrollingElement?.scrollTop ?? 0;
 
     const syncPreviewPosition = () => {
       const scrollTop = frameDocument.scrollingElement?.scrollTop ?? 0;
@@ -1090,16 +1099,16 @@ export function MarkdownPreview({
         (frameDocument.scrollingElement &&
           isNavigationScrolling(frameDocument.scrollingElement as HTMLElement))
       ) {
-        lastScrollTop = scrollTop;
+        lastPreviewScrollTopRef.current = scrollTop;
         return;
       }
       if (
         performance.now() < ignorePreviewScrollUntilRef.current ||
-        Math.abs(scrollTop - lastScrollTop) < 0.5
+        Math.abs(scrollTop - lastPreviewScrollTopRef.current) < 0.5
       ) {
         return;
       }
-      lastScrollTop = scrollTop;
+      lastPreviewScrollTopRef.current = scrollTop;
       const position = sourcePositionAtPreviewCenter(frameDocument);
       if (
         position === undefined ||
@@ -1758,8 +1767,8 @@ export function MarkdownPreview({
         <div data-window-drag-region className="flex-1 self-stretch" />
       </WorkspacePanelHeader>
       <div ref={setCommentPanel} className="shrink-0" />
+      <PreviewSearchPanel search={search} {...markdownSearch} />
       <div className="relative flex min-h-0 flex-1">
-        <PreviewSearchPanel search={search} {...markdownSearch} />
         <iframe
           ref={frameRef}
           data-panel-content-focus=""

@@ -1,4 +1,4 @@
-import { canCloseSearchOnEscape } from "@/lib/search-escape";
+import { DocumentBarNavigation } from "../document-bar-navigation";
 import {
   useSearchComments,
   useCommentSearchHighlight,
@@ -8,15 +8,19 @@ import { useEffect, useRef, useState } from "react";
 import {
   XIcon,
   ChevronUpIcon,
-  ChevronLeftIcon,
-  ChevronRightIcon,
   ChevronDownIcon,
   RegexIcon,
   MessageSquareTextIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { ButtonGroup } from "@/components/ui/button-group";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import {
+  documentBarButtonClassName,
+  documentBarClassName,
+  documentBarControlHeightClassName,
+} from "../document-navigation-styles";
 
 type HistoryField = "find" | "replace";
 type HistoryDirection = "up" | "down";
@@ -32,6 +36,7 @@ interface SearchPanelProps {
   isCaseSensitive: boolean;
   isWholeWord: boolean;
   isRegex: boolean;
+  includeComments: boolean;
   preserveCase: boolean;
   findInSelection: boolean;
   canEnableFindInSelection: boolean;
@@ -43,6 +48,7 @@ interface SearchPanelProps {
   onToggleCaseSensitive: () => void;
   onToggleWholeWord: () => void;
   onToggleRegex: () => void;
+  onToggleComments: () => void;
   onTogglePreserveCase: () => void;
   onToggleFindInSelection: () => void;
   onClose: () => void;
@@ -55,46 +61,68 @@ interface SearchPanelProps {
   currentMatch: number;
 }
 
+const searchRowClassName = cn(documentBarClassName, "flex-wrap content-center");
+function SearchField({
+  label,
+  children,
+  className,
+}: {
+  label: string;
+  children: React.ReactNode;
+  className: string;
+}) {
+  return (
+    <div
+      className={cn(
+        documentBarControlHeightClassName,
+        "flex min-w-0 items-center gap-1 rounded-md border border-input bg-muted/30 pr-1 transition-colors focus-within:border-foreground focus-within:bg-background",
+        className,
+      )}
+    >
+      <ButtonGroup
+        variant="plain"
+        aria-label={label}
+        className="flex h-full min-w-0 flex-1 items-center gap-1"
+      >
+        {children}
+      </ButtonGroup>
+    </div>
+  );
+}
+
+const searchInputClassName =
+  "h-full flex-1 rounded-none border-0 bg-transparent px-2 shadow-none outline-none! dark:bg-transparent";
+
 function ToggleButton({
   active,
   disabled,
   onClick,
   title,
-  compact = false,
-  ariaLabel,
-  iconOnly = false,
   children,
 }: {
   active: boolean;
   disabled?: boolean;
   onClick: () => void;
   title: string;
-  compact?: boolean;
-  ariaLabel?: string;
-  iconOnly?: boolean;
   children: React.ReactNode;
 }) {
   return (
     <Hint content={title}>
-      <button
+      <Button
         type="button"
-        aria-label={ariaLabel ?? title}
+        variant="ghost"
+        size="icon-xs"
+        aria-label={title}
         aria-pressed={active}
         onClick={onClick}
         disabled={disabled}
         className={cn(
-          "inline-flex h-6 items-center justify-center rounded-md font-medium text-[11px] leading-none transition-colors",
-          iconOnly ? "size-6 px-0" : compact ? "px-1.5" : "px-2",
-          active
-            ? "bg-accent text-foreground"
-            : disabled
-              ? "text-muted-foreground"
-              : "text-muted-foreground hover:bg-muted/70 hover:text-foreground",
-          disabled && "cursor-default opacity-50",
+          documentBarButtonClassName,
+          "text-[11px] aria-pressed:bg-accent aria-pressed:text-foreground",
         )}
       >
         {children}
-      </button>
+      </Button>
     </Hint>
   );
 }
@@ -110,6 +138,7 @@ export function SearchPanel({
   isCaseSensitive,
   isWholeWord,
   isRegex,
+  includeComments,
   preserveCase,
   findInSelection,
   canEnableFindInSelection,
@@ -121,6 +150,7 @@ export function SearchPanel({
   onToggleCaseSensitive,
   onToggleWholeWord,
   onToggleRegex,
+  onToggleComments,
   onTogglePreserveCase,
   onToggleFindInSelection,
   onClose,
@@ -133,7 +163,6 @@ export function SearchPanel({
   currentMatch,
 }: SearchPanelProps) {
   const inputRef = useRef<HTMLInputElement>(null);
-  const [includeComments, setIncludeComments] = useState(true);
   const [commentIndex, setCommentIndex] = useState(-1);
   const comments = useSearchComments(
     {
@@ -168,6 +197,7 @@ export function SearchPanel({
     comments.navigate(index);
   };
   const move = (direction: number) => {
+    if (!findText || !isQueryValid) return;
     const count = comments.results.length;
     if (!count) {
       direction > 0 ? onFindNext() : onFindPrevious();
@@ -228,52 +258,37 @@ export function SearchPanel({
     }
   };
 
-  const countLabel =
-    statusText ??
-    (!findText
-      ? ""
-      : !isQueryValid
-        ? "Invalid regex"
-        : matchCount + comments.results.length === 0
-          ? "No results"
-          : `${commentIndex >= 0 ? matchCount + commentIndex + 1 : currentMatch || 1} of ${matchCount + comments.results.length}`);
+  const total =
+    findText && isQueryValid ? matchCount + comments.results.length : 0;
+  const current = total
+    ? commentIndex >= 0
+      ? matchCount + commentIndex + 1
+      : currentMatch || 1
+    : 0;
+  const status = findText && !isQueryValid ? "Invalid regex" : statusText;
 
   return (
     <div
       data-testid={preview ? "preview-search-panel" : "editor-search-panel"}
-      onKeyDownCapture={(event) => {
-        if (!canCloseSearchOnEscape(event.nativeEvent)) return;
-        event.preventDefault();
-        event.stopPropagation();
-        onClose();
-      }}
-      className="pointer-events-auto flex w-full max-w-[860px] flex-col gap-1.5 rounded-xl border border-border/70 bg-background/95 p-1.5 shadow-lg backdrop-blur-sm"
+      className="flex shrink-0 flex-col"
     >
-      <div className={cn("flex items-center gap-1.5", preview && "flex-wrap")}>
-        {preview ? null : isReplaceOpen ? (
-          <div className="size-6 shrink-0" aria-hidden="true" />
-        ) : (
-          <Hint content="Toggle Replace">
-            <Button
-              variant="ghost"
-              size="icon-xs"
-              className={cn(
-                "text-muted-foreground hover:bg-muted hover:text-foreground",
-                isReplaceOpen && "bg-accent text-foreground",
-              )}
-              onClick={onToggleReplace}
-              aria-label="Toggle Replace"
-            >
-              <ChevronDownIcon className="size-4" />
-            </Button>
-          </Hint>
-        )}
-        <div
-          className={cn(
-            "flex min-w-0 flex-1 items-center rounded-md border border-border/70 bg-muted/40 transition-colors focus-within:border-ring",
-            preview && "min-w-[180px]",
+      <div className={searchRowClassName}>
+        <SearchField label="Search options" className="flex-[1_1_9rem]">
+          {preview ? null : isReplaceOpen ? (
+            <div className="ml-1 size-6 shrink-0" aria-hidden="true" />
+          ) : (
+            <Hint content="Toggle Replace">
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                className={cn(documentBarButtonClassName, "ml-1")}
+                onClick={onToggleReplace}
+                aria-label="Toggle Replace"
+              >
+                <ChevronDownIcon className="size-3.5" />
+              </Button>
+            </Hint>
           )}
-        >
           <Input
             ref={inputRef}
             type="text"
@@ -282,83 +297,47 @@ export function SearchPanel({
             onKeyDown={handleFindKeyDown}
             aria-label="Search"
             placeholder="Search..."
-            className="h-7 min-w-0 flex-1 border-transparent bg-transparent text-sm shadow-none focus-visible:border-transparent focus-visible:ring-0 focus-visible:ring-transparent"
+            className={cn(searchInputClassName, !preview && "pl-0")}
           />
-          <div className="mr-1 flex items-center gap-0">
-            <ToggleButton
-              active={isCaseSensitive}
-              onClick={onToggleCaseSensitive}
-              title="Match Case"
-              compact
-            >
-              Aa
-            </ToggleButton>
-            <ToggleButton
-              active={isWholeWord}
-              onClick={onToggleWholeWord}
-              title="Match Whole Word"
-              compact
-            >
-              ab
-            </ToggleButton>
-            <ToggleButton
-              active={isRegex}
-              onClick={onToggleRegex}
-              title="Use Regex"
-              compact
-            >
-              <RegexIcon className="size-3.5" />
-            </ToggleButton>
-          </div>
-        </div>
+          <ToggleButton
+            active={isCaseSensitive}
+            onClick={onToggleCaseSensitive}
+            title="Match Case"
+          >
+            Aa
+          </ToggleButton>
+          <ToggleButton
+            active={isWholeWord}
+            onClick={onToggleWholeWord}
+            title="Match Whole Word"
+          >
+            ab
+          </ToggleButton>
+          <ToggleButton
+            active={isRegex}
+            onClick={onToggleRegex}
+            title="Use Regex"
+          >
+            <RegexIcon className="size-3.5" />
+          </ToggleButton>
+        </SearchField>
 
-        {countLabel ? (
-          <span className="shrink-0 text-muted-foreground text-xs">
-            {countLabel}
-          </span>
-        ) : null}
-
-        <div className="flex items-center gap-0.5">
-          <Hint content="Find Previous">
-            <Button
-              variant="ghost"
-              size="icon-xs"
-              className="text-muted-foreground hover:bg-muted hover:text-foreground"
-              onClick={() => move(-1)}
-              disabled={
-                !findText ||
-                !isQueryValid ||
-                matchCount + comments.results.length === 0
-              }
-              aria-label="Find Previous"
+        <div className="ml-auto flex min-w-0 items-center gap-1">
+          {status && (
+            <span
+              className="min-w-0 truncate text-muted-foreground"
+              role="status"
+              title={status}
             >
-              <ChevronLeftIcon className="size-4" />
-            </Button>
-          </Hint>
-          <Hint content="Find Next">
-            <Button
-              variant="ghost"
-              size="icon-xs"
-              className="text-muted-foreground hover:bg-muted hover:text-foreground"
-              onClick={() => move(1)}
-              disabled={
-                !findText ||
-                !isQueryValid ||
-                matchCount + comments.results.length === 0
-              }
-              aria-label="Find Next"
-            >
-              <ChevronRightIcon className="size-4" />
-            </Button>
-          </Hint>
+              {status}
+            </span>
+          )}
           {!preview && (
             <ToggleButton
               active={findInSelection}
               onClick={onToggleFindInSelection}
               disabled={!canEnableFindInSelection && !findInSelection}
               title="Find in Selection"
-              ariaLabel="Find in Selection"
-              iconOnly
             >
               <svg
                 viewBox="0 0 16 16"
@@ -376,30 +355,32 @@ export function SearchPanel({
               </svg>
             </ToggleButton>
           )}
-          <Hint content="Include Comments">
-            <Button
-              variant="ghost"
-              size="icon-xs"
-              aria-label="Include Comments"
-              aria-pressed={includeComments}
-              onClick={() => setIncludeComments((value) => !value)}
-              className={cn(
-                "text-muted-foreground hover:bg-muted hover:text-foreground",
-                includeComments && "bg-accent text-foreground",
-              )}
-            >
-              <MessageSquareTextIcon className="size-3.5" strokeWidth={1.5} />
-            </Button>
-          </Hint>
+          <ToggleButton
+            active={includeComments}
+            onClick={onToggleComments}
+            title="Include Comments"
+          >
+            <MessageSquareTextIcon className="size-3.5" strokeWidth={1.5} />
+          </ToggleButton>
+          <DocumentBarNavigation
+            label="Search navigation"
+            previousLabel="Find Previous"
+            nextLabel="Find Next"
+            itemLabel="Match"
+            current={current}
+            total={total}
+            onPrevious={() => move(-1)}
+            onNext={() => move(1)}
+          />
           <Hint content="Close">
             <Button
               variant="ghost"
               size="icon-xs"
-              className="text-muted-foreground hover:bg-muted hover:text-foreground"
+              className={documentBarButtonClassName}
               onClick={onClose}
               aria-label="Close"
             >
-              <XIcon className="size-4" />
+              <XIcon className="size-3.5" />
             </Button>
           </Hint>
         </div>
@@ -407,7 +388,7 @@ export function SearchPanel({
 
       {comments.results.length > 0 && (
         <div
-          className="max-h-36 overflow-auto border-border/60 border-t pt-1"
+          className="max-h-36 overflow-auto border-border border-b bg-background px-2 py-1"
           role="group"
           aria-label="Comment search results"
         >
@@ -439,52 +420,49 @@ export function SearchPanel({
       )}
 
       {isReplaceOpen ? (
-        <div className="flex items-center gap-1.5">
-          <Hint content="Collapse Replace">
-            <Button
-              variant="ghost"
-              size="icon-xs"
-              className="text-muted-foreground hover:bg-muted hover:text-foreground"
-              onClick={onToggleReplace}
-              aria-label="Collapse Replace"
-            >
-              <ChevronUpIcon className="size-4" />
-            </Button>
-          </Hint>
-          <div className="flex min-w-0 flex-1 items-center rounded-md border border-border/70 bg-muted/40 transition-colors focus-within:border-ring">
+        <div className={searchRowClassName}>
+          <SearchField label="Replace options" className="flex-[1_1_7rem]">
+            <Hint content="Collapse Replace">
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                className={cn(documentBarButtonClassName, "ml-1")}
+                onClick={onToggleReplace}
+                aria-label="Collapse Replace"
+              >
+                <ChevronUpIcon className="size-3.5" />
+              </Button>
+            </Hint>
             <Input
               type="text"
               value={replaceText}
               onChange={(e) => onReplaceTextChange(e.target.value)}
               onKeyDown={handleReplaceKeyDown}
               placeholder="Replace..."
-              className="h-7 min-w-0 flex-1 border-transparent bg-transparent text-sm shadow-none focus-visible:border-transparent focus-visible:ring-0 focus-visible:ring-transparent"
+              className={cn(searchInputClassName, "pl-0")}
             />
-            <div className="mr-1 flex items-center gap-0">
-              <ToggleButton
-                active={preserveCase}
-                onClick={onTogglePreserveCase}
-                disabled={isRegex}
-                title="Preserve Case"
-                compact
-              >
-                AB
-              </ToggleButton>
-            </div>
-          </div>
+            <ToggleButton
+              active={preserveCase}
+              onClick={onTogglePreserveCase}
+              disabled={isRegex}
+              title="Preserve Case"
+            >
+              AB
+            </ToggleButton>
+          </SearchField>
           <Button
-            variant="outline"
+            variant="ghost"
             size="xs"
-            className="h-7"
+            className={documentBarButtonClassName}
             onClick={onReplaceNext}
             disabled={!canReplace || !isQueryValid || commentIndex >= 0}
           >
             Replace
           </Button>
           <Button
-            variant="outline"
+            variant="ghost"
             size="xs"
-            className="h-7"
+            className={documentBarButtonClassName}
             onClick={onReplaceAll}
             disabled={!canReplace || !isQueryValid || commentIndex >= 0}
           >

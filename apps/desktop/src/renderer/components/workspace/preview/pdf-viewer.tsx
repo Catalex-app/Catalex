@@ -306,15 +306,18 @@ export function PdfViewer({
     return true;
   }
 
-  const search = usePreviewSearch(
-    searchScope,
-    docIdRef.current,
-    undefined,
-    isActive,
+  // Recompiling replaces the worker document while search still belongs to the same file.
+  const search = usePreviewSearch(searchScope, rootFileId, undefined, isActive);
+  const { ownsFocus } = search;
+  const navigateSearch = useCallback(
+    (page: number, y: number) => {
+      const container = containerRef.current;
+      if (!container || !ownsFocus()) return;
+      onScrollIntent?.();
+      scrollToPage(container, page, y);
+    },
+    [onScrollIntent, ownsFocus],
   );
-  const navigateSearch = useCallback((page: number, y: number) => {
-    if (containerRef.current) scrollToPage(containerRef.current, page, y);
-  }, []);
   const pdfSearch = usePdfSearch(
     search,
     docIdRef.current,
@@ -1084,114 +1087,118 @@ export function PdfViewer({
       ref={searchScope}
       tabIndex={-1}
       data-preview-search-scope
-      className="relative flex min-h-0 flex-1 overflow-hidden outline-none"
+      className="flex min-h-0 flex-1 flex-col overflow-hidden outline-none"
     >
       <PreviewSearchPanel pdf search={search} {...pdfSearch} />
-      <div
-        ref={containerRef}
-        data-testid="pdf-scroll-container"
-        data-panel-content-focus=""
-        style={{ overflowAnchor: "none" }}
-        tabIndex={-1}
-        {...{ [LOCAL_ZOOM_SHORTCUTS_ATTR]: "true" }}
-        className={`app-scrollbar isolate min-h-0 flex-1 overflow-auto outline-none ${showMinimap ? "pdf-with-minimap" : ""}`}
-        onWheelCapture={onScrollIntent}
-        onTouchStartCapture={onScrollIntent}
-        onKeyDownCapture={(event) => {
-          if (
-            [
-              "ArrowUp",
-              "ArrowDown",
-              "PageUp",
-              "PageDown",
-              "Home",
-              "End",
-              " ",
-            ].includes(event.key)
-          )
-            onScrollIntent?.();
-        }}
-        onPointerDownCapture={(event) => {
-          if (event.target === event.currentTarget) onScrollIntent?.();
-        }}
-        onMouseDownCapture={(event) => {
-          if (event.button === 0 && !event.ctrlKey)
-            containerRef.current?.focus();
-        }}
-      >
+      <div className="relative flex min-h-0 flex-1 overflow-hidden">
         <div
-          ref={contentRef}
-          data-pdf-scroll-content="true"
-          className="relative flex min-w-fit flex-col items-center p-4 pb-8"
-          style={{
-            gap: PDF_PAGE_GAP * displayScale,
-            transition: pageTransitionDisabled ? "none" : "gap 180ms ease-out",
+          ref={containerRef}
+          data-testid="pdf-scroll-container"
+          data-panel-content-focus=""
+          style={{ overflowAnchor: "none" }}
+          tabIndex={-1}
+          {...{ [LOCAL_ZOOM_SHORTCUTS_ATTR]: "true" }}
+          className={`app-scrollbar isolate min-h-0 flex-1 overflow-auto outline-none ${showMinimap ? "pdf-with-minimap" : ""}`}
+          onWheelCapture={onScrollIntent}
+          onTouchStartCapture={onScrollIntent}
+          onKeyDownCapture={(event) => {
+            if (
+              [
+                "ArrowUp",
+                "ArrowDown",
+                "PageUp",
+                "PageDown",
+                "Home",
+                "End",
+                " ",
+              ].includes(event.key)
+            )
+              onScrollIntent?.();
           }}
-          onClick={handleTextLayerClick}
+          onPointerDownCapture={(event) => {
+            if (event.target === event.currentTarget) onScrollIntent?.();
+          }}
+          onMouseDownCapture={(event) => {
+            if (event.button === 0 && !event.ctrlKey)
+              containerRef.current?.focus();
+          }}
         >
-          {loading && numPages === 0 && (
-            <div className="flex items-center gap-2 text-muted-foreground">
-              <LoaderIcon className="size-4 animate-spin" />
-              Loading PDF...
-            </div>
-          )}
-          {pageSizes.map((size, i) => (
-            <MupdfPage
-              key={`${documentWorkerRevision.current}:${pdfPageRenderKey(docIdRef.current, i)}`}
-              canvasCache={canvasCache}
-              viewportRef={containerRef}
-              renderDetails={isActive && !pinching && !layoutAnimating}
-              renderPaused={renderPaused}
-              docId={docIdRef.current}
-              pageIndex={i}
-              scale={displayScale}
-              renderScale={scale}
-              disableZoomTransition={pageTransitionDisabled}
-              pageWidth={size.width}
-              pageHeight={size.height}
-              isVisible={visiblePages.has(i + 1)}
-              retainText={
-                selectAllPages ||
-                Boolean(
-                  selectionPages &&
-                    i + 1 >= selectionPages[0] &&
-                    i + 1 <= selectionPages[1],
-                )
-              }
-              searchHits={pdfSearch.highlights.get(i)}
-            />
-          ))}
+          <div
+            ref={contentRef}
+            data-pdf-scroll-content="true"
+            className="relative flex min-w-fit flex-col items-center p-4 pb-8"
+            style={{
+              gap: PDF_PAGE_GAP * displayScale,
+              transition: pageTransitionDisabled
+                ? "none"
+                : "gap 180ms ease-out",
+            }}
+            onClick={handleTextLayerClick}
+          >
+            {loading && numPages === 0 && (
+              <div className="flex items-center gap-2 text-muted-foreground">
+                <LoaderIcon className="size-4 animate-spin" />
+                Loading PDF...
+              </div>
+            )}
+            {pageSizes.map((size, i) => (
+              <MupdfPage
+                key={`${documentWorkerRevision.current}:${pdfPageRenderKey(docIdRef.current, i)}`}
+                canvasCache={canvasCache}
+                viewportRef={containerRef}
+                renderDetails={isActive && !pinching && !layoutAnimating}
+                renderPaused={renderPaused}
+                docId={docIdRef.current}
+                pageIndex={i}
+                scale={displayScale}
+                renderScale={scale}
+                disableZoomTransition={pageTransitionDisabled}
+                pageWidth={size.width}
+                pageHeight={size.height}
+                isVisible={visiblePages.has(i + 1)}
+                retainText={
+                  selectAllPages ||
+                  Boolean(
+                    selectionPages &&
+                      i + 1 >= selectionPages[0] &&
+                      i + 1 <= selectionPages[1],
+                  )
+                }
+                searchHits={pdfSearch.highlights.get(i)}
+              />
+            ))}
+          </div>
         </div>
-      </div>
-      {showMinimap && (
-        <PdfMinimap
+        {showMinimap && (
+          <PdfMinimap
+            viewportRef={containerRef}
+            contentRef={contentRef}
+            pageSizes={pageSizes}
+            onScrollIntent={onScrollIntent}
+          />
+        )}
+        <PdfSelectionHighlight
           viewportRef={containerRef}
-          contentRef={contentRef}
-          pageSizes={pageSizes}
-          onScrollIntent={onScrollIntent}
+          retainedSelection={retainedSelection}
         />
-      )}
-      <PdfSelectionHighlight
-        viewportRef={containerRef}
-        retainedSelection={retainedSelection}
-      />
-      {linkReturn && (
-        <button
-          type="button"
-          className={`absolute top-3 ${showMinimap ? "right-12" : "right-3"} z-10 inline-flex items-center gap-1.5 rounded-lg border border-border bg-background/95 px-2.5 py-1.5 text-xs shadow-sm hover:bg-accent`}
-          onClick={() => {
-            containerRef.current?.scrollTo({
-              top: linkReturn.top,
-              left: linkReturn.left,
-              behavior: "instant",
-            });
-            setLinkReturn(null);
-          }}
-        >
-          <ChevronLeftIcon className="size-3.5" aria-hidden="true" />
-          Jump back to page {linkReturn.page}
-        </button>
-      )}
+        {linkReturn && (
+          <button
+            type="button"
+            className={`absolute top-3 ${showMinimap ? "right-12" : "right-3"} z-10 inline-flex items-center gap-1.5 rounded-lg border border-border bg-background/95 px-2.5 py-1.5 text-xs shadow-sm hover:bg-accent`}
+            onClick={() => {
+              containerRef.current?.scrollTo({
+                top: linkReturn.top,
+                left: linkReturn.left,
+                behavior: "instant",
+              });
+              setLinkReturn(null);
+            }}
+          >
+            <ChevronLeftIcon className="size-3.5" aria-hidden="true" />
+            Jump back to page {linkReturn.page}
+          </button>
+        )}
+      </div>
     </div>
   );
 }

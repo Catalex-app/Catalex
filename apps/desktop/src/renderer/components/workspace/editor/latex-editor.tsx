@@ -30,7 +30,6 @@ import {
   type GitLineChangeKind,
 } from "./git-line-changes";
 import { EditorMinimap, editorMinimapUpdateListener } from "./editor-minimap";
-import { canCloseSearchOnEscape } from "@/lib/search-escape";
 import {
   cancelReviewViewport,
   captureReviewViewport,
@@ -163,7 +162,6 @@ import {
 import { useAgentChatStore } from "@/stores/agent-chat-store";
 import { useHistoryStore, type FileDiff } from "@/stores/history-store";
 import { type CompileDiagnostic } from "@/lib/latex-compiler";
-import { cn } from "@/lib/utils";
 import { useSettingsStore } from "@/stores/settings-store";
 import { EditorToolbar } from "./editor-toolbar";
 import {
@@ -342,6 +340,7 @@ interface EditorSearchState {
   showReplace: boolean;
   preserveCase: boolean;
   findInSelection: boolean;
+  includeComments: boolean;
 }
 
 type HistoryField = "find" | "replace";
@@ -351,8 +350,18 @@ const SEARCH_HISTORY_LIMIT = 20;
 const SEARCH_SELECTION_SEED_WINDOW_MS = 1000;
 const SEARCH_SELECTION_SEED_MAX_CHARS = 200;
 const SEARCH_FOCUS_VIEWPORT_RATIO = 0.38;
-const SEARCH_PANEL_ANIMATION_MS = 180;
-const SEARCH_PANEL_ANIMATION_EASE = "cubic-bezier(0.4, 0, 0.2, 1)";
+const DEFAULT_SEARCH_STATE: EditorSearchState = {
+  findText: "",
+  replaceText: "",
+  caseSensitive: false,
+  wholeWord: false,
+  useRegex: false,
+  showReplace: false,
+  preserveCase: false,
+  findInSelection: false,
+  includeComments: true,
+};
+const EMPTY_SEARCH_QUERY = new SearchQuery({ search: "" });
 
 const gitGutterMarkerClasses: Record<GitLineChangeKind, string> = {
   add: "cm-gitLineAdd",
@@ -536,24 +545,6 @@ function centerInlineCommentCard(view: EditorView, commentId: string): boolean {
     Math.min(maxScrollTop, scroll.scrollTop + delta),
   );
   return true;
-}
-
-// Keep one style module; viewport-dependent values belong to each editor.
-const searchViewportTheme = EditorView.theme({
-  ".cm-content": {
-    paddingTop: "var(--catalex-search-padding-top)",
-    paddingBottom: "var(--catalex-search-padding-bottom)",
-  },
-});
-
-function getSearchViewportPadding(view: EditorView): {
-  top: number;
-  bottom: number;
-} {
-  return {
-    top: Math.min(view.scrollDOM.clientHeight * 0.18, 140),
-    bottom: Math.min(view.scrollDOM.clientHeight * 0.22, 180),
-  };
 }
 
 function selectSearchMatch(
@@ -1310,6 +1301,19 @@ export function LatexEditor({
   scrollSyncEnabledRef.current = scrollSyncEnabled && !scrollSyncPaused;
   onScrollPositionChangeRef.current = onScrollPositionChange;
 
+  const navigateSearchMatch = useCallback(
+    (view: EditorView, match: { from: number; to: number }) => {
+      if (scrollSyncEnabledRef.current) {
+        // Re-selecting a match may not emit a new scroll event.
+        ignoreScrollSyncUntilRef.current = performance.now() + 250;
+        lastScrollSyncPositionRef.current = match.from;
+        onScrollPositionChangeRef.current?.(match.from);
+      }
+      selectSearchMatch(view, match);
+    },
+    [],
+  );
+
   const files = useDocumentStore((s) => s.files);
   const activeFileId = useDocumentStore((s) => s.activeFileId);
   const projectRoot = useDocumentStore((s) => s.projectRoot);
@@ -1398,18 +1402,10 @@ export function LatexEditor({
   }, [activeFileId]);
 
   const [isSearchOpen, setIsSearchOpen] = useState(false);
-  const [isSearchPanelRendered, setIsSearchPanelRendered] = useState(false);
-  const [isSearchPanelVisible, setIsSearchPanelVisible] = useState(false);
-  const [searchState, setSearchState] = useState<EditorSearchState>({
-    findText: "",
-    replaceText: "",
-    caseSensitive: false,
-    wholeWord: false,
-    useRegex: false,
-    showReplace: false,
-    preserveCase: false,
-    findInSelection: false,
-  });
+  const searchPanelRef = useRef<HTMLDivElement>(null);
+  const [searchState, setSearchState] = useState(DEFAULT_SEARCH_STATE);
+  const searchStateByFile = useRef(new Map<string, EditorSearchState>());
+  const searchFile = useRef(activeFileId);
   const [selectionRangeForSearch, setSelectionRangeForSearch] =
     useState<SearchRange | null>(null);
   const [searchScopeRange, setSearchScopeRange] = useState<SearchRange | null>(
@@ -1652,7 +1648,6 @@ export function LatexEditor({
   } | null>(null);
   const selectionHighlightsCompartmentRef = useRef(new Compartment());
   const selectionChipPreviewCompartmentRef = useRef(new Compartment());
-  const searchPaddingCompartmentRef = useRef(new Compartment());
   const isMergeActiveRef = useRef(false);
   const pendingChangeRef = useRef<EditorMergeChange | null>(null);
   const pendingHistoryRef = useRef<EditorHistorySnapshot | null>(null);
@@ -1685,7 +1680,6 @@ export function LatexEditor({
   const searchStateRef = useRef(searchState);
   const lastNonEmptySelectionTextRef = useRef("");
   const lastNonEmptySelectionAtRef = useRef(0);
-  const searchPaddingRef = useRef({ top: 0, bottom: 0 });
   const activeFileRelativePathRef = useRef<string | null>(null);
 
   activeFileRelativePathRef.current = activeFile?.relativePath ?? null;
@@ -1725,34 +1719,31 @@ export function LatexEditor({
   );
 
   useEffect(() => {
-    let animationFrame = 0;
-    let hideTimer: ReturnType<typeof setTimeout> | null = null;
-
-    if (isSearchOpen) {
-      setIsSearchPanelRendered(true);
-      animationFrame = requestAnimationFrame(() => {
-        setIsSearchPanelVisible(true);
+    if (searchFile.current === activeFileId) return;
+    if (searchFile.current) {
+      searchStateByFile.current.set(searchFile.current, {
+        ...searchStateRef.current,
+        findInSelection: false,
       });
-    } else if (isSearchPanelRendered) {
-      setIsSearchPanelVisible(false);
-      hideTimer = setTimeout(() => {
-        setIsSearchPanelRendered(false);
-      }, SEARCH_PANEL_ANIMATION_MS);
     }
-
-    return () => {
-      if (animationFrame) cancelAnimationFrame(animationFrame);
-      if (hideTimer) clearTimeout(hideTimer);
-    };
-  }, [isSearchOpen, isSearchPanelRendered]);
+    searchFile.current = activeFileId;
+    setIsSearchOpen(false);
+    setSearchState(
+      (activeFileId && searchStateByFile.current.get(activeFileId)) ||
+        DEFAULT_SEARCH_STATE,
+    );
+  }, [activeFileId]);
 
   useEffect(() => {
     searchStateRef.current = searchState;
   }, [searchState]);
 
   const searchQueryObject = useMemo(
-    () => buildSearchQuery(searchState, searchScopeRange),
-    [searchState, searchScopeRange],
+    () =>
+      isSearchOpen
+        ? buildSearchQuery(searchState, searchScopeRange)
+        : EMPTY_SEARCH_QUERY,
+    [isSearchOpen, searchState, searchScopeRange],
   );
 
   const pushFindHistory = useCallback((value: string) => {
@@ -1792,8 +1783,8 @@ export function LatexEditor({
         if (showReplace) {
           setSearchState((previous) => ({ ...previous, showReplace: true }));
         }
-        const input = parentRef.current?.querySelector<HTMLInputElement>(
-          '[data-testid="editor-search-panel"] input[aria-label="Search"]',
+        const input = searchPanelRef.current?.querySelector<HTMLInputElement>(
+          'input[aria-label="Search"]',
         );
         input?.focus();
         input?.select();
@@ -1825,17 +1816,10 @@ export function LatexEditor({
       }
       setIsSearchOpen(true);
       setSearchState((prev) => {
-        const nextShowReplace = showReplace || prev.showReplace;
-        if (
-          nextShowReplace === prev.showReplace &&
-          (!selectedText || selectedText === prev.findText)
-        ) {
-          return prev;
-        }
         return {
           ...prev,
-          showReplace: nextShowReplace,
-          findText: selectedText || prev.findText,
+          showReplace: showReplace || prev.showReplace,
+          findText: prev.findText || selectedText,
         };
       });
       if (selectedText) {
@@ -1853,7 +1837,6 @@ export function LatexEditor({
     setSearchScopeRange(null);
     setSearchState((prev) => ({
       ...prev,
-      findText: "",
       findInSelection: false,
     }));
     setFindHistoryIndex(-1);
@@ -2650,9 +2633,14 @@ export function LatexEditor({
   useEffect(() => {
     const view = viewRef.current;
     if (!view) return;
+    if (!isSearchOpen) {
+      previousFindSignatureRef.current = "";
+      return;
+    }
     if (searchState.findText && searchQueryObject.valid) {
       if (previousFindSignatureRef.current !== findSignature) {
         previousFindSignatureRef.current = findSignature;
+        ignoreScrollSyncUntilRef.current = 0;
         const selected = view.state.selection.main;
         const currentIndex = getCurrentMatchIndex(
           view.state,
@@ -2681,6 +2669,7 @@ export function LatexEditor({
     updateSearchMetrics(view, searchQueryObject);
   }, [
     findSignature,
+    isSearchOpen,
     searchState.findText,
     searchQueryObject,
     updateSearchMetrics,
@@ -2698,9 +2687,7 @@ export function LatexEditor({
       // Chat shares the drawer host with the editor. Scope shortcuts to the
       // actual editor/search controls, not their common workspace ancestor.
       const inEditor = viewRef.current?.dom.contains(target);
-      const inSearch =
-        target.closest('[data-testid="editor-search-panel"]') &&
-        parentRef.current?.contains(target);
+      const inSearch = searchPanelRef.current?.contains(target);
       if (!inEditor && !inSearch) return;
       if (e.key === "f") {
         e.preventDefault();
@@ -2726,11 +2713,11 @@ export function LatexEditor({
       view.state.selection.main.to,
     );
     if (nextMatch) {
-      selectSearchMatch(view, nextMatch);
+      navigateSearchMatch(view, nextMatch);
     }
     updateSearchMetrics(view, searchQueryObject);
-    view.focus();
   }, [
+    navigateSearchMatch,
     pushFindHistory,
     searchState.findText,
     searchQueryObject,
@@ -2749,11 +2736,11 @@ export function LatexEditor({
       view.state.selection.main.from,
     );
     if (previousMatch) {
-      selectSearchMatch(view, previousMatch);
+      navigateSearchMatch(view, previousMatch);
     }
     updateSearchMetrics(view, searchQueryObject);
-    view.focus();
   }, [
+    navigateSearchMatch,
     pushFindHistory,
     searchState.findText,
     searchQueryObject,
@@ -3335,16 +3322,6 @@ export function LatexEditor({
           },
         },
         {
-          key: "Escape",
-          run: () => {
-            if (isSearchOpenRef.current) {
-              closeSearch();
-              return true;
-            }
-            return false;
-          },
-        },
-        {
           key: "Enter",
           run: (view) => {
             if (!isSearchOpenRef.current) return false;
@@ -3358,7 +3335,7 @@ export function LatexEditor({
               view.state.selection.main.to,
             );
             if (nextMatch) {
-              selectSearchMatch(view, nextMatch);
+              navigateSearchMatch(view, nextMatch);
             }
             updateSearchMetrics(view, query);
             return true;
@@ -3375,7 +3352,7 @@ export function LatexEditor({
               view.state.selection.main.from,
             );
             if (previousMatch) {
-              selectSearchMatch(view, previousMatch);
+              navigateSearchMatch(view, previousMatch);
             }
             updateSearchMetrics(view, query);
             return true;
@@ -3482,7 +3459,6 @@ export function LatexEditor({
         fontSizeCompartmentRef.current.of(
           createEditorFontSizeTheme(editorFontSize),
         ),
-        searchPaddingCompartmentRef.current.of([]),
         search(),
         selectionHighlightsCompartmentRef.current.of(
           createSelectionCaseAwareHighlights(isSearchOpen, isSearchOpen),
@@ -3774,6 +3750,7 @@ export function LatexEditor({
     setSelectionRange,
     clearSelectionUiState,
     editorMountNonce,
+    navigateSearchMatch,
   ]);
 
   // Fast Refresh can replace the container node while preserving refs/state.
@@ -5254,34 +5231,6 @@ export function LatexEditor({
     isTextFile,
   ]);
 
-  useEffect(() => {
-    const view = viewRef.current;
-    if (!view || !isTextFile) return;
-    const previousPadding = searchPaddingRef.current;
-    const nextPadding = isSearchOpen
-      ? getSearchViewportPadding(view)
-      : { top: 0, bottom: 0 };
-    const searchPaddingExtension: Extension = isSearchOpen
-      ? [
-          searchViewportTheme,
-          EditorView.editorAttributes.of({
-            style: `--catalex-search-padding-top: ${nextPadding.top}px; --catalex-search-padding-bottom: ${nextPadding.bottom}px`,
-          }),
-        ]
-      : [];
-    view.dispatch({
-      effects: searchPaddingCompartmentRef.current.reconfigure(
-        searchPaddingExtension,
-      ),
-    });
-    const nextScrollTop = Math.max(
-      0,
-      view.scrollDOM.scrollTop + (nextPadding.top - previousPadding.top),
-    );
-    view.scrollDOM.scrollTop = nextScrollTop;
-    searchPaddingRef.current = nextPadding;
-  }, [isSearchOpen, isTextFile]);
-
   const documentStatistics = useDocumentStatistics(activeFileContent ?? "");
   const editorTextStatistics = useMemo(() => {
     return {
@@ -5744,22 +5693,7 @@ export function LatexEditor({
     showToolbar && (!useGlobalToolbar || !globalToolbarTarget);
 
   return (
-    <div
-      className="flex h-full min-h-0 flex-col bg-background"
-      onKeyDownCapture={(event) => {
-        if (!isSearchOpen || !canCloseSearchOnEscape(event.nativeEvent)) return;
-        const target = event.target as Element;
-        if (
-          target.closest(
-            "[data-chat-drawer-overlay], [data-chat-composer-input]",
-          )
-        )
-          return;
-        event.preventDefault();
-        event.stopPropagation();
-        closeSearch();
-      }}
-    >
+    <div className="flex h-full min-h-0 flex-col bg-background">
       {/* Toolbar — adapts to file type */}
       {shouldRenderInlineToolbar ? (
         <div className="h-10 shrink-0">{toolbarNode}</div>
@@ -6102,6 +6036,95 @@ export function LatexEditor({
             />
           </div>
         </ProblemsMotion>
+        {isSearchOpen &&
+          !isWholeFileReview &&
+          !activeGitFileConflict &&
+          !isPdf &&
+          !isFilePreview &&
+          !isLargeFileNotLoaded && (
+            <div ref={searchPanelRef} className="shrink-0">
+              <SearchPanel
+                findText={searchState.findText}
+                replaceText={searchState.replaceText}
+                isReplaceOpen={searchState.showReplace}
+                isCaseSensitive={searchState.caseSensitive}
+                isWholeWord={searchState.wholeWord}
+                isRegex={searchState.useRegex}
+                includeComments={searchState.includeComments}
+                preserveCase={searchState.preserveCase}
+                findInSelection={searchState.findInSelection}
+                canEnableFindInSelection={canToggleFindInSelection}
+                isQueryValid={searchQueryObject.valid}
+                canReplace={canReplace}
+                onFindTextChange={(findText) => {
+                  setFindHistoryIndex(-1);
+                  findHistoryDraftRef.current = "";
+                  setSearchState((prev) => ({ ...prev, findText }));
+                }}
+                onReplaceTextChange={(replaceText) => {
+                  setReplaceHistoryIndex(-1);
+                  replaceHistoryDraftRef.current = "";
+                  setSearchState((prev) => ({ ...prev, replaceText }));
+                }}
+                onToggleReplace={() =>
+                  setSearchState((prev) => ({
+                    ...prev,
+                    showReplace: !prev.showReplace,
+                  }))
+                }
+                onToggleCaseSensitive={() =>
+                  setSearchState((prev) => ({
+                    ...prev,
+                    caseSensitive: !prev.caseSensitive,
+                  }))
+                }
+                onToggleWholeWord={() =>
+                  setSearchState((prev) => ({
+                    ...prev,
+                    wholeWord: !prev.wholeWord,
+                  }))
+                }
+                onToggleRegex={() =>
+                  setSearchState((prev) => ({
+                    ...prev,
+                    useRegex: !prev.useRegex,
+                  }))
+                }
+                onTogglePreserveCase={() =>
+                  setSearchState((prev) => ({
+                    ...prev,
+                    preserveCase: !prev.preserveCase,
+                  }))
+                }
+                onToggleFindInSelection={() => {
+                  setSearchState((prev) => {
+                    if (prev.findInSelection) {
+                      setSearchScopeRange(null);
+                      return { ...prev, findInSelection: false };
+                    }
+                    if (!selectionRangeForSearch) return prev;
+                    setSearchScopeRange(selectionRangeForSearch);
+                    return { ...prev, findInSelection: true };
+                  });
+                }}
+                onToggleComments={() =>
+                  setSearchState((prev) => ({
+                    ...prev,
+                    includeComments: !prev.includeComments,
+                  }))
+                }
+                onHistoryNavigate={navigateHistory}
+                onClose={closeSearch}
+                onFindNext={handleFindNext}
+                onFindPrevious={handleFindPrevious}
+                onReplaceNext={handleReplaceNext}
+                onReplaceAll={handleReplaceAll}
+                commentRange={searchScopeRange}
+                matchCount={matchCount}
+                currentMatch={currentMatch}
+              />
+            </div>
+          )}
         {/* Main content area */}
         <div
           ref={
@@ -6174,94 +6197,6 @@ export function LatexEditor({
             !isFilePreview &&
             !isLargeFileNotLoaded && (
               <>
-                {isSearchPanelRendered && (
-                  <div
-                    className={cn(
-                      "pointer-events-none absolute inset-x-0 top-3 z-30 flex justify-center px-4 transition-transform",
-                      isSearchPanelVisible
-                        ? "translate-y-0"
-                        : "-translate-y-[calc(100%+20px)]",
-                    )}
-                    style={{
-                      transitionDuration: `${SEARCH_PANEL_ANIMATION_MS}ms`,
-                      transitionTimingFunction: SEARCH_PANEL_ANIMATION_EASE,
-                    }}
-                  >
-                    <SearchPanel
-                      findText={searchState.findText}
-                      replaceText={searchState.replaceText}
-                      isReplaceOpen={searchState.showReplace}
-                      isCaseSensitive={searchState.caseSensitive}
-                      isWholeWord={searchState.wholeWord}
-                      isRegex={searchState.useRegex}
-                      preserveCase={searchState.preserveCase}
-                      findInSelection={searchState.findInSelection}
-                      canEnableFindInSelection={canToggleFindInSelection}
-                      isQueryValid={searchQueryObject.valid}
-                      canReplace={canReplace}
-                      onFindTextChange={(findText) => {
-                        setFindHistoryIndex(-1);
-                        findHistoryDraftRef.current = "";
-                        setSearchState((prev) => ({ ...prev, findText }));
-                      }}
-                      onReplaceTextChange={(replaceText) => {
-                        setReplaceHistoryIndex(-1);
-                        replaceHistoryDraftRef.current = "";
-                        setSearchState((prev) => ({ ...prev, replaceText }));
-                      }}
-                      onToggleReplace={() =>
-                        setSearchState((prev) => ({
-                          ...prev,
-                          showReplace: !prev.showReplace,
-                        }))
-                      }
-                      onToggleCaseSensitive={() =>
-                        setSearchState((prev) => ({
-                          ...prev,
-                          caseSensitive: !prev.caseSensitive,
-                        }))
-                      }
-                      onToggleWholeWord={() =>
-                        setSearchState((prev) => ({
-                          ...prev,
-                          wholeWord: !prev.wholeWord,
-                        }))
-                      }
-                      onToggleRegex={() =>
-                        setSearchState((prev) => ({
-                          ...prev,
-                          useRegex: !prev.useRegex,
-                        }))
-                      }
-                      onTogglePreserveCase={() =>
-                        setSearchState((prev) => ({
-                          ...prev,
-                          preserveCase: !prev.preserveCase,
-                        }))
-                      }
-                      onToggleFindInSelection={() => {
-                        setSearchState((prev) => {
-                          if (prev.findInSelection) {
-                            setSearchScopeRange(null);
-                            return { ...prev, findInSelection: false };
-                          }
-                          if (!selectionRangeForSearch) return prev;
-                          setSearchScopeRange(selectionRangeForSearch);
-                          return { ...prev, findInSelection: true };
-                        });
-                      }}
-                      onHistoryNavigate={navigateHistory}
-                      onClose={closeSearch}
-                      onFindNext={handleFindNext}
-                      onFindPrevious={handleFindPrevious}
-                      onReplaceNext={handleReplaceNext}
-                      onReplaceAll={handleReplaceAll}
-                      commentRange={searchScopeRange}
-                      matchCount={matchCount}
-                      currentMatch={currentMatch}
-                    />
-                  </div>
-                )}
                 <div
                   ref={containerRef}
                   className={

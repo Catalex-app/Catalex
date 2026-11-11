@@ -1,6 +1,5 @@
 import { useAppAction } from "@/hooks/use-app-actions";
 import { useActionTarget } from "@/hooks/use-action-target";
-import { canCloseSearchOnEscape } from "@/lib/search-escape";
 import {
   useCallback,
   useEffect,
@@ -14,42 +13,61 @@ import {
   type PreviewSearchQuery,
 } from "@/lib/preview-search";
 
+const EMPTY_QUERY: PreviewSearchQuery = {
+  text: "",
+  caseSensitive: false,
+  wholeWord: false,
+  regex: false,
+};
+
 export function usePreviewSearch(
   scope: RefObject<HTMLElement | null>,
-  identity: unknown,
+  identity: string | null | undefined,
   frameDocument?: Document | null,
   active = true,
 ) {
   const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState<PreviewSearchQuery>({
-    text: "",
-    caseSensitive: false,
-    wholeWord: false,
-    regex: false,
-  });
+  const [query, setQuery] = useState(EMPTY_QUERY);
+  const [includeComments, setIncludeComments] = useState(true);
+  const lastIdentity = useRef(identity);
+  const byFile = useRef(
+    new Map<string, { query: PreviewSearchQuery; includeComments: boolean }>(),
+  );
   const history = useRef<string[]>([]);
   const historyIndex = useRef(-1);
   useEffect(() => {
+    if (lastIdentity.current === identity) return;
+    if (lastIdentity.current)
+      byFile.current.set(lastIdentity.current, { query, includeComments });
+    lastIdentity.current = identity;
+    const saved = identity ? byFile.current.get(identity) : undefined;
     setOpen(false);
-    setQuery((previous) => ({ ...previous, text: "" }));
-  }, [identity, active]);
+    setQuery(saved?.query ?? EMPTY_QUERY);
+    setIncludeComments(saved?.includeComments ?? true);
+    historyIndex.current = -1;
+  }, [identity, query, includeComments]);
+  useEffect(() => {
+    if (!active) setOpen(false);
+  }, [active]);
   const menuActive = useActionTarget(
     () => scope.current?.closest("[data-preview-pane]") ?? scope.current,
     identity,
     frameDocument ?? undefined,
     true,
   );
+  const ownsFocus = useCallback(
+    () => scope.current?.contains(scope.current.ownerDocument.activeElement),
+    [scope],
+  );
   const showSearch = useCallback(() => {
+    const input = scope.current?.querySelector<HTMLInputElement>(
+      '[data-testid="preview-search-panel"] input',
+    );
     setOpen(true);
-    requestAnimationFrame(() => {
-      const input = scope.current?.querySelector<HTMLInputElement>(
-        '[data-testid="preview-search-panel"] input',
-      );
-      input?.focus();
-      input?.select();
-    });
+    input?.focus({ preventScroll: true });
+    input?.select();
   }, [scope]);
-  const findAction = useAppAction(
+  useAppAction(
     {
       id: "find",
       label: "Find…",
@@ -58,7 +76,7 @@ export function usePreviewSearch(
       shortcut: "Mod+KeyF",
       menu: { group: "Edit", section: 1, order: 0 },
     },
-    menuActive ? "active" : "inactive",
+    active && menuActive ? "active" : "inactive",
   );
   useEffect(() => {
     if (!active) return;
@@ -67,13 +85,6 @@ export function usePreviewSearch(
       const pane =
         scope.current?.closest("[data-preview-pane]") ?? scope.current;
       if (!inFrame && !pane?.contains(event.target as Node)) return;
-      if (open && canCloseSearchOnEscape(event)) {
-        event.preventDefault();
-        event.stopPropagation();
-        setOpen(false);
-        scope.current?.focus({ preventScroll: true });
-        return;
-      }
       if (
         event.isComposing ||
         !(event.metaKey || event.ctrlKey) ||
@@ -82,7 +93,7 @@ export function usePreviewSearch(
         return;
       event.preventDefault();
       event.stopPropagation();
-      findAction.run();
+      showSearch();
     };
     const pane = scope.current?.closest("[data-preview-pane]") ?? scope.current;
     const focusPane = (event: Event) => {
@@ -103,7 +114,7 @@ export function usePreviewSearch(
       pane?.removeEventListener("keydown", handler as EventListener, true);
       frameDocument?.removeEventListener("keydown", handler, true);
     };
-  }, [scope, frameDocument, active, open, showSearch]);
+  }, [scope, frameDocument, active, showSearch]);
   let valid = true;
   try {
     previewSearchPattern(query);
@@ -111,12 +122,19 @@ export function usePreviewSearch(
     valid = false;
   }
   return {
-    open,
+    open: active && open && lastIdentity.current === identity,
+    ownsFocus,
     query,
+    includeComments,
+    toggleComments: () => setIncludeComments((value) => !value),
     valid,
     close: () => {
       setOpen(false);
-      scope.current?.focus({ preventScroll: true });
+      const content =
+        scope.current?.querySelector<HTMLElement>(
+          "[data-panel-content-focus]",
+        ) ?? scope.current;
+      content?.focus({ preventScroll: true });
     },
     setText: (text: string) => {
       historyIndex.current = -1;
@@ -165,48 +183,45 @@ export function PreviewSearchPanel({
   if (!search.open) return null;
   const nothing = () => {};
   return (
-    <div
-      className="pointer-events-none absolute top-2 right-2 left-2 z-40 flex justify-end"
-      data-preview-search-scope
-    >
-      <SearchPanel
-        preview
-        pdf={pdf}
-        statusText={status}
-        findText={search.query.text}
-        replaceText=""
-        isReplaceOpen={false}
-        isCaseSensitive={search.query.caseSensitive}
-        isWholeWord={search.query.wholeWord}
-        isRegex={search.query.regex}
-        preserveCase={false}
-        findInSelection={false}
-        canEnableFindInSelection={false}
-        isQueryValid={search.valid}
-        canReplace={false}
-        onFindTextChange={search.setText}
-        onReplaceTextChange={nothing}
-        onToggleReplace={nothing}
-        onToggleCaseSensitive={() => search.toggle("caseSensitive")}
-        onToggleWholeWord={() => search.toggle("wholeWord")}
-        onToggleRegex={() => search.toggle("regex")}
-        onTogglePreserveCase={nothing}
-        onToggleFindInSelection={nothing}
-        onClose={search.close}
-        onFindNext={() => {
-          search.remember();
-          move(1);
-        }}
-        onFindPrevious={() => {
-          search.remember();
-          move(-1);
-        }}
-        onReplaceNext={nothing}
-        onReplaceAll={nothing}
-        onHistoryNavigate={(_, direction) => search.history(direction)}
-        matchCount={count}
-        currentMatch={current}
-      />
-    </div>
+    <SearchPanel
+      preview
+      pdf={pdf}
+      statusText={status}
+      findText={search.query.text}
+      replaceText=""
+      isReplaceOpen={false}
+      isCaseSensitive={search.query.caseSensitive}
+      isWholeWord={search.query.wholeWord}
+      isRegex={search.query.regex}
+      includeComments={search.includeComments}
+      preserveCase={false}
+      findInSelection={false}
+      canEnableFindInSelection={false}
+      isQueryValid={search.valid}
+      canReplace={false}
+      onFindTextChange={search.setText}
+      onReplaceTextChange={nothing}
+      onToggleReplace={nothing}
+      onToggleCaseSensitive={() => search.toggle("caseSensitive")}
+      onToggleWholeWord={() => search.toggle("wholeWord")}
+      onToggleRegex={() => search.toggle("regex")}
+      onToggleComments={search.toggleComments}
+      onTogglePreserveCase={nothing}
+      onToggleFindInSelection={nothing}
+      onClose={search.close}
+      onFindNext={() => {
+        search.remember();
+        move(1);
+      }}
+      onFindPrevious={() => {
+        search.remember();
+        move(-1);
+      }}
+      onReplaceNext={nothing}
+      onReplaceAll={nothing}
+      onHistoryNavigate={(_, direction) => search.history(direction)}
+      matchCount={count}
+      currentMatch={current}
+    />
   );
 }

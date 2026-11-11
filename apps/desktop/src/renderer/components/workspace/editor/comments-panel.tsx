@@ -1,20 +1,16 @@
+import { DocumentBarNavigation } from "../document-bar-navigation";
 import { Hint } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
 import { ButtonGroup } from "@/components/ui/button-group";
 import { useEffect, useState, useSyncExternalStore } from "react";
-import {
-  ChevronDown,
-  ChevronUp,
-  MessageSquareTextIcon,
-  XIcon,
-} from "lucide-react";
+import { MessageSquareTextIcon, XIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { InlineEditorComment } from "./inline-comments";
 import type { EditorCommentFilter } from "@/stores/settings-store";
 import { getActiveComment, subscribeActiveComment } from "./active-comment";
 import {
-  documentCounterClassName,
-  documentStepButtonClassName,
+  documentBarButtonClassName,
+  documentBarClassName,
 } from "../document-navigation-styles";
 
 export type CommentFilter = EditorCommentFilter;
@@ -165,7 +161,7 @@ export function CommentsPanel({
   return (
     <div
       data-comments-panel="true"
-      className="@container/comments flex h-12 shrink-0 items-center gap-1 border-border border-b bg-background px-2 text-xs"
+      className={`@container/comments ${documentBarClassName}`}
     >
       <CommentAuthorFilter
         comments={comments}
@@ -206,54 +202,27 @@ export function CommentsPanel({
         </span>
       )}
       <div className="flex shrink-0 items-center gap-1">
-        <div
-          role="group"
-          aria-label="Comment navigation"
-          className="flex shrink-0 items-center"
-        >
-          <Hint content="Previous comment">
-            <Button
-              variant="ghost"
-              size="icon"
-              className={documentStepButtonClassName}
-              onClick={() => navigate(-1)}
-              disabled={!current}
-              aria-label="Previous comment"
-            >
-              <ChevronUp className="size-3.5" />
-            </Button>
-          </Hint>
-          <span
-            className={`${documentCounterClassName} text-muted-foreground`}
-            role="status"
-            aria-label={`Comment ${current ? index + 1 : 0} of ${visible.length}`}
-          >
-            <span>{current ? index + 1 : 0}</span>
-            <span>/</span>
-            <span>{visible.length}</span>
-          </span>
-          <Hint content="Next comment">
-            <Button
-              variant="ghost"
-              size="icon"
-              className={documentStepButtonClassName}
-              onClick={() => navigate(1)}
-              disabled={!current}
-              aria-label="Next comment"
-            >
-              <ChevronDown className="size-3.5" />
-            </Button>
-          </Hint>
-        </div>
+        <DocumentBarNavigation
+          label="Comment navigation"
+          previousLabel="Previous comment"
+          nextLabel="Next comment"
+          itemLabel="Comment"
+          current={current ? index + 1 : 0}
+          total={visible.length}
+          onPrevious={() => navigate(-1)}
+          onNext={() => navigate(1)}
+        />
         <Hint content="Hide comments">
-          <button
+          <Button
             type="button"
+            variant="ghost"
+            size="icon-xs"
             onClick={onClose}
             aria-label="Hide comments"
-            className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className={documentBarButtonClassName}
           >
             <XIcon className="size-3.5" />
-          </button>
+          </Button>
         </Hint>
       </div>
     </div>
