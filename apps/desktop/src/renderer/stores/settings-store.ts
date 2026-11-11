@@ -157,6 +157,7 @@ export interface SettingsState {
   setSpellCheck: (enabled: boolean) => void;
   setSpellingLanguage: (language: SpellingLanguage) => void;
   learnSpellingWord: (word: string) => void;
+  removeSpellingWord: (word: string) => void;
   showEditorMinimap: boolean;
   setShowEditorMinimap: (visible: boolean) => void;
   editorMinimapLayers: MinimapLayers;
@@ -892,6 +893,10 @@ export const useSettingsStore = create<SettingsState>()(
       learnSpellingWord: (word) =>
         set((state) => ({
           spellingWords: normalizeSpellingWords([...state.spellingWords, word]),
+        })),
+      removeSpellingWord: (word) =>
+        set((state) => ({
+          spellingWords: state.spellingWords.filter((entry) => entry !== word),
         })),
       showEditorMinimap: true,
       setShowEditorMinimap: (visible) => set({ showEditorMinimap: visible }),

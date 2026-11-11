@@ -78,7 +78,9 @@ import {
   RotateCcwIcon,
   SearchIcon,
   SettingsIcon,
+  SpellCheckIcon,
   SunIcon,
+  Trash2Icon,
 } from "lucide-react";
 import { open } from "@/lib/desktop/dialog";
 import { useAppTheme } from "@/lib/app-theme";
@@ -155,6 +157,7 @@ type SettingsSection =
   | "cat"
   | "agent"
   | "keyboard"
+  | "spelling"
   | "rendering"
   | "storage"
   | "about";
@@ -179,6 +182,7 @@ const SECTIONS: Array<{
   { id: "cat", label: "Cat", icon: CatIcon },
   { id: "agent", label: "Agent", icon: BotMessageSquareIcon },
   { id: "keyboard", label: "Keyboard", icon: KeyboardIcon },
+  { id: "spelling", label: "Spell Check", icon: SpellCheckIcon },
   { id: "rendering", label: "Rendering", icon: CodeXmlIcon },
   { id: "storage", label: "Storage", icon: HardDriveIcon },
   { id: "about", label: "About", icon: SettingsIcon },
@@ -1005,6 +1009,11 @@ export function SettingsWindow() {
   const editorFontSize = useSettingsStore((s) => s.editorFontSize);
   const spellCheck = useSettingsStore((s) => s.spellCheck);
   const spellingLanguage = useSettingsStore((s) => s.spellingLanguage);
+  const spellingWords = useSettingsStore((s) => s.spellingWords);
+  const sortedSpellingWords = useMemo(
+    () => [...spellingWords].sort((left, right) => left.localeCompare(right)),
+    [spellingWords],
+  );
   const showEditorMinimap = useSettingsStore((s) => s.showEditorMinimap);
   const setShowEditorMinimap = useSettingsStore((s) => s.setShowEditorMinimap);
   const setEditorFontSize = useSettingsStore((s) => s.setEditorFontSize);
@@ -1341,15 +1350,15 @@ export function SettingsWindow() {
         searchOptions: getSearchOptions(EDITOR_COLOR_SCHEME_OPTIONS),
       },
       {
-        id: "appearance-editor-spellcheck",
-        section: "appearance",
+        id: "spelling-enabled",
+        section: "spelling",
         label: "Spell Check",
         valueLabel: spellCheck ? "On" : "Off",
         searchText: ["Spell Check", "Spelling", "Dictionary"],
       },
       {
-        id: "appearance-editor-spelling-language",
-        section: "appearance",
+        id: "spelling-language",
+        section: "spelling",
         label: "Spelling Language",
         valueLabel: getOptionLabel(SPELLING_LANGUAGES, spellingLanguage),
         searchText: [
@@ -1358,6 +1367,12 @@ export function SettingsWindow() {
           ...getOptionSearchText(SPELLING_LANGUAGES),
         ],
         searchOptions: getSearchOptions(SPELLING_LANGUAGES),
+      },
+      {
+        id: "personal-dictionary",
+        section: "spelling",
+        label: "Personal Dictionary",
+        searchText: ["Personal Dictionary", "Spelling", "Added words"],
       },
       {
         id: "appearance-editor-minimap",
@@ -1927,7 +1942,8 @@ export function SettingsWindow() {
       row?.scrollIntoView({
         block:
           pendingScrollRowId === "agent-custom-models" ||
-          pendingScrollRowId === "agent-provider-tabs"
+          pendingScrollRowId === "agent-provider-tabs" ||
+          pendingScrollRowId === "personal-dictionary"
             ? "start"
             : "center",
       });
@@ -2104,7 +2120,12 @@ export function SettingsWindow() {
                     active={activeSection === section.id}
                     searchQuery={normalizedSearchQuery}
                     matches={matches}
-                    onClick={() => setActiveSection(section.id)}
+                    onClick={() => {
+                      setActiveSection(section.id);
+                      if (section.id === "spelling") {
+                        contentScrollRef.current?.scrollTo({ top: 0 });
+                      }
+                    }}
                     onMatchClick={(id) => {
                       const setting = matches.find((match) => match.id === id);
                       if (setting) handleSearchMatchClick(setting);
@@ -2169,39 +2190,6 @@ export function SettingsWindow() {
                         </SettingsRow>
                       </SettingsGroup>
                       <SettingsGroup title="Editor">
-                        <SettingsRow
-                          id="appearance-editor-spellcheck"
-                          title="Spell Check"
-                        >
-                          <SettingsSwitch
-                            checked={spellCheck}
-                            label="Spell Check"
-                            onCheckedChange={(enabled) => {
-                              useSettingsStore
-                                .getState()
-                                .setSpellCheck(enabled);
-                              broadcastSettingsChanged();
-                            }}
-                          />
-                        </SettingsRow>
-                        <SettingsRow
-                          id="appearance-editor-spelling-language"
-                          title="Spelling Language"
-                        >
-                          <SettingsDropdown
-                            ariaLabel="Spelling language"
-                            value={spellingLanguage}
-                            options={SPELLING_LANGUAGES}
-                            onChange={(value) => {
-                              useSettingsStore
-                                .getState()
-                                .setSpellingLanguage(
-                                  normalizeSpellingLanguage(value),
-                                );
-                              broadcastSettingsChanged();
-                            }}
-                          />
-                        </SettingsRow>
                         <SettingsRow
                           id="appearance-editor-minimap"
                           title="Show Minimap"
@@ -2286,6 +2274,82 @@ export function SettingsWindow() {
                             />
                           </div>
                         </SettingsRow>
+                      </SettingsGroup>
+                    </div>
+                  </section>
+                )}
+
+                {activeSection === "spelling" && (
+                  <section aria-label="Spell Check settings">
+                    <SettingsRow id="spelling-enabled" title="Spell Check">
+                      <SettingsSwitch
+                        checked={spellCheck}
+                        label="Spell Check"
+                        onCheckedChange={(enabled) => {
+                          useSettingsStore.getState().setSpellCheck(enabled);
+                          broadcastSettingsChanged();
+                        }}
+                      />
+                    </SettingsRow>
+                    <SettingsRow
+                      id="spelling-language"
+                      title="Spelling Language"
+                    >
+                      <SettingsDropdown
+                        ariaLabel="Spelling language"
+                        value={spellingLanguage}
+                        options={SPELLING_LANGUAGES}
+                        onChange={(value) => {
+                          useSettingsStore
+                            .getState()
+                            .setSpellingLanguage(
+                              normalizeSpellingLanguage(value),
+                            );
+                          broadcastSettingsChanged();
+                        }}
+                      />
+                    </SettingsRow>
+                    <div
+                      data-settings-row-id="personal-dictionary"
+                      className="scroll-mt-4"
+                    >
+                      <SettingsGroup title="Personal Dictionary">
+                        {sortedSpellingWords.length ? (
+                          <ul
+                            aria-label="Added words"
+                            className="divide-y divide-border/45"
+                          >
+                            {sortedSpellingWords.map((word) => (
+                              <li
+                                key={word}
+                                className="flex min-h-9 items-center justify-between gap-3 py-1.5 text-sm"
+                              >
+                                <span className="wrap-anywhere min-w-0">
+                                  {word}
+                                </span>
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="icon-xs"
+                                  className="text-muted-foreground hover:text-destructive focus-visible:ring-1 focus-visible:ring-ring"
+                                  aria-label={`Remove ${word}`}
+                                  onClick={() => {
+                                    useSettingsStore
+                                      .getState()
+                                      .removeSpellingWord(word);
+                                    broadcastSettingsChanged();
+                                  }}
+                                >
+                                  <Trash2Icon />
+                                </Button>
+                              </li>
+                            ))}
+                          </ul>
+                        ) : (
+                          <p className="py-3 text-muted-foreground text-sm">
+                            No added words
+                          </p>
+                        )}
                       </SettingsGroup>
                     </div>
                   </section>

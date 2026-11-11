@@ -91,27 +91,66 @@ test("settings reuse existing controls and persist across reloads", async ({
   page,
 }) => {
   await page.goto("/?settings&onboarding-demo");
-  await page.getByPlaceholder("Search settings").fill("spell");
-  await page.getByText("Spell Check", { exact: true }).first().click();
+  const tab = page.getByRole("button", { name: "Spell Check", exact: true });
   const toggle = page.getByRole("switch", { name: "Spell Check", exact: true });
+  const language = page.getByRole("combobox", { name: "Spelling language" });
+  await expect(toggle).toHaveCount(0);
+  await expect(language).toHaveCount(0);
+  await tab.click();
   await expect(toggle).toBeVisible();
   await toggle.click();
   await expect(toggle).toHaveAttribute("aria-checked", "false");
-  await page
-    .locator('[data-settings-row-id="appearance-editor-spelling-language"]')
-    .getByRole("combobox")
-    .click();
+  await language.click();
   await page.getByRole("option", { name: "English (UK)", exact: true }).click();
   await page.screenshot({ path: "test-results/spelling-settings.png" });
   await page.reload();
-  await page.getByPlaceholder("Search settings").fill("spell");
-  await page.getByText("Spell Check", { exact: true }).first().click();
+  await tab.click();
   await expect(toggle).toHaveAttribute("aria-checked", "false");
-  await expect(
-    page.locator(
-      '[data-settings-row-id="appearance-editor-spelling-language"]',
+  await expect(language).toContainText("English (UK)");
+});
+
+test("the Spell Check tab is searchable and scrolls long dictionaries at a narrow width", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 760, height: 620 });
+  await page.goto("/?settings&onboarding-demo");
+  const spellCheck = page.getByRole("region", { name: "Spell Check settings" });
+  const tab = page.getByRole("button", { name: "Spell Check", exact: true });
+  await expect(spellCheck).toHaveCount(0);
+  await tab.click();
+  await expect(spellCheck.getByText("No added words")).toBeVisible();
+  const longWord = "z".repeat(100);
+  await settings(page, {
+    spellingWords: [
+      longWord,
+      ...Array.from({ length: 40 }, (_, index) => `word${index + 10}`),
+    ],
+  });
+  await page.getByRole("button", { name: "Appearance", exact: true }).click();
+  await page.getByPlaceholder("Search settings").fill("personal dictionary");
+  await page
+    .getByRole("button", { name: "Personal Dictionary", exact: true })
+    .click();
+  const list = spellCheck.getByRole("list", { name: "Added words" });
+  await expect(list.getByRole("listitem")).toHaveCount(41);
+  await expect(list.getByText("word10", { exact: true })).toBeInViewport();
+  expect(
+    await list.evaluate(
+      (element) => element.scrollWidth === element.clientWidth,
     ),
-  ).toContainText("English (UK)");
+  ).toBe(true);
+  const remove = list.getByRole("button", { name: `Remove ${longWord}` });
+  await expect(remove).not.toBeInViewport();
+  await page.getByPlaceholder("Search settings").clear();
+  await tab.click();
+  await expect(spellCheck.getByRole("switch")).toBeInViewport();
+  await page.screenshot({ path: "test-results/personal-dictionary.png" });
+  await remove.focus();
+  await expect(remove).toBeInViewport();
+  await page.screenshot({ path: "test-results/personal-dictionary-end.png" });
+  await remove.press("Enter");
+  await expect(list.getByRole("listitem")).toHaveCount(40);
+  await expect(remove).toHaveCount(0);
 });
 
 test("large-document checks remain visible-only and continuous typing does not queue checks", async ({
