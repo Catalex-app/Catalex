@@ -131,9 +131,12 @@ test("Markdown iframe menus copy and add source-backed comments", async ({
   await text.click({ button: "right" });
   await expect(page.getByRole("menuitem")).toHaveText(["Copy", "Add Comment"]);
   // Another iframe right-click must not replace the open selection menu.
-  await preview
+  const blockedLink = await preview
     .getByRole("link", { name: "a local link" })
-    .click({ button: "right" });
+    .boundingBox();
+  await page.mouse.click(blockedLink!.x + 4, blockedLink!.y + 4, {
+    button: "right",
+  });
   await expect(page.getByRole("menuitem")).toHaveText(["Copy", "Add Comment"]);
   await page.screenshot({
     animations: "disabled",
@@ -163,13 +166,18 @@ test("Markdown iframe menus copy and add source-backed comments", async ({
   await expect(
     page.getByRole("menuitem", { name: "Open Link", exact: true }),
   ).toBeVisible();
-  await preview
-    .getByRole("heading", { name: "Markdown Preview", exact: true })
-    .click();
+  const heading = await preview
+    .getByRole("heading", {
+      name: "Markdown Preview",
+      exact: true,
+      includeHidden: true,
+    })
+    .boundingBox();
+  await page.mouse.click(heading!.x + 4, heading!.y + 4);
   await expect(page.getByRole("menu")).toHaveCount(0);
 });
 
-test("PDF selection menu copies and creates a comment using the resolved source", async ({
+test("PDF right-click menu only copies; selection control adds a source-backed comment", async ({
   page,
 }) => {
   await page.goto("/?debug=pdf-comments&formatted");
@@ -206,31 +214,21 @@ test("PDF selection menu copies and creates a comment using the resolved source"
     bounds!.y + bounds!.height / 2,
     { button: "right" },
   );
-  await expect(page.getByRole("menuitem")).toHaveText(["Copy", "Add Comment"]);
+  await expect(page.getByRole("menuitem")).toHaveText(["Copy"]);
   await page.getByRole("menuitem", { name: "Copy", exact: true }).click();
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
     "Your abstract",
   );
   await select();
-  await page.mouse.click(
-    bounds!.x + bounds!.width / 2,
-    bounds!.y + bounds!.height / 2,
-    { button: "right" },
-  );
-  await expect(
-    page.getByRole("menuitem", { name: "Add Comment", exact: true }),
-  ).toBeEnabled();
   await page.screenshot({
     animations: "disabled",
-    path: "test-results/context-menu-pdf.png",
+    path: "test-results/pdf-selection-comment-control.png",
   });
-  await page
-    .getByRole("menuitem", { name: "Add Comment", exact: true })
-    .click();
+  await page.getByRole("button", { name: "Comment", exact: true }).click();
   const card = page.getByRole("dialog", { name: "PDF comment", exact: true });
   await card
     .getByRole("textbox", { name: "Comment text", exact: true })
-    .fill("PDF context comment");
+    .fill("PDF selection comment");
   await card.getByRole("button", { name: "Save comment", exact: true }).click();
   await expect
     .poll(() =>
@@ -240,7 +238,8 @@ test("PDF selection menu copies and creates a comment using the resolved source"
             "catalex-harness-comments:/tmp/catalex-pdf-comments-harness",
           ) ?? "{}",
         )["chapter.tex"]?.some(
-          (comment: { text: string }) => comment.text === "PDF context comment",
+          (comment: { text: string }) =>
+            comment.text === "PDF selection comment",
         ),
       ),
     )

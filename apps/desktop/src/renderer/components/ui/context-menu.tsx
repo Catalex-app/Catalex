@@ -2,6 +2,7 @@ import * as React from "react";
 import { ContextMenu as ContextMenuPrimitive } from "radix-ui";
 
 import { cn } from "@/lib/utils";
+import { getContextMenuCoordinator } from "@/lib/context-menu-coordinator";
 
 const ContextMenuOpenContext = React.createContext(false);
 
@@ -40,37 +41,31 @@ function ContextMenuTrigger({
 function ContextMenuContent({
   portalContainer,
   className,
+  onKeyDown,
+  onKeyUp,
+  onEscapeKeyDown,
   ...props
 }: React.ComponentProps<typeof ContextMenuPrimitive.Content> & {
   portalContainer?: HTMLElement;
 }) {
   const open = React.useContext(ContextMenuOpenContext);
+  const [content, setContent] = React.useState<HTMLDivElement | null>(null);
+  const release = React.useRef<(() => void) | null>(null);
   React.useLayoutEffect(() => {
-    if (!open) return;
-    const doc = portalContainer?.ownerDocument ?? document;
-    const ignoreContextMenu = (event: MouseEvent) => {
-      event.preventDefault();
-      event.stopPropagation();
-    };
-    const ignoreSecondaryPointer = (event: PointerEvent) => {
-      if (
-        event.button === 2 ||
-        (event.button === 0 && event.ctrlKey && /Mac/.test(navigator.platform))
-      ) {
-        event.preventDefault();
-        event.stopPropagation();
-      }
-    };
-    doc.addEventListener("contextmenu", ignoreContextMenu, true);
-    doc.addEventListener("pointerdown", ignoreSecondaryPointer, true);
-    return () => {
-      doc.removeEventListener("contextmenu", ignoreContextMenu, true);
-      doc.removeEventListener("pointerdown", ignoreSecondaryPointer, true);
-    };
-  }, [open, portalContainer]);
+    if (!open || !content) return;
+    const coordinator = getContextMenuCoordinator(
+      portalContainer?.ownerDocument ?? document,
+    );
+    const menu = Symbol("context-menu");
+    coordinator.acquire(menu, content);
+    const cleanup = () => coordinator.release(menu);
+    release.current = cleanup;
+    return cleanup;
+  }, [open, portalContainer, content]);
   return (
     <ContextMenuPrimitive.Portal container={portalContainer}>
       <ContextMenuPrimitive.Content
+        ref={setContent}
         data-slot="context-menu-content"
         collisionPadding={14}
         className={cn(
@@ -78,6 +73,19 @@ function ContextMenuContent({
           className,
         )}
         {...props}
+        onEscapeKeyDown={(event) => {
+          // Restore background focusability before the caller restores focus.
+          release.current?.();
+          onEscapeKeyDown?.(event);
+        }}
+        onKeyDown={(event) => {
+          onKeyDown?.(event);
+          event.stopPropagation();
+        }}
+        onKeyUp={(event) => {
+          onKeyUp?.(event);
+          event.stopPropagation();
+        }}
       />
     </ContextMenuPrimitive.Portal>
   );

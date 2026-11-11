@@ -29,6 +29,19 @@ const state = (items: MenuEntry[]): ApplicationMenuState => ({
 });
 
 describe("native action projection", () => {
+  it("validates optional context-menu shortcut ownership", () => {
+    expect(
+      isApplicationMenuState({ ...state([]), contextMenuOpen: true }),
+    ).toBe(true);
+    expect(
+      isApplicationMenuState({ ...state([]), contextMenuOpen: false }),
+    ).toBe(true);
+    expect(
+      isApplicationMenuState({ ...state([]), contextMenuOpen: "true" }),
+    ).toBe(false);
+    expect(isApplicationMenuState(state([]))).toBe(true);
+  });
+
   it("discovers new actions without a native catalog and preserves labels, selection, availability and routing", () => {
     const dispatch = vi.fn();
     const items = flatten(

@@ -200,9 +200,20 @@ The `context-menu-source` suite checks session/file/folder rows in light and dar
 modes, Escape, outside dismissal, and reopening. Tab checks also retain the
 existing outline while moving the pointer into the menu.
 
-An open shared context menu ignores further secondary clicks in its document.
-The temporary capture handlers are removed on close or unmount; primary clicks
-and Escape retain normal dismissal behavior. Iframe-originated text-menu
-requests also respect an already open menu. The `context-menu-single` suite
-checks repeated right-clicks, unchanged menu position/source highlight, release
-after dismissal/action/source removal, and independent browser windows.
+The per-document context-menu coordinator owns the active registration, input
+isolation, and secondary-click guard. Menus register their mounted element and
+release on close or unmount; iframe menu requests consult the same coordinator.
+Background siblings become inert while a menu is open, so an outside left-click
+only dismisses it even inside the chat drawer or a preview iframe. Cleanup
+restores only inert attributes added by the coordinator. Radix still owns
+navigation, dismissal, and modal behavior; other dropdowns are not registered.
+The keyboard boundary leaves menu keys to Radix and blocks background shortcuts;
+Electron also suppresses native accelerators until the menu closes. Text actions
+run after dismissal so native editing commands can focus their source again.
+
+Coordinator unit tests cover registration, stale cleanup, inert restoration,
+keyboard filtering, and document isolation. The `context-menu-input` suite checks
+outside-click consumption and the next normal click in sidebar, session-popup,
+and half-mode menus, plus keyboard navigation and shortcut restoration. Existing
+source/single-menu tests cover highlights, unmount cleanup, and separate windows.
+The native context-menu smoke also checks native accelerator suppression/restoration.

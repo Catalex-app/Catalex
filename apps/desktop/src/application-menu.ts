@@ -22,6 +22,7 @@ export interface ApplicationMenuState {
   items: MenuEntry[];
   shortcuts: Record<string, string | null>;
   recordingShortcut: boolean;
+  contextMenuOpen?: boolean;
 }
 
 export interface MenuAction {
@@ -57,6 +58,8 @@ export function isApplicationMenuState(
         entry.children.every((child) => validEntry(child, depth + 1))));
   return (
     typeof state.recordingShortcut === "boolean" &&
+    (state.contextMenuOpen === undefined ||
+      typeof state.contextMenuOpen === "boolean") &&
     Array.isArray(state.items) &&
     state.items.length <= 500 &&
     state.items.every((entry) => validEntry(entry)) &&

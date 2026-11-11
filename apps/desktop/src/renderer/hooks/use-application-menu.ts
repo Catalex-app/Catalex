@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { getContextMenuCoordinator } from "@/lib/context-menu-coordinator";
 import type { ApplicationMenuState, MenuAction } from "../../application-menu";
 import { invoke } from "@/lib/desktop/core";
 import { shouldHandleAppZoomShortcut } from "@/lib/app-zoom";
@@ -16,6 +17,7 @@ import {
 export function useApplicationMenu() {
   useEffect(() => {
     if (!window.catalex) return;
+    const coordinator = getContextMenuCoordinator(document);
     let disposed = false;
     let queued = false;
     let previous = "";
@@ -28,6 +30,7 @@ export function useApplicationMenu() {
         const overrides = useSettingsStore.getState().keyboardShortcutOverrides;
         const state: ApplicationMenuState = {
           items: getAppMenuItems(),
+          contextMenuOpen: !coordinator.canOpen(),
           recordingShortcut: !!document.activeElement?.closest(
             "[data-shortcut-action]",
           ),
@@ -48,8 +51,10 @@ export function useApplicationMenu() {
       });
     };
     const stop = window.catalex.listen("application-menu", (action) => {
-      void runMenuAction(action as MenuAction);
+      if (getContextMenuCoordinator(document).canOpen())
+        void runMenuAction(action as MenuAction);
     });
+    const stopMenus = coordinator.subscribe(publish);
     const stopActions = subscribeAppActions(publish);
     const stopSettings = useSettingsStore.subscribe(publish);
     document.addEventListener("focusin", publish);
@@ -58,6 +63,7 @@ export function useApplicationMenu() {
     return () => {
       disposed = true;
       stop();
+      stopMenus();
       stopActions();
       stopSettings();
       document.removeEventListener("focusin", publish);

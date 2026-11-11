@@ -389,7 +389,9 @@ async function hostCommand(
       if (!isApplicationMenuState(state))
         throw new Error("Invalid menu state.");
       applicationMenu?.update(win, state);
-      win.webContents.setIgnoreMenuShortcuts(state.recordingShortcut);
+      win.webContents.setIgnoreMenuShortcuts(
+        state.recordingShortcut || !!state.contextMenuOpen,
+      );
       return { result: null };
     }
     case "desktop:pdf:open":

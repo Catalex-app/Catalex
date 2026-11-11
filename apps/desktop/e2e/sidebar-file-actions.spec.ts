@@ -46,7 +46,12 @@ async function drag(
   await page.mouse.down();
   await page.mouse.move(from.x + 70, from.y + from.height / 2, { steps: 3 });
   await page.mouse.move(to.x + 65, to.y + to.height / 2, { steps: 15 });
-  if (release) await page.mouse.up();
+  if (release) {
+    await page.mouse.up();
+    // dnd-kit suppresses clicks for 50 ms after a drop. Let that guard clear
+    // before clicking the newly opened confirmation dialog.
+    await page.waitForTimeout(60);
+  }
 }
 
 test("expanded nested folder wins drop and confirmed move reveals the actual destination", async ({

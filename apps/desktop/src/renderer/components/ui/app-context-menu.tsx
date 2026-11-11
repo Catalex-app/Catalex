@@ -13,6 +13,7 @@ import {
 import { Fragment, useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { toast } from "sonner";
+import { getContextMenuCoordinator } from "@/lib/context-menu-coordinator";
 import {
   CONTEXT_MENU_EVENT,
   CONTEXT_MENU_DISMISS_EVENT,
@@ -57,13 +58,8 @@ export function AppContextMenu() {
   useEffect(() => {
     const remove = installContextMenus(document);
     const show = (event: Event) => {
-      // Preview iframe events arrive here without passing through this document.
-      if (
-        document.querySelector(
-          '[data-slot="context-menu-content"][data-state="open"]',
-        )
-      )
-        return;
+      // Iframe requests follow the same rule as document right-clicks.
+      if (!getContextMenuCoordinator(document).canOpen()) return;
       const next = (event as CustomEvent<ContextMenuRequest>).detail;
       activeRequest.current = next;
       flushSync(() => {
@@ -141,13 +137,17 @@ export function AppContextMenu() {
             <ContextMenuItem
               disabled={action.disabled}
               onSelect={() => {
-                Promise.resolve()
-                  .then(action.run)
-                  .catch((error: unknown) => {
-                    toast.error(`${action.label} failed`, {
-                      description: String(error),
+                // Native editing commands need the source to be focusable
+                // after Radix closes and the coordinator restores the background.
+                setTimeout(() => {
+                  Promise.resolve()
+                    .then(action.run)
+                    .catch((error: unknown) => {
+                      toast.error(`${action.label} failed`, {
+                        description: String(error),
+                      });
                     });
-                  });
+                }, 0);
               }}
             >
               <ActionIcon label={action.label} />

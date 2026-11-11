@@ -1,4 +1,5 @@
 import { useApplicationMenu } from "./hooks/use-application-menu";
+import { installContextMenuKeyboardBoundary } from "./lib/context-menu-coordinator";
 import { installImeKeyBoundary } from "./lib/keyboard-events";
 import { installMouseBoundary } from "./lib/mouse-events";
 import { AppContextMenu } from "./components/ui/app-context-menu";
@@ -23,6 +24,9 @@ import "./styles/globals.css";
 
 const removeImeKeyBoundary = installImeKeyBoundary();
 if (import.meta.hot) import.meta.hot.dispose(removeImeKeyBoundary);
+
+const removeContextMenuKeyboardBoundary = installContextMenuKeyboardBoundary();
+if (import.meta.hot) import.meta.hot.dispose(removeContextMenuKeyboardBoundary);
 
 const removeMouseBoundary = installMouseBoundary();
 if (import.meta.hot) import.meta.hot.dispose(removeMouseBoundary);
