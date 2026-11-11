@@ -57,6 +57,13 @@ export function AppContextMenu() {
   useEffect(() => {
     const remove = installContextMenus(document);
     const show = (event: Event) => {
+      // Preview iframe events arrive here without passing through this document.
+      if (
+        document.querySelector(
+          '[data-slot="context-menu-content"][data-state="open"]',
+        )
+      )
+        return;
       const next = (event as CustomEvent<ContextMenuRequest>).detail;
       activeRequest.current = next;
       flushSync(() => {

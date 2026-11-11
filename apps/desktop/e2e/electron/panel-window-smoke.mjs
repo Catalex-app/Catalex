@@ -281,6 +281,30 @@ try {
   await savedPopup.evaluate(() => window.close());
   await expect.poll(() => savedPopup.isClosed()).toBe(true);
   await main.getByRole("button", { name: "Half", exact: true }).click();
+  for (const surface of ["tab", "popup"]) {
+    if (surface === "popup")
+      await main
+        .getByRole("button", { name: "Session history", exact: true })
+        .click();
+    const target =
+      surface === "tab"
+        ? main
+            .locator("[data-chat-tab]")
+            .filter({ hasText: "Saved sidebar conversation" })
+        : main.getByRole("menuitem", { name: /Saved sidebar conversation/ });
+    await target.click({ button: "right" });
+    const opened = app.waitForEvent("window");
+    await main
+      .getByRole("menuitem", { name: "Open in pop-out", exact: true })
+      .click();
+    const popup = await ready(await opened);
+    await expect(
+      popup.getByText("Native saved history.", { exact: true }),
+    ).toBeVisible();
+    await popup.evaluate(() => window.close());
+    await expect.poll(() => popup.isClosed()).toBe(true);
+    if (surface === "popup") await main.keyboard.press("Escape");
+  }
   console.log(
     "Native sidebar file/session pop-outs, lazy loading, unchanged main selection, and duplicate focus passed",
   );

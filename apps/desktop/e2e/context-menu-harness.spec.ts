@@ -130,6 +130,11 @@ test("Markdown iframe menus copy and add source-backed comments", async ({
   await select();
   await text.click({ button: "right" });
   await expect(page.getByRole("menuitem")).toHaveText(["Copy", "Add Comment"]);
+  // Another iframe right-click must not replace the open selection menu.
+  await preview
+    .getByRole("link", { name: "a local link" })
+    .click({ button: "right" });
+  await expect(page.getByRole("menuitem")).toHaveText(["Copy", "Add Comment"]);
   await page.screenshot({
     animations: "disabled",
     path: "test-results/context-menu-markdown.png",

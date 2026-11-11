@@ -20,11 +20,9 @@ for (const paused of [false, true]) {
       await page.waitForTimeout(400);
     }
     await page.evaluate(async (paused) => {
-      const url = performance
-        .getEntriesByType("resource")
-        .map((e) => e.name)
-        .find((p) => p.includes("/stores/agent-chat-store.ts"));
-      const { useAgentChatStore: s } = await import(url);
+      const { useAgentChatStore: s } = await import(
+        /* @vite-ignore */ "/src/renderer/stores/agent-chat-store.ts"
+      );
       const state = s.getState();
       const original = state.tabs.find((t) => t.id === state.activeTabId);
       const idle = {
@@ -61,11 +59,9 @@ for (const paused of [false, true]) {
       { pauseState: "pausing" },
     ]) {
       await page.evaluate(async (patch) => {
-        const url = performance
-          .getEntriesByType("resource")
-          .map((e) => e.name)
-          .find((p) => p.includes("/stores/agent-chat-store.ts"));
-        const { useAgentChatStore: s } = await import(url);
+        const { useAgentChatStore: s } = await import(
+          /* @vite-ignore */ "/src/renderer/stores/agent-chat-store.ts"
+        );
         s.setState({
           tabs: s
             .getState()
@@ -74,16 +70,15 @@ for (const paused of [false, true]) {
             ),
         });
       }, patch);
-      await tab.hover();
+      await tab.click({ button: "right" });
       await expect(
-        tab.getByRole("button", { name: "Archive chat", exact: true }),
-      ).toHaveCount(0);
+        page.getByRole("menuitem", { name: "Archive chat", exact: true }),
+      ).toBeDisabled();
+      await page.keyboard.press("Escape");
       await page.evaluate(async (paused) => {
-        const url = performance
-          .getEntriesByType("resource")
-          .map((e) => e.name)
-          .find((p) => p.includes("/stores/agent-chat-store.ts"));
-        const { useAgentChatStore: s } = await import(url);
+        const { useAgentChatStore: s } = await import(
+          /* @vite-ignore */ "/src/renderer/stores/agent-chat-store.ts"
+        );
         s.setState({
           tabs: s.getState().tabs.map((t) =>
             t.id === "archive-fixture"
@@ -103,25 +98,23 @@ for (const paused of [false, true]) {
       path: `/tmp/archive-${paused ? "paused" : "idle"}.png`,
     });
     await tab.hover();
-    await tab
-      .getByRole("button", { name: "Archive chat", exact: true })
+    await tab.click({ button: "right" });
+    await page
+      .getByRole("menuitem", { name: "Archive chat", exact: true })
       .click();
     await expect(
-      tab.getByRole("button", { name: "Confirm archive", exact: true }),
+      page.getByRole("menuitem", { name: "Confirm", exact: true }),
     ).toBeVisible();
     await page.waitForTimeout(250);
-    await tab
-      .getByRole("button", { name: "Cancel archive", exact: true })
-      .click();
+    await page.keyboard.press("Escape");
     if ((await page.evaluate(() => window.archiveCalls)).length)
       throw Error("Cancel archived tab");
     await tab.hover();
-    await tab
-      .getByRole("button", { name: "Archive chat", exact: true })
+    await tab.click({ button: "right" });
+    await page
+      .getByRole("menuitem", { name: "Archive chat", exact: true })
       .click();
-    await tab
-      .getByRole("button", { name: "Confirm archive", exact: true })
-      .click();
+    await page.getByRole("menuitem", { name: "Confirm", exact: true }).click();
     await expect(tab).toHaveCount(0);
     const calls = await page.evaluate(() => window.archiveCalls);
     if (calls.length !== 1 || calls[0] !== "archive-fixture")

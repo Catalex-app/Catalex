@@ -41,7 +41,7 @@ export function SidebarRow({
       aria-label={hasTrailing ? undefined : label}
       data-sidebar-row
       className={cn(
-        "flex min-h-7 w-full min-w-0 items-center gap-2 rounded-md px-2 py-1 text-left text-sm transition-colors hover:bg-sidebar-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring focus-visible:ring-inset disabled:cursor-not-allowed disabled:opacity-45",
+        "flex min-h-7 w-full min-w-0 items-center gap-2 rounded-md menu-open:bg-sidebar-accent/50 px-2 py-1 text-left text-sm transition-colors hover:bg-sidebar-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring focus-visible:ring-inset disabled:cursor-not-allowed disabled:opacity-45",
         className,
       )}
       style={{ paddingLeft: 8 + depth * 16, ...style }}

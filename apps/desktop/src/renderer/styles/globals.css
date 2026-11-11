@@ -6,6 +6,10 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* Keep a menu's source visually engaged without moving focus out of the menu.
+   Direct children cover composite triggers such as sidebar folder rows. */
+@custom-variant menu-open (&[data-context-menu-open="true"], :where([data-context-menu-open="true"]) > &);
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -320,10 +324,10 @@ html.solar-mode body::after {
     transform: translateY(-50%);
   }
 
-  [data-chat-tab-dividers] [data-chat-tab-strip] > [data-chat-tab]:is([data-active="true"], :hover, :focus-within)::before,
-  [data-chat-tab-dividers] [data-chat-tab-strip] > [data-chat-tab]:is([data-active="true"], :hover, :focus-within) + [data-chat-tab]::before,
-  [data-chat-tab-dividers] > [data-new-chat-tab]:has([data-chat-tab]:is([data-active="true"], :hover, :focus-within))::before,
-  [data-chat-tab-dividers]:has([data-chat-tab-strip] > [data-chat-tab]:last-child:is([data-active="true"], :hover, :focus-within)) > [data-new-chat-tab]::before {
+  [data-chat-tab-dividers] [data-chat-tab-strip] > [data-chat-tab]:is([data-active="true"], :hover, :focus-within, [data-context-menu-open="true"])::before,
+  [data-chat-tab-dividers] [data-chat-tab-strip] > [data-chat-tab]:is([data-active="true"], :hover, :focus-within, [data-context-menu-open="true"]) + [data-chat-tab]::before,
+  [data-chat-tab-dividers] > [data-new-chat-tab]:has([data-chat-tab]:is([data-active="true"], :hover, :focus-within, [data-context-menu-open="true"]))::before,
+  [data-chat-tab-dividers]:has([data-chat-tab-strip] > [data-chat-tab]:last-child:is([data-active="true"], :hover, :focus-within, [data-context-menu-open="true"])) > [data-new-chat-tab]::before {
     opacity: 0;
   }
 
@@ -343,7 +347,7 @@ html.solar-mode body::after {
     button[aria-selected],
     button[aria-pressed]
   ):where(:hover, :focus-visible, [aria-selected="true"], [aria-pressed="true"], [data-active="true"]),
-  :where([data-slot="button-group"]) :where([data-button-group-item]):where(:hover, :focus-within, [data-active="true"])::after {
+  :where([data-slot="button-group"]) :where([data-button-group-item]):where(:hover, :focus-within, [data-active="true"], [data-context-menu-open="true"])::after {
     outline: 1px solid var(--border);
     outline-offset: -1px;
   }

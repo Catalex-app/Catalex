@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 for (const active of [true, false]) {
-  test(`reveals archive confirmation on a short rightmost ${active ? "active" : "inactive"} chat`, async ({
+  test(`confirms archive in the menu without resizing a short rightmost ${active ? "active" : "inactive"} chat`, async ({
     page,
   }, testInfo) => {
     await page.setViewportSize({ width: 1280, height: 900 });
@@ -14,14 +14,9 @@ for (const active of [true, false]) {
         .locator("html")
         .evaluate((element) => element.classList.add("dark"));
     await page.evaluate(async (active) => {
-      const resource = performance
-        .getEntriesByType("resource")
-        .find(
-          (entry) =>
-            new URL(entry.name).pathname ===
-            "/src/renderer/stores/agent-chat-store.ts",
-        );
-      const { useAgentChatStore: store } = await import(resource!.name);
+      const { useAgentChatStore: store } = await import(
+        /* @vite-ignore */ "/src/renderer/stores/agent-chat-store.ts"
+      );
       const base = store.getState().tabs[0];
       const tabs = Array.from({ length: 7 }, (_, index) => ({
         ...base,
@@ -71,80 +66,56 @@ for (const active of [true, false]) {
     const initialLeft = await viewport.evaluate(
       (element) => element.scrollLeft,
     );
-    await tab
-      .getByRole("button", { name: "Archive chat", exact: true })
-      .click();
-    const confirm = tab.getByRole("button", {
-      name: "Confirm archive",
-      exact: true,
-    });
-    const cancel = tab.getByRole("button", {
-      name: "Cancel archive",
-      exact: true,
-    });
-    await expect
-      .poll(async () => {
-        const visible = (await viewport.boundingBox())!;
-        const bounds = (await cancel.boundingBox())!;
-        return bounds.x + bounds.width <= visible.x + visible.width + 1;
-      })
-      .toBe(true);
-    await expect(confirm).toBeInViewport({ ratio: 1 });
-    await expect(cancel).toBeInViewport({ ratio: 1 });
-    await expect
-      .poll(() =>
-        tab.evaluate((element) => {
-          const stroke = getComputedStyle(element, "::after");
-          return {
-            style: stroke.outlineStyle,
-            width: stroke.outlineWidth,
-            offset: stroke.outlineOffset,
-            pointerEvents: stroke.pointerEvents,
-          };
-        }),
-      )
-      .toEqual({
-        style: "solid",
-        width: "1px",
-        offset: "-1px",
-        pointerEvents: "none",
-      });
-    expect(
-      await viewport.evaluate((element) => element.scrollLeft),
-    ).toBeGreaterThan(initialLeft);
-    await panel.screenshot({
-      path: testInfo.outputPath("archive-revealed.png"),
-    });
-    await tab.screenshot({
-      path: testInfo.outputPath("archive-tab-outline.png"),
-    });
-    await cancel.click();
-    await expect
-      .poll(async () => (await tab.boundingBox())!.width)
-      .toBe(initialWidth);
-    expect(
-      await page.evaluate(() => (window as any).archiveScrollCalls),
-    ).toEqual([]);
-    await page.mouse.move(0, 0);
+    await tab.click({ button: "right" });
+    const menu = page.locator(
+      '[data-slot="context-menu-content"][data-state="open"]',
+    );
+    await menu.getByRole("menuitem").first().hover();
     await expect
       .poll(() =>
         tab.evaluate(
           (element) => getComputedStyle(element, "::after").outlineStyle,
         ),
       )
-      .toBe(active ? "solid" : "none");
-    await tab.hover();
-    await tab
-      .getByRole("button", { name: "Archive chat", exact: true })
+      .toBe("solid");
+
+    await page
+      .getByRole("menuitem", { name: "Archive chat", exact: true })
       .click();
-    await expect
-      .poll(async () => {
-        const visible = (await viewport.boundingBox())!;
-        const bounds = (await cancel.boundingBox())!;
-        return bounds.x + bounds.width <= visible.x + visible.width + 1;
-      })
-      .toBe(true);
-    await confirm.click();
+    const confirm = page.getByRole("menuitem", {
+      name: "Confirm",
+      exact: true,
+    });
+    await expect(confirm).toBeInViewport({ ratio: 1 });
+    await expect(confirm.locator(".trash-menu-confirmation")).toHaveCSS(
+      "background-color",
+      active ? "rgb(23, 23, 23)" : "rgb(255, 255, 255)",
+    );
+    await expect(confirm.locator(".trash-menu-confirmation")).toHaveCSS(
+      "color",
+      active ? "rgb(255, 255, 255)" : "rgb(23, 23, 23)",
+    );
+    expect((await tab.boundingBox())!.width).toBe(initialWidth);
+    expect(await viewport.evaluate((element) => element.scrollLeft)).toBe(
+      initialLeft,
+    );
+    await page.screenshot({
+      path: testInfo.outputPath("archive-menu-confirmation.png"),
+      animations: "disabled",
+    });
+    await page.keyboard.press("Escape");
+    expect(
+      await page.evaluate(() => (window as any).archiveScrollCalls),
+    ).toEqual([]);
+    await tab.click({ button: "right" });
+    await expect(
+      page.getByRole("menuitem", { name: "Archive chat", exact: true }),
+    ).toBeVisible();
+    await page
+      .getByRole("menuitem", { name: "Archive chat", exact: true })
+      .press("Enter");
+    await expect(confirm).toBeVisible();
+    await confirm.press("Enter");
     expect(
       await page.evaluate(() => (window as any).archiveScrollCalls),
     ).toEqual(["archive-scroll-6"]);

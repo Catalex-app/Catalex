@@ -3,17 +3,37 @@ import { ContextMenu as ContextMenuPrimitive } from "radix-ui";
 
 import { cn } from "@/lib/utils";
 
+const ContextMenuOpenContext = React.createContext(false);
+
 function ContextMenu({
+  onOpenChange,
   ...props
 }: React.ComponentProps<typeof ContextMenuPrimitive.Root>) {
-  return <ContextMenuPrimitive.Root data-slot="context-menu" {...props} />;
+  const [open, setOpen] = React.useState(false);
+  return (
+    <ContextMenuOpenContext.Provider value={open}>
+      <ContextMenuPrimitive.Root
+        data-slot="context-menu"
+        onOpenChange={(nextOpen) => {
+          setOpen(nextOpen);
+          onOpenChange?.(nextOpen);
+        }}
+        {...props}
+      />
+    </ContextMenuOpenContext.Provider>
+  );
 }
 
 function ContextMenuTrigger({
   ...props
 }: React.ComponentProps<typeof ContextMenuPrimitive.Trigger>) {
+  const open = React.useContext(ContextMenuOpenContext);
   return (
-    <ContextMenuPrimitive.Trigger data-slot="context-menu-trigger" {...props} />
+    <ContextMenuPrimitive.Trigger
+      {...props}
+      data-slot="context-menu-trigger"
+      data-context-menu-open={open || undefined}
+    />
   );
 }
 
@@ -24,6 +44,30 @@ function ContextMenuContent({
 }: React.ComponentProps<typeof ContextMenuPrimitive.Content> & {
   portalContainer?: HTMLElement;
 }) {
+  const open = React.useContext(ContextMenuOpenContext);
+  React.useLayoutEffect(() => {
+    if (!open) return;
+    const doc = portalContainer?.ownerDocument ?? document;
+    const ignoreContextMenu = (event: MouseEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+    };
+    const ignoreSecondaryPointer = (event: PointerEvent) => {
+      if (
+        event.button === 2 ||
+        (event.button === 0 && event.ctrlKey && /Mac/.test(navigator.platform))
+      ) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+    };
+    doc.addEventListener("contextmenu", ignoreContextMenu, true);
+    doc.addEventListener("pointerdown", ignoreSecondaryPointer, true);
+    return () => {
+      doc.removeEventListener("contextmenu", ignoreContextMenu, true);
+      doc.removeEventListener("pointerdown", ignoreSecondaryPointer, true);
+    };
+  }, [open, portalContainer]);
   return (
     <ContextMenuPrimitive.Portal container={portalContainer}>
       <ContextMenuPrimitive.Content
@@ -62,6 +106,62 @@ function ContextMenuItem({
   );
 }
 
+/** Two-step menu action shared by file deletion and chat archiving. */
+function ContextMenuConfirmItem({
+  label,
+  icon: Icon,
+  tone = "destructive",
+  disabled,
+  onConfirm,
+}: {
+  label: string;
+  icon: React.ComponentType<{ className?: string }>;
+  tone?: "destructive" | "neutral";
+  disabled?: boolean;
+  onConfirm: () => void;
+}) {
+  const [confirming, setConfirming] = React.useState(false);
+  const open = React.useContext(ContextMenuOpenContext);
+  React.useEffect(() => {
+    // Content remains mounted during its exit animation; reset on close too.
+    if (!open || disabled) setConfirming(false);
+  }, [open, disabled]);
+  return (
+    <ContextMenuItem
+      variant={tone === "destructive" ? "destructive" : "default"}
+      className="trash-context-menu-item"
+      data-tone={tone}
+      data-confirming={confirming}
+      aria-label={confirming ? "Confirm" : label}
+      textValue={confirming ? "Confirm" : label}
+      disabled={disabled}
+      onSelect={(event) => {
+        if (!confirming) {
+          event.preventDefault();
+          setConfirming(true);
+          return;
+        }
+        setConfirming(false);
+        onConfirm();
+      }}
+    >
+      <span className="trash-menu-label" aria-hidden="true">
+        <Icon
+          className={cn(
+            "mr-2 size-4",
+            tone === "destructive" && "text-current",
+          )}
+        />
+        {label}
+      </span>
+      <span className="trash-menu-confirmation" aria-hidden="true">
+        <Icon className="mr-2 size-4 text-current" />
+        Confirm
+      </span>
+    </ContextMenuItem>
+  );
+}
+
 function ContextMenuSeparator({
   className,
   ...props
@@ -81,4 +181,5 @@ export {
   ContextMenuContent,
   ContextMenuItem,
   ContextMenuSeparator,
+  ContextMenuConfirmItem,
 };

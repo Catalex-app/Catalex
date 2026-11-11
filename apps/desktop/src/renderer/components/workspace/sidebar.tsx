@@ -140,6 +140,7 @@ import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
+  ContextMenuConfirmItem,
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
@@ -3343,21 +3344,6 @@ interface FileTreeNodeProps {
   nativeDragOver?: string | null;
 }
 
-function TrashMenuLabel() {
-  return (
-    <>
-      <span className="trash-menu-label" aria-hidden="true">
-        <Trash2Icon className="mr-2 size-4 text-destructive" />
-        Move to Trash
-      </span>
-      <span className="trash-menu-confirmation" aria-hidden="true">
-        <Trash2Icon className="mr-2 size-4 text-white" />
-        Confirm
-      </span>
-    </>
-  );
-}
-
 function FileTreeNode({
   node,
   depth,
@@ -3383,7 +3369,6 @@ function FileTreeNode({
 }: FileTreeNodeProps) {
   const isExpanded = expandedFolders.has(node.relativePath);
   const [folderAddMenuOpen, setFolderAddMenuOpen] = useState(false);
-  const [confirmTrash, setConfirmTrash] = useState(false);
   const [chatMenuOpen, setChatMenuOpen] = useState(false);
 
   if (node.type === "folder") {
@@ -3397,7 +3382,7 @@ function FileTreeNode({
           <SidebarTreeGuide depth={depth} data-folder-guide={depth} />
         )}
         <DraggableItem id={node.relativePath} type="folder" name={node.name}>
-          <ContextMenu onOpenChange={() => setConfirmTrash(false)}>
+          <ContextMenu>
             <ContextMenuTrigger asChild>
               <div
                 className={cn(
@@ -3499,24 +3484,11 @@ function FileTreeNode({
                 <PencilIcon className="mr-2 size-4" />
                 Rename
               </ContextMenuItem>
-              <ContextMenuItem
-                variant="destructive"
-                className="trash-context-menu-item"
-                data-confirming={confirmTrash}
-                aria-label={confirmTrash ? "Confirm" : "Move to Trash"}
-                textValue={confirmTrash ? "Confirm" : "Move to Trash"}
-                onSelect={(event) => {
-                  if (!confirmTrash) {
-                    event.preventDefault();
-                    setConfirmTrash(true);
-                    return;
-                  }
-                  setConfirmTrash(false);
-                  onDeleteFolder(node.relativePath);
-                }}
-              >
-                <TrashMenuLabel />
-              </ContextMenuItem>
+              <ContextMenuConfirmItem
+                label="Move to Trash"
+                icon={Trash2Icon}
+                onConfirm={() => onDeleteFolder(node.relativePath)}
+              />
             </ContextMenuContent>
           </ContextMenu>
         </DraggableItem>
@@ -3567,7 +3539,6 @@ function FileTreeNode({
     <DraggableItem id={file.relativePath} type="file" name={node.name}>
       <ContextMenu
         onOpenChange={() => {
-          setConfirmTrash(false);
           setChatMenuOpen(false);
         }}
       >
@@ -3692,25 +3663,12 @@ function FileTreeNode({
               <PencilIcon className="mr-2 size-4" />
               Rename
             </ContextMenuItem>
-            <ContextMenuItem
-              variant="destructive"
-              className="trash-context-menu-item"
-              data-confirming={confirmTrash}
-              aria-label={confirmTrash ? "Confirm" : "Move to Trash"}
-              textValue={confirmTrash ? "Confirm" : "Move to Trash"}
-              onSelect={(event) => {
-                if (!confirmTrash) {
-                  event.preventDefault();
-                  setConfirmTrash(true);
-                  return;
-                }
-                setConfirmTrash(false);
-                onDelete(file.id);
-              }}
+            <ContextMenuConfirmItem
+              label="Move to Trash"
+              icon={Trash2Icon}
+              onConfirm={() => onDelete(file.id)}
               disabled={fileCount <= 1}
-            >
-              <TrashMenuLabel />
-            </ContextMenuItem>
+            />
           </SidebarFileContextActions>
         </ContextMenuContent>
       </ContextMenu>

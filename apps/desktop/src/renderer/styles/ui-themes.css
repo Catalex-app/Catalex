@@ -529,6 +529,21 @@
   color: #fff;
 }
 
+/* Reversible actions use the app's monochrome confirmation treatment. */
+.trash-context-menu-item[data-tone="neutral"] .trash-menu-confirmation {
+  background: #171717;
+  color: #fff;
+}
+
+:root.dark .trash-context-menu-item[data-tone="neutral"] .trash-menu-confirmation {
+  background: #fff;
+  color: #171717;
+}
+
+.trash-context-menu-item[data-tone="neutral"] .trash-menu-confirmation svg {
+  color: inherit;
+}
+
 .trash-context-menu-item[data-confirming="true"] .trash-menu-label {
   opacity: 0;
   transform: translateX(100%);

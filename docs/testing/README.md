@@ -181,3 +181,28 @@ resolve comments, remove the final icon, exercise rapid reappearance, and cover
 stacked/separate layouts and reduced motion. Frame samples also verify that
 neighboring icons slide when a middle indicator is added or removed. Native verification uses isolated Electron profiles and
 temporary projects to check synchronization and full application restarts.
+
+Chat session context-menu checks cover Pop out and Archive in half-mode tabs,
+the shared mini/half session popup, and the sidebar. The `session-popout`,
+`chat-tab-archive`, and `chat-tab-archive-scroll` browser suites verify background
+chat preservation, duplicate pop-out focus, archive cancellation, busy-chat
+protection, and two-step menu confirmation without resizing tabs. Archive shares the file-trash
+confirmation control, with a black fill in light mode
+and a white fill in dark mode; Escape dismisses it and reopening
+the menu resets confirmation. The native panel-window smoke
+also opens saved chats from the tab and session-popup menus.
+
+The shared context-menu trigger exposes `data-context-menu-open` independently
+of tooltip state. Use `menu-open:` alongside a row's existing hover/focus styles
+to retain its highlight while the menu is open; composite triggers support their
+direct child row. It changes presentation only, not selection or keyboard focus.
+The `context-menu-source` suite checks session/file/folder rows in light and dark
+modes, Escape, outside dismissal, and reopening. Tab checks also retain the
+existing outline while moving the pointer into the menu.
+
+An open shared context menu ignores further secondary clicks in its document.
+The temporary capture handlers are removed on close or unmount; primary clicks
+and Escape retain normal dismissal behavior. Iframe-originated text-menu
+requests also respect an already open menu. The `context-menu-single` suite
+checks repeated right-clicks, unchanged menu position/source highlight, release
+after dismissal/action/source removal, and independent browser windows.
