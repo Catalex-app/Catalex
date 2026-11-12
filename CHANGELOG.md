@@ -6,9 +6,10 @@
 
 ### TL;DR
 
-- Use native menus for file, editing, comment, and workspace actions.
-- Work more comfortably in narrow windows, with steadier chat sizing and consistent Find controls.
-- Resize PDF comment highlights and manage your personal spelling dictionary.
+- Work much more comfortably in narrow window, with lots of components polished and redesigned.
+- Search bar completely redesigned, and now supporting search in chat history.
+- Expose essential controls to MacOS native menu.
+- Various UI detail and animation refinements.
 
 ### Full Changelog
 
