@@ -1,28 +1,37 @@
-import { canCloseSearchOnEscape } from "@/lib/search-escape";
+import { DocumentBarNavigation } from "../document-bar-navigation";
 import {
   useSearchComments,
   useCommentSearchHighlight,
+  dismissSearchComment,
 } from "./search-comments";
 import { Hint } from "@/components/ui/tooltip";
 import { useEffect, useRef, useState } from "react";
 import {
-  XIcon,
-  ChevronUpIcon,
-  ChevronLeftIcon,
-  ChevronRightIcon,
   ChevronDownIcon,
-  RegexIcon,
+  ChevronUpIcon,
   MessageSquareTextIcon,
+  RegexIcon,
+  AlignLeftIcon,
+  SearchIcon,
+  XIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { ButtonGroup } from "@/components/ui/button-group";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import type { SearchScope } from "@/lib/preview-search";
+import {
+  documentBarButtonClassName,
+  documentBarClassName,
+  documentBarControlHeightClassName,
+} from "../document-navigation-styles";
 
 type HistoryField = "find" | "replace";
 type HistoryDirection = "up" | "down";
 
 interface SearchPanelProps {
   preview?: boolean;
+  testId?: string;
   pdf?: boolean;
   commentRange?: { from: number; to: number } | null;
   statusText?: string;
@@ -32,6 +41,7 @@ interface SearchPanelProps {
   isCaseSensitive: boolean;
   isWholeWord: boolean;
   isRegex: boolean;
+  scope: SearchScope;
   preserveCase: boolean;
   findInSelection: boolean;
   canEnableFindInSelection: boolean;
@@ -43,11 +53,13 @@ interface SearchPanelProps {
   onToggleCaseSensitive: () => void;
   onToggleWholeWord: () => void;
   onToggleRegex: () => void;
+  onScopeChange?: (scope: SearchScope) => void;
   onTogglePreserveCase: () => void;
   onToggleFindInSelection: () => void;
   onClose: () => void;
   onFindNext: () => void;
   onFindPrevious: () => void;
+  onFindCurrent?: () => void;
   onReplaceNext: () => void;
   onReplaceAll: () => void;
   onHistoryNavigate: (field: HistoryField, direction: HistoryDirection) => void;
@@ -55,52 +67,79 @@ interface SearchPanelProps {
   currentMatch: number;
 }
 
+const searchRowClassName = cn(
+  documentBarClassName,
+  "col-span-2 grid grid-cols-subgrid",
+);
+const searchControlsClassName =
+  "flex min-h-8 min-w-0 flex-wrap content-center items-center gap-1";
+function SearchField({
+  label,
+  children,
+  className,
+}: {
+  label: string;
+  children: React.ReactNode;
+  className: string;
+}) {
+  return (
+    <div
+      className={cn(
+        "flex @[460px]/search:h-8 h-7 min-w-0 items-center gap-1 @[460px]/search:rounded-lg rounded-md border border-input bg-muted/30 pr-1 transition-colors focus-within:border-foreground focus-within:bg-background",
+        className,
+      )}
+    >
+      <ButtonGroup
+        variant="plain"
+        aria-label={label}
+        className="flex h-full min-w-0 flex-1 items-center gap-1"
+      >
+        {children}
+      </ButtonGroup>
+    </div>
+  );
+}
+
+const searchInputClassName =
+  "h-full flex-1 rounded-none border-0 bg-transparent px-2 shadow-none outline-none! dark:bg-transparent";
+
 function ToggleButton({
   active,
   disabled,
   onClick,
   title,
-  compact = false,
-  ariaLabel,
-  iconOnly = false,
   children,
 }: {
   active: boolean;
   disabled?: boolean;
   onClick: () => void;
   title: string;
-  compact?: boolean;
-  ariaLabel?: string;
-  iconOnly?: boolean;
   children: React.ReactNode;
 }) {
   return (
     <Hint content={title}>
-      <button
+      <Button
         type="button"
-        aria-label={ariaLabel ?? title}
+        variant="ghost"
+        size="icon-xs"
+        aria-label={title}
         aria-pressed={active}
         onClick={onClick}
         disabled={disabled}
         className={cn(
-          "inline-flex h-6 items-center justify-center rounded-md font-medium text-[11px] leading-none transition-colors",
-          iconOnly ? "size-6 px-0" : compact ? "px-1.5" : "px-2",
-          active
-            ? "bg-accent text-foreground"
-            : disabled
-              ? "text-muted-foreground"
-              : "text-muted-foreground hover:bg-muted/70 hover:text-foreground",
-          disabled && "cursor-default opacity-50",
+          documentBarButtonClassName,
+          "text-[11px] aria-pressed:bg-accent aria-pressed:text-foreground",
         )}
       >
         {children}
-      </button>
+      </Button>
     </Hint>
   );
 }
 
 export function SearchPanel({
   preview = false,
+  testId,
   pdf = false,
   commentRange,
   statusText,
@@ -110,6 +149,7 @@ export function SearchPanel({
   isCaseSensitive,
   isWholeWord,
   isRegex,
+  scope,
   preserveCase,
   findInSelection,
   canEnableFindInSelection,
@@ -121,11 +161,13 @@ export function SearchPanel({
   onToggleCaseSensitive,
   onToggleWholeWord,
   onToggleRegex,
+  onScopeChange,
   onTogglePreserveCase,
   onToggleFindInSelection,
   onClose,
   onFindNext,
   onFindPrevious,
+  onFindCurrent,
   onReplaceNext,
   onReplaceAll,
   onHistoryNavigate,
@@ -133,7 +175,6 @@ export function SearchPanel({
   currentMatch,
 }: SearchPanelProps) {
   const inputRef = useRef<HTMLInputElement>(null);
-  const [includeComments, setIncludeComments] = useState(true);
   const [commentIndex, setCommentIndex] = useState(-1);
   const comments = useSearchComments(
     {
@@ -142,51 +183,56 @@ export function SearchPanel({
       wholeWord: isWholeWord,
       regex: isRegex,
     },
-    includeComments && isQueryValid,
+    Boolean(onScopeChange) && scope !== "text" && isQueryValid,
     pdf,
     findInSelection ? commentRange : null,
   );
   useEffect(
     () => setCommentIndex(-1),
-    [
-      findText,
-      isCaseSensitive,
-      isWholeWord,
-      isRegex,
-      includeComments,
-      comments.results,
-    ],
+    [findText, isCaseSensitive, isWholeWord, isRegex, scope, comments.results],
   );
-  useCommentSearchHighlight(comments.results[commentIndex], {
+  const selectedComment = comments.results[commentIndex];
+  const textCount = scope === "comments" ? 0 : matchCount;
+  useCommentSearchHighlight(selectedComment, {
     text: findText,
     caseSensitive: isCaseSensitive,
     wholeWord: isWholeWord,
     regex: isRegex,
   });
+  useEffect(() => {
+    const pane = inputRef.current?.closest<HTMLElement>("[data-preview-pane]");
+    if (preview && selectedComment && pane)
+      return () => dismissSearchComment(pane, selectedComment);
+  }, [preview, selectedComment]);
   const navigateComment = (index: number) => {
     setCommentIndex(index);
-    comments.navigate(index);
+    comments.navigate(index, inputRef.current, preview);
   };
   const move = (direction: number) => {
+    if (!findText || !isQueryValid) return;
     const count = comments.results.length;
+    const moveText = direction > 0 ? onFindNext : onFindPrevious;
     if (!count) {
-      direction > 0 ? onFindNext() : onFindPrevious();
+      if (textCount) moveText();
       return;
     }
-    if (commentIndex >= 0) {
+    if (selectedComment) {
       const next = commentIndex + direction;
       if (next >= 0 && next < count) navigateComment(next);
-      else if (!matchCount) navigateComment((next + count) % count);
+      else if (!textCount) navigateComment((next + count) % count);
       else {
         setCommentIndex(-1);
-        direction > 0 ? onFindNext() : onFindPrevious();
+        // Text was left at one end of its range when entering the comments.
+        const boundary = direction > 0 ? 1 : textCount;
+        if (currentMatch !== boundary) moveText();
+        else onFindCurrent?.();
       }
     } else if (
-      !matchCount ||
-      (direction > 0 ? currentMatch >= matchCount : currentMatch <= 1)
+      !textCount ||
+      (direction > 0 ? currentMatch >= textCount : currentMatch <= 1)
     ) {
       navigateComment(direction > 0 ? 0 : count - 1);
-    } else direction > 0 ? onFindNext() : onFindPrevious();
+    } else moveText();
   };
 
   useEffect(() => {
@@ -228,68 +274,113 @@ export function SearchPanel({
     }
   };
 
-  const countLabel =
-    statusText ??
-    (!findText
-      ? ""
-      : !isQueryValid
-        ? "Invalid regex"
-        : matchCount + comments.results.length === 0
-          ? "No results"
-          : `${commentIndex >= 0 ? matchCount + commentIndex + 1 : currentMatch || 1} of ${matchCount + comments.results.length}`);
+  const total =
+    findText && isQueryValid ? textCount + comments.results.length : 0;
+  const current = !total
+    ? 0
+    : selectedComment
+      ? textCount + commentIndex + 1
+      : textCount
+        ? currentMatch || 1
+        : 0;
+  const status = findText && !isQueryValid ? "Invalid regex" : statusText;
 
   return (
     <div
-      data-testid={preview ? "preview-search-panel" : "editor-search-panel"}
-      onKeyDownCapture={(event) => {
-        if (!canCloseSearchOnEscape(event.nativeEvent)) return;
-        event.preventDefault();
-        event.stopPropagation();
-        onClose();
-      }}
-      className="pointer-events-auto flex w-full max-w-[860px] flex-col gap-1.5 rounded-xl border border-border/70 bg-background/95 p-1.5 shadow-lg backdrop-blur-sm"
+      data-testid={
+        testId ?? (preview ? "preview-search-panel" : "editor-search-panel")
+      }
+      className="@container/search grid shrink-0 grid-cols-[auto_minmax(0,1fr)]"
     >
-      <div className={cn("flex items-center gap-1.5", preview && "flex-wrap")}>
-        {preview ? null : isReplaceOpen ? (
-          <div className="size-6 shrink-0" aria-hidden="true" />
-        ) : (
-          <Hint content="Toggle Replace">
-            <Button
-              variant="ghost"
-              size="icon-xs"
-              className={cn(
-                "text-muted-foreground hover:bg-muted hover:text-foreground",
-                isReplaceOpen && "bg-accent text-foreground",
-              )}
-              onClick={onToggleReplace}
-              aria-label="Toggle Replace"
-            >
-              <ChevronDownIcon className="size-4" />
-            </Button>
-          </Hint>
+      <div className={searchRowClassName}>
+        {onScopeChange && (
+          <div
+            className={cn(
+              documentBarControlHeightClassName,
+              "flex items-center self-start",
+            )}
+          >
+            <ButtonGroup<SearchScope>
+              aria-label="Search scope"
+              className="[&>button]:w-7 [&>button]:px-0"
+              selection={{
+                layout: "responsive",
+                compactLabel: "Search scope",
+                compactIconsOnly: true,
+                value: scope,
+                onValueChange: onScopeChange,
+                options: [
+                  {
+                    value: "all",
+                    label: "All",
+                    icon: (
+                      <SearchIcon className="size-3.5" aria-hidden="true" />
+                    ),
+                    hint: "All",
+                  },
+                  {
+                    value: "comments",
+                    label: "Comments only",
+                    icon: (
+                      <MessageSquareTextIcon
+                        className="size-3.5"
+                        aria-hidden="true"
+                      />
+                    ),
+                    hint: "Comments only",
+                  },
+                  {
+                    value: "text",
+                    label: "Text only",
+                    icon: (
+                      <AlignLeftIcon className="size-3.5" aria-hidden="true" />
+                    ),
+                    hint: "Text only",
+                  },
+                ],
+              }}
+            />
+          </div>
         )}
         <div
           className={cn(
-            "flex min-w-0 flex-1 items-center rounded-md border border-border/70 bg-muted/40 transition-colors focus-within:border-ring",
-            preview && "min-w-[180px]",
+            searchControlsClassName,
+            !onScopeChange && "col-span-2",
           )}
         >
-          <Input
-            ref={inputRef}
-            type="text"
-            value={findText}
-            onChange={(e) => onFindTextChange(e.target.value)}
-            onKeyDown={handleFindKeyDown}
-            aria-label="Search"
-            placeholder="Search..."
-            className="h-7 min-w-0 flex-1 border-transparent bg-transparent text-sm shadow-none focus-visible:border-transparent focus-visible:ring-0 focus-visible:ring-transparent"
-          />
-          <div className="mr-1 flex items-center gap-0">
+          <SearchField
+            label="Search options"
+            className={preview ? "flex-[1_1_9rem]" : "flex-[1_1_11rem]"}
+          >
+            {preview ? null : isReplaceOpen ? (
+              <div className="ml-1 size-6 shrink-0" aria-hidden="true" />
+            ) : (
+              <Hint content="Toggle Replace">
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  className={cn(documentBarButtonClassName, "ml-1")}
+                  onClick={onToggleReplace}
+                  aria-label="Toggle Replace"
+                >
+                  <ChevronDownIcon className="size-3.5" />
+                </Button>
+              </Hint>
+            )}
+            <Input
+              ref={inputRef}
+              type="text"
+              value={findText}
+              onChange={(e) => onFindTextChange(e.target.value)}
+              onKeyDown={handleFindKeyDown}
+              aria-label="Search"
+              placeholder="Search..."
+              className={cn(searchInputClassName, !preview && "pl-0")}
+            />
             <ToggleButton
               active={isCaseSensitive}
               onClick={onToggleCaseSensitive}
               title="Match Case"
-              compact
             >
               Aa
             </ToggleButton>
@@ -297,7 +388,6 @@ export function SearchPanel({
               active={isWholeWord}
               onClick={onToggleWholeWord}
               title="Match Whole Word"
-              compact
             >
               ab
             </ToggleButton>
@@ -305,191 +395,120 @@ export function SearchPanel({
               active={isRegex}
               onClick={onToggleRegex}
               title="Use Regex"
-              compact
             >
               <RegexIcon className="size-3.5" />
             </ToggleButton>
-          </div>
-        </div>
-
-        {countLabel ? (
-          <span className="shrink-0 text-muted-foreground text-xs">
-            {countLabel}
-          </span>
-        ) : null}
-
-        <div className="flex items-center gap-0.5">
-          <Hint content="Find Previous">
-            <Button
-              variant="ghost"
-              size="icon-xs"
-              className="text-muted-foreground hover:bg-muted hover:text-foreground"
-              onClick={() => move(-1)}
-              disabled={
-                !findText ||
-                !isQueryValid ||
-                matchCount + comments.results.length === 0
-              }
-              aria-label="Find Previous"
-            >
-              <ChevronLeftIcon className="size-4" />
-            </Button>
-          </Hint>
-          <Hint content="Find Next">
-            <Button
-              variant="ghost"
-              size="icon-xs"
-              className="text-muted-foreground hover:bg-muted hover:text-foreground"
-              onClick={() => move(1)}
-              disabled={
-                !findText ||
-                !isQueryValid ||
-                matchCount + comments.results.length === 0
-              }
-              aria-label="Find Next"
-            >
-              <ChevronRightIcon className="size-4" />
-            </Button>
-          </Hint>
-          {!preview && (
-            <ToggleButton
-              active={findInSelection}
-              onClick={onToggleFindInSelection}
-              disabled={!canEnableFindInSelection && !findInSelection}
-              title="Find in Selection"
-              ariaLabel="Find in Selection"
-              iconOnly
-            >
-              <svg
-                viewBox="0 0 16 16"
-                className="size-4"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden="true"
+            {!preview && (
+              <ToggleButton
+                active={findInSelection}
+                onClick={onToggleFindInSelection}
+                disabled={!canEnableFindInSelection && !findInSelection}
+                title="Find in Selection"
               >
-                <path d="M3.5 5h9" />
-                <path d="M3.5 8h9" />
-                <path d="M3.5 11h6.5" />
-              </svg>
-            </ToggleButton>
-          )}
-          <Hint content="Include Comments">
-            <Button
-              variant="ghost"
-              size="icon-xs"
-              aria-label="Include Comments"
-              aria-pressed={includeComments}
-              onClick={() => setIncludeComments((value) => !value)}
-              className={cn(
-                "text-muted-foreground hover:bg-muted hover:text-foreground",
-                includeComments && "bg-accent text-foreground",
-              )}
-            >
-              <MessageSquareTextIcon className="size-3.5" strokeWidth={1.5} />
-            </Button>
-          </Hint>
-          <Hint content="Close">
-            <Button
-              variant="ghost"
-              size="icon-xs"
-              className="text-muted-foreground hover:bg-muted hover:text-foreground"
-              onClick={onClose}
-              aria-label="Close"
-            >
-              <XIcon className="size-4" />
-            </Button>
-          </Hint>
+                <svg
+                  viewBox="0 0 16 16"
+                  className="size-4"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M3.5 5h9" />
+                  <path d="M3.5 8h9" />
+                  <path d="M3.5 11h6.5" />
+                </svg>
+              </ToggleButton>
+            )}
+          </SearchField>
+
+          <div className="ml-auto flex min-w-0 items-center gap-1">
+            {status && (
+              <span
+                className="min-w-0 truncate text-muted-foreground"
+                role="status"
+                title={status}
+              >
+                {status}
+              </span>
+            )}
+            <DocumentBarNavigation
+              label="Search navigation"
+              previousLabel="Find Previous"
+              nextLabel="Find Next"
+              itemLabel="Match"
+              current={current}
+              total={total}
+              onPrevious={() => move(-1)}
+              onNext={() => move(1)}
+            />
+            <Hint content="Close">
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                className={documentBarButtonClassName}
+                onClick={onClose}
+                aria-label="Close"
+              >
+                <XIcon className="size-3.5" />
+              </Button>
+            </Hint>
+          </div>
         </div>
       </div>
 
-      {comments.results.length > 0 && (
-        <div
-          className="max-h-36 overflow-auto border-border/60 border-t pt-1"
-          role="group"
-          aria-label="Comment search results"
-        >
-          {comments.results.map((result, index) => (
-            <button
-              type="button"
-              key={result.filePath + result.id}
-              onClick={() => navigateComment(index)}
-              className={cn(
-                "flex w-full items-start gap-2 rounded-md px-2 py-1 text-left text-xs hover:bg-muted",
-                commentIndex === index && "bg-muted",
-              )}
-              aria-label={`Open comment: ${result.text}`}
-            >
-              <MessageSquareTextIcon className="mt-0.5 size-3 shrink-0" />
-              <span className="min-w-0 break-words">
-                {result.text.slice(
-                  Math.max(0, result.match.start - 50),
-                  result.match.start,
-                )}
-                <mark>
-                  {result.text.slice(result.match.start, result.match.end)}
-                </mark>
-                {result.text.slice(result.match.end, result.match.end + 100)}
-              </span>
-            </button>
-          ))}
-        </div>
-      )}
-
       {isReplaceOpen ? (
-        <div className="flex items-center gap-1.5">
-          <Hint content="Collapse Replace">
-            <Button
-              variant="ghost"
-              size="icon-xs"
-              className="text-muted-foreground hover:bg-muted hover:text-foreground"
-              onClick={onToggleReplace}
-              aria-label="Collapse Replace"
-            >
-              <ChevronUpIcon className="size-4" />
-            </Button>
-          </Hint>
-          <div className="flex min-w-0 flex-1 items-center rounded-md border border-border/70 bg-muted/40 transition-colors focus-within:border-ring">
-            <Input
-              type="text"
-              value={replaceText}
-              onChange={(e) => onReplaceTextChange(e.target.value)}
-              onKeyDown={handleReplaceKeyDown}
-              placeholder="Replace..."
-              className="h-7 min-w-0 flex-1 border-transparent bg-transparent text-sm shadow-none focus-visible:border-transparent focus-visible:ring-0 focus-visible:ring-transparent"
-            />
-            <div className="mr-1 flex items-center gap-0">
+        <div className={searchRowClassName}>
+          <div className={cn(searchControlsClassName, "col-start-2")}>
+            <SearchField label="Replace options" className="flex-[1_1_7rem]">
+              <Hint content="Collapse Replace">
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  className={cn(documentBarButtonClassName, "ml-1")}
+                  onClick={onToggleReplace}
+                  aria-label="Collapse Replace"
+                >
+                  <ChevronUpIcon className="size-3.5" />
+                </Button>
+              </Hint>
+              <Input
+                type="text"
+                value={replaceText}
+                onChange={(e) => onReplaceTextChange(e.target.value)}
+                onKeyDown={handleReplaceKeyDown}
+                placeholder="Replace..."
+                className={cn(searchInputClassName, "pl-0")}
+              />
               <ToggleButton
                 active={preserveCase}
                 onClick={onTogglePreserveCase}
                 disabled={isRegex}
                 title="Preserve Case"
-                compact
               >
                 AB
               </ToggleButton>
-            </div>
+            </SearchField>
+            <Button
+              variant="ghost"
+              size="xs"
+              className={documentBarButtonClassName}
+              onClick={onReplaceNext}
+              disabled={!canReplace || !isQueryValid || commentIndex >= 0}
+            >
+              Replace
+            </Button>
+            <Button
+              variant="ghost"
+              size="xs"
+              className={documentBarButtonClassName}
+              onClick={onReplaceAll}
+              disabled={!canReplace || !isQueryValid || commentIndex >= 0}
+            >
+              Replace All
+            </Button>
           </div>
-          <Button
-            variant="outline"
-            size="xs"
-            className="h-7"
-            onClick={onReplaceNext}
-            disabled={!canReplace || !isQueryValid || commentIndex >= 0}
-          >
-            Replace
-          </Button>
-          <Button
-            variant="outline"
-            size="xs"
-            className="h-7"
-            onClick={onReplaceAll}
-            disabled={!canReplace || !isQueryValid || commentIndex >= 0}
-          >
-            Replace All
-          </Button>
         </div>
       ) : null}
     </div>

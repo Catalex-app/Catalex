@@ -61,6 +61,8 @@ export function FilePanelHeader({
   textEditor = false,
   wrapControls = false,
   textStatistics,
+  findAction,
+  findOpen,
 }: {
   fileName?: string;
   fileSize?: number;
@@ -69,6 +71,8 @@ export function FilePanelHeader({
   label?: string;
   textEditor?: boolean;
   wrapControls?: boolean;
+  findAction?: () => void;
+  findOpen?: boolean;
   textStatistics?: {
     wordCount: number;
     characterCount: number;
@@ -81,9 +85,10 @@ export function FilePanelHeader({
     statisticsRef,
     otherControlsRef,
     overflow,
+    findInOverflow,
     otherControlsVisible,
     setActionsOpen,
-  } = useEditorStatisticsOverflow();
+  } = useEditorStatisticsOverflow(!!findAction && !findOpen);
   if (textEditor) {
     const typeLabel = textFileLabel(fileName);
     const selected = (textStatistics?.selectedCharacters ?? 0) > 0;
@@ -96,13 +101,16 @@ export function FilePanelHeader({
     return (
       <WorkspacePanelHeader
         ref={headerRef}
+        findAction={findAction}
+        findOpen={findOpen}
+        findInOverflow={findInOverflow}
         actionsLabel="Editor"
         data-testid="text-editor-toolbar"
         data-editor-statistics-overflow={overflow}
         hasTrailingContent={
           (!overflow && !!textStatistics) || otherControlsVisible
         }
-        className="gap-2"
+        className="@container/editor-header gap-2"
         onActionsOpenChange={setActionsOpen}
         overflowContent={
           overflow && textStatistics ? (

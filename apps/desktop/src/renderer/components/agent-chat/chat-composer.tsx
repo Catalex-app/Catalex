@@ -48,10 +48,15 @@ import {
   isEarlierDraftContext,
   isSelectionRangeContextLabel,
   isSameSelectionContext,
+  type PdfSelectionAnchor,
 } from "@/lib/chat-context";
 export { isSelectionRangeContextLabel } from "@/lib/chat-context";
 import { useProjectComments } from "@/components/workspace/editor/use-project-comments";
-import { commentsInSelection } from "@/lib/comment-chat-context";
+import {
+  commentsInPdfSelection,
+  commentsInSelection,
+  recoverPdfSelectionCommentRanges,
+} from "@/lib/comment-chat-context";
 import { ContextBadgeList, type ChatContextBadge } from "./context-badge-list";
 import { Hint } from "@/components/ui/tooltip";
 import { SettingsSwitch } from "@/components/settings/settings-switch";
@@ -61,6 +66,11 @@ import {
   PopupSeparator,
 } from "@/components/ui/popup-surface";
 import { ButtonGroup } from "@/components/ui/button-group";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { toast } from "sonner";
 import {
   useClaudeModels,
@@ -68,6 +78,7 @@ import {
   usePiModels,
 } from "@/lib/use-agent-models";
 import { formatCodexModelName, codexEffortLabel } from "@/lib/codex-models";
+import { AGENT_EXECUTION_MODES } from "@/lib/agent-execution-mode";
 import {
   type FC,
   useCallback,
@@ -97,10 +108,11 @@ import {
   PinIcon,
   CheckIcon,
   ChevronDownIcon,
-  PencilLineIcon,
+  MinusIcon,
+  PlusIcon,
   ShieldCheckIcon,
   Settings2Icon,
-  BotIcon,
+  BotMessageSquareIcon,
 } from "lucide-react";
 import { getCurrentWebview } from "@/lib/desktop/webview";
 import { invoke } from "@/lib/desktop/core";
@@ -143,6 +155,7 @@ import {
 } from "./agent-question-prompt";
 
 const log = createLogger("chat-composer");
+const MINI_INPUT_TEXT = "app-scrollbar-rail pr-2 pl-1.5 text-sm leading-[18px]";
 
 // Re-export for other modules
 export type { SlashCommand };
@@ -302,13 +315,13 @@ function llmConfigLabel(
   if (provider === "claude" && effortLevel) {
     const effort = `${base} • ${claudeEffortLabel(effortLevel)} effort`;
     return executionMode && executionMode !== "default"
-      ? `${effort} • ${executionModeLabel(executionMode)}`
+      ? `${effort} • ${AGENT_EXECUTION_MODES[executionMode].label}`
       : effort;
   }
   if (provider === "codex" && codexReasoningEffort) {
     const effort = `${base} • ${codexEffortLabel(codexReasoningEffort)} effort`;
     return executionMode && executionMode !== "default"
-      ? `${effort} • ${executionModeLabel(executionMode)}`
+      ? `${effort} • ${AGENT_EXECUTION_MODES[executionMode].label}`
       : effort;
   }
   return base;
@@ -323,16 +336,6 @@ function claudeEffortLabel(level: string): string {
     .split(/[-_]/)
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
-}
-
-function executionModeLabel(mode: AgentExecutionMode): string {
-  if (mode === "edit") return "Auto";
-  return "Manual";
-}
-
-function executionModeIcon(mode: AgentExecutionMode) {
-  if (mode === "edit") return PencilLineIcon;
-  return ShieldCheckIcon;
 }
 
 function nextExecutionMode(mode: AgentExecutionMode): AgentExecutionMode {
@@ -410,6 +413,7 @@ export const ChatComposer: FC<{
   isExpanded?: boolean;
   acceptPendingAttachments?: boolean;
 }> = ({ isOpen, isExpanded, acceptPendingAttachments = true }) => {
+  const isCollapsed = !isOpen && !isExpanded;
   const renderErrorPreview = useContext(ComposerErrorPreviewContext);
   const composerError = useAgentChatStore((s) => s.error);
   const { question: activeQuestion } = useActiveAgentQuestion();
@@ -695,39 +699,67 @@ export const ChatComposer: FC<{
     : modelTooltipLabel;
   const [input, setInput] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const miniInlineMeasureRef = useRef<HTMLSpanElement>(null);
+  const [miniControlsBelow, setMiniControlsBelow] = useState(false);
   const [toolbarElement, setToolbarElement] = useState<HTMLDivElement | null>(
     null,
   );
-  const [hideToolbarShortcuts, setHideToolbarShortcuts] = useState(false);
+  const [compactToolbar, setCompactToolbar] = useState(false);
+  const [toolbarShortcutsOpen, setToolbarShortcutsOpen] = useState(false);
+  const toolbarToggleRef = useRef<HTMLButtonElement>(null);
+  const showToolbarShortcuts = !compactToolbar || toolbarShortcutsOpen;
 
   useLayoutEffect(() => {
-    if (!toolbarElement) return;
+    if (!toolbarElement) {
+      setToolbarShortcutsOpen(false);
+      return;
+    }
     const shortcuts = toolbarElement.querySelector<HTMLElement>(
       "[data-composer-shortcuts]",
     );
     const controls = toolbarElement.querySelector<HTMLElement>(
       "[data-composer-controls]",
     );
-    if (!shortcuts || !controls) return;
+    const submit = toolbarElement.querySelector<HTMLElement>(
+      "[data-composer-submit]",
+    );
+    if (!shortcuts || !controls || !submit) return;
     const measure = () => {
       const style = getComputedStyle(toolbarElement);
       const available =
         toolbarElement.clientWidth -
         Number.parseFloat(style.paddingLeft) -
         Number.parseFloat(style.paddingRight);
-      setHideToolbarShortcuts(
-        shortcuts.offsetWidth + controls.offsetWidth + 8 > available,
+      const shortcutsWidth = shortcuts.offsetWidth;
+      const controlsWidth = controls.offsetWidth;
+      toolbarElement.style.setProperty(
+        "--composer-shortcuts-width",
+        `${shortcutsWidth}px`,
       );
+      toolbarElement.style.setProperty(
+        "--composer-controls-width",
+        `${controlsWidth}px`,
+      );
+      toolbarElement.style.setProperty(
+        "--composer-submit-width",
+        `${submit.offsetWidth}px`,
+      );
+      const compact = shortcutsWidth + controlsWidth + 8 > available;
+      setCompactToolbar(compact);
+      if (!compact) setToolbarShortcutsOpen(false);
     };
     measure();
     const observer = new ResizeObserver(measure);
-    for (const element of [toolbarElement, shortcuts, controls])
+    for (const element of [toolbarElement, shortcuts, controls, submit])
       observer.observe(element);
     return () => observer.disconnect();
   }, [toolbarElement]);
 
   // Model picker state
-  const [modelPickerOpen, setModelPickerOpen] = useState(false);
+  const [openPicker, setOpenPicker] = useState<"model" | "permission" | null>(
+    null,
+  );
+  const modelPickerOpen = openPicker === "model";
   const contextUsage = useAgentChatStore(
     (state) =>
       state.tabs.find((tab) => tab.id === state.activeTabId)?.contextUsage?.[
@@ -790,19 +822,38 @@ export const ChatComposer: FC<{
   }, [modelPickerOpen, selectedProvider, usageRefresh]);
   const modelPickerRef = useRef<HTMLDivElement>(null);
   const modelButtonRef = useRef<HTMLButtonElement>(null);
+  const permissionPickerRef = useRef<HTMLDivElement>(null);
+  const modelPickerId = useId();
   const [pickerPos, setPickerPos] = useState<{ left: number; bottom: number }>({
     left: 0,
     bottom: 0,
   });
 
-  // Recalculate popup position when it opens
+  // Keep the popup anchored while the window is resized.
   useLayoutEffect(() => {
-    if (!modelPickerOpen || !modelButtonRef.current) return;
-    const rect = modelButtonRef.current.getBoundingClientRect();
-    setPickerPos({
-      left: Math.max(8, Math.min(rect.left, window.innerWidth - 296)),
-      bottom: window.innerHeight - rect.top + 4,
-    });
+    if (!modelPickerOpen) return;
+    const positionPicker = () => {
+      const rect = modelButtonRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      const width = modelPickerRef.current?.offsetWidth ?? 288;
+      setPickerPos({
+        left: Math.max(
+          8,
+          Math.min(
+            rect.left + (rect.width - width) / 2,
+            window.innerWidth - width - 8,
+          ),
+        ),
+        bottom: window.innerHeight - rect.top + 4,
+      });
+    };
+    positionPicker();
+    window.addEventListener("resize", positionPicker);
+    return () => window.removeEventListener("resize", positionPicker);
+  }, [modelPickerOpen]);
+
+  useLayoutEffect(() => {
+    if (modelPickerOpen) modelPickerRef.current?.focus({ preventScroll: true });
   }, [modelPickerOpen]);
 
   // Pinned contexts — supports multiple files/selections
@@ -939,6 +990,7 @@ export const ChatComposer: FC<{
   // Watch the live document selection independently of explicitly pinned excerpts
   const selectionRange = useDocumentStore((s) => s.selectionRange);
   const pdfSelectionContext = useDocumentStore((s) => s.pdfSelectionContext);
+  const pdfSelectionAnchor = useDocumentStore((s) => s.pdfSelectionAnchor);
   const commentSelectionContext = useDocumentStore(
     (s) => s.commentSelectionContext,
   );
@@ -972,29 +1024,110 @@ export const ChatComposer: FC<{
   const [commentsByFile, , , commentsLoaded] = useProjectComments(
     needsComments ? projectRoot : null,
   );
+  const pdfComments = pdfSelectionContext
+    ? commentsByFile[pdfSelectionContext.filePath]
+    : undefined;
+  const [recoveredPdfComments, setRecoveredPdfComments] = useState<{
+    source: PdfSelectionAnchor["source"];
+    ranges: Awaited<ReturnType<typeof recoverPdfSelectionCommentRanges>>;
+  } | null>(null);
+  useEffect(() => {
+    if (
+      !acceptPendingAttachments ||
+      !pdfSelectionAnchor ||
+      !pdfComments?.length
+    ) {
+      setRecoveredPdfComments(null);
+      return;
+    }
+    let cancelled = false;
+    void recoverPdfSelectionCommentRanges(pdfComments, pdfSelectionAnchor).then(
+      (ranges) => {
+        if (!cancelled)
+          setRecoveredPdfComments({
+            source: pdfSelectionAnchor.source,
+            ranges,
+          });
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [acceptPendingAttachments, pdfComments, pdfSelectionAnchor]);
 
   // Consume pending attachments from external sources (e.g. PDF capture)
   const pendingAttachments = useAgentChatStore((s) => s.pendingAttachments);
   const consumePendingAttachments = useAgentChatStore(
     (s) => s.consumePendingAttachments,
   );
-  const isCollapsed = !isOpen && !isExpanded;
   const isVisible = !!(isOpen || isExpanded);
   const queueMode = isExpanded ? "full" : isOpen ? "half" : "mini";
   const queueFolded = useAgentChatStore((s) => s.promptQueueFolded[queueMode]);
   const toggleQueueFolded = useAgentChatStore((s) => s.togglePromptQueueFolded);
   const queueListId = useId();
+  const textareaMinHeight = isCollapsed ? 0 : 40;
   const textareaMaxHeight = isCollapsed ? 48 : 160;
+  const updateMiniTextFade = useCallback((textarea: HTMLTextAreaElement) => {
+    textarea.toggleAttribute(
+      "data-mini-text-fade",
+      !!textarea.value &&
+        textarea.clientHeight > 0 &&
+        textarea.scrollHeight - textarea.scrollTop - textarea.clientHeight > 1,
+    );
+  }, []);
   const resizeTextarea = useCallback(
     (textarea: HTMLTextAreaElement | null = textareaRef.current) => {
       if (!textarea) return;
       textarea.style.height = "auto";
-      textarea.style.height = `${Math.min(
-        textarea.scrollHeight,
+      const height = `${Math.min(
+        Math.max(textareaMinHeight, textarea.scrollHeight),
         textareaMaxHeight,
       )}px`;
+      textarea.style.height = height;
+      if (isCollapsed) {
+        textarea.parentElement?.style.setProperty(
+          "--mini-input-height",
+          height,
+        );
+        updateMiniTextFade(textarea);
+      }
     },
-    [textareaMaxHeight],
+    [isCollapsed, textareaMinHeight, textareaMaxHeight, updateMiniTextFade],
+  );
+  const updateMiniControlsLayout = useCallback(() => {
+    const measure = miniInlineMeasureRef.current;
+    const textarea = textareaRef.current;
+    if (!measure || !textarea) return;
+    setMiniControlsBelow(
+      textarea.value.includes("\n") ||
+        measure.scrollWidth > measure.clientWidth,
+    );
+  }, []);
+  const attachTextarea = useCallback(
+    (textarea: HTMLTextAreaElement | null) => {
+      textareaRef.current = textarea;
+      if (!textarea) return;
+      const miniMeasure = miniInlineMeasureRef.current;
+      resizeTextarea(textarea);
+      let width = textarea.offsetWidth;
+      const observer = new ResizeObserver(() => {
+        if (miniMeasure) updateMiniControlsLayout();
+        const nextWidth = textarea.offsetWidth;
+        if (nextWidth === width) {
+          if (miniMeasure) updateMiniTextFade(textarea);
+          return;
+        }
+        width = nextWidth;
+        resizeTextarea(textarea);
+      });
+      observer.observe(textarea);
+      if (miniMeasure) observer.observe(miniMeasure);
+      return () => {
+        observer.disconnect();
+        textareaRef.current = null;
+      };
+    },
+    [resizeTextarea, updateMiniControlsLayout, updateMiniTextFade],
   );
   const currentLlmLabel = llmConfigLabel(
     selectedProvider,
@@ -1028,74 +1161,194 @@ export const ChatComposer: FC<{
       : selectedProvider === "pi"
         ? selectedPiExecutionMode
         : selectedCodexExecutionMode;
-  const cycleExecutionMode = useCallback(() => {
-    if (selectedProvider === "claude") {
-      setSelectedClaudeExecutionMode(
-        nextExecutionMode(selectedClaudeExecutionMode),
-      );
-      return;
-    }
-    if (selectedProvider === "pi")
-      setSelectedPiExecutionMode(nextExecutionMode(selectedPiExecutionMode));
-    else
-      setSelectedCodexExecutionMode(
-        nextExecutionMode(selectedCodexExecutionMode),
-      );
-  }, [
-    selectedProvider,
-    selectedClaudeExecutionMode,
-    selectedCodexExecutionMode,
-    setSelectedClaudeExecutionMode,
-    setSelectedCodexExecutionMode,
-    selectedPiExecutionMode,
-    setSelectedPiExecutionMode,
-  ]);
-  const ExecutionModeIcon = executionModeIcon(selectedExecutionMode);
-  const executionModeButton =
-    selectedProvider === "claude" ||
-    selectedProvider === "codex" ||
-    selectedProvider === "pi" ? (
-      <Hint
-        content={
-          selectedExecutionMode === "edit"
-            ? "Auto: apply clean changes; pause on conflicts or errors."
-            : "Manual: review changes before applying."
+  const setExecutionMode =
+    selectedProvider === "claude"
+      ? setSelectedClaudeExecutionMode
+      : selectedProvider === "pi"
+        ? setSelectedPiExecutionMode
+        : setSelectedCodexExecutionMode;
+  const cycleExecutionMode = useCallback(
+    () => setExecutionMode(nextExecutionMode(selectedExecutionMode)),
+    [selectedExecutionMode, setExecutionMode],
+  );
+  const {
+    icon: ExecutionModeIcon,
+    label: executionModeLabel,
+    labelClassName: executionModeColor,
+  } = AGENT_EXECUTION_MODES[selectedExecutionMode];
+  const modelButton = (
+    <Hint content={modelPickerOpen ? undefined : modelTooltip}>
+      <button
+        ref={modelButtonRef}
+        aria-label={
+          isCollapsed
+            ? "Model settings"
+            : `${modelTooltipLabel} · Model settings`
         }
+        aria-haspopup="dialog"
+        aria-expanded={modelPickerOpen}
+        aria-controls={modelPickerOpen ? modelPickerId : undefined}
+        type="button"
+        onClick={() =>
+          setOpenPicker((open) => (open === "model" ? null : "model"))
+        }
+        className="flex h-7 min-w-6 items-center justify-center gap-1 rounded-md px-1 text-muted-foreground text-xs transition-colors hover:bg-muted hover:text-foreground"
       >
-        <button
-          type="button"
-          disabled={isStreaming}
-          onClick={cycleExecutionMode}
-          aria-label={
-            selectedExecutionMode === "edit"
-              ? "Auto: apply clean changes; pause on conflicts or errors."
-              : "Manual: review changes before applying."
-          }
-          className={cn(
-            "inline-flex w-[68px] shrink-0 items-center justify-center gap-1 rounded-md bg-transparent px-1 py-0.5 font-medium font-mono text-xs leading-5 transition-colors hover:bg-muted",
-            selectedExecutionMode === "edit" &&
-              "text-purple-700 dark:text-purple-300",
-            selectedExecutionMode === "default" && "text-muted-foreground",
-            isStreaming && "cursor-not-allowed opacity-60",
-          )}
-        >
-          <ExecutionModeIcon
-            className="relative -top-[0.5px] size-2.5 shrink-0 self-center"
+        {isCollapsed && (
+          <BotMessageSquareIcon
+            className="@min-[360px]/mini-composer:hidden size-3.5 shrink-0"
             aria-hidden="true"
           />
-          <span>{executionModeLabel(selectedExecutionMode)}</span>
-        </button>
+        )}
+        <span
+          className={cn(
+            "min-w-0 items-center gap-1",
+            isCollapsed ? "@min-[360px]/mini-composer:flex hidden" : "flex",
+          )}
+        >
+          {selectedProvider === "codex" && selectedCodexFastMode && (
+            <ZapIcon
+              aria-label="Fast mode enabled"
+              fill="currentColor"
+              className="size-3 shrink-0"
+            />
+          )}
+          <span className="max-w-[120px] truncate">{pickerLabel}</span>
+          {showEffort && (
+            <span className="shrink-0 text-muted-foreground/60">
+              {effortShortLabel(selectedEffort)}
+            </span>
+          )}
+        </span>
+        <ChevronDownIcon
+          className={cn(
+            "size-3 shrink-0",
+            isCollapsed && "@min-[360px]/mini-composer:block hidden",
+          )}
+          aria-hidden="true"
+        />
+      </button>
+    </Hint>
+  );
+
+  const permissionButton = (
+    <Popover
+      open={openPicker === "permission"}
+      onOpenChange={(open) =>
+        setOpenPicker((current) =>
+          open ? "permission" : current === "permission" ? null : current,
+        )
+      }
+    >
+      <Hint
+        content={
+          openPicker === "permission"
+            ? undefined
+            : `Writing permission · ${executionModeLabel}`
+        }
+      >
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            aria-label="Writing permission"
+            aria-description={executionModeLabel}
+            className={cn(
+              "flex h-7 w-6 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-muted data-[state=open]:bg-muted",
+              executionModeColor ??
+                "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            <ExecutionModeIcon className="size-3.5" aria-hidden="true" />
+          </button>
+        </PopoverTrigger>
       </Hint>
-    ) : null;
+      <PopoverContent
+        ref={permissionPickerRef}
+        side="top"
+        align="center"
+        collisionPadding={8}
+        aria-label="Writing permission"
+        tabIndex={-1}
+        onOpenAutoFocus={(event) => {
+          event.preventDefault();
+          permissionPickerRef.current?.focus({ preventScroll: true });
+        }}
+        className="z-[9999] w-64 max-w-[calc(100vw-1rem)] p-1"
+      >
+        <PopupHeader>
+          <ShieldCheckIcon
+            className="size-3.5 text-muted-foreground"
+            aria-hidden="true"
+          />
+          <h2>Permission</h2>
+        </PopupHeader>
+        <PopupSeparator />
+        <div className="shrink-0 px-2 py-1.5">
+          <div className="mb-1.5 font-medium text-muted-foreground text-xs">
+            Writing permission
+          </div>
+          <ButtonGroup aria-label="Writing permission" className="flex gap-1">
+            {Object.values(AGENT_EXECUTION_MODES).map((option) => {
+              const {
+                value: mode,
+                label,
+                description,
+                icon: Icon,
+                labelClassName,
+              } = option;
+              return (
+                <Hint key={mode} content={description}>
+                  <button
+                    type="button"
+                    aria-pressed={selectedExecutionMode === mode}
+                    disabled={isStreaming}
+                    className={cn(
+                      "flex flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-md px-1.5 py-1.5 font-medium text-xs transition-colors motion-reduce:transition-none",
+                      isStreaming && "cursor-not-allowed opacity-50",
+                      selectedExecutionMode === mode
+                        ? [
+                            "bg-background shadow-sm",
+                            labelClassName ?? "text-foreground",
+                          ]
+                        : "text-muted-foreground hover:bg-background/70 hover:text-foreground",
+                    )}
+                    onClick={() => setExecutionMode(mode)}
+                  >
+                    <Icon className="size-3 shrink-0" aria-hidden="true" />
+                    {label}
+                  </button>
+                </Hint>
+              );
+            })}
+          </ButtonGroup>
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+  const agentControls = (
+    <div data-chat-agent-controls className="flex min-w-0 items-center">
+      {contextIndicator}
+      {permissionButton}
+      {modelButton}
+    </div>
+  );
 
   useLayoutEffect(() => {
+    updateMiniControlsLayout();
     resizeTextarea();
-  }, [input, textareaMaxHeight, isCollapsed, isVisible, resizeTextarea]);
+  }, [
+    input,
+    isVisible,
+    miniControlsBelow,
+    resizeTextarea,
+    updateMiniControlsLayout,
+  ]);
 
   const composerFocusRequestNonce = useAgentChatStore(
     (s) => s.composerFocusRequestNonce,
   );
-  const previousFocusRequest = useRef(0);
+  // A composer mounted during a mode switch should only handle new requests.
+  const previousFocusRequest = useRef(composerFocusRequestNonce);
   useEffect(() => {
     if (previousFocusRequest.current === composerFocusRequestNonce) return;
     previousFocusRequest.current = composerFocusRequestNonce;
@@ -1107,15 +1360,6 @@ export const ChatComposer: FC<{
     );
     return () => cancelAnimationFrame(frame);
   }, [composerFocusRequestNonce, acceptPendingAttachments]);
-
-  // Keep focus without moving the drawer during its entry animation.
-  const prevOpenRef = useRef(false);
-  useEffect(() => {
-    if (isVisible && !prevOpenRef.current) {
-      setTimeout(() => textareaRef.current?.focus({ preventScroll: true }), 0);
-    }
-    prevOpenRef.current = isVisible;
-  }, [isVisible]);
 
   useEffect(() => {
     checkClaudeStatus().catch(() => {});
@@ -1207,14 +1451,23 @@ export const ChatComposer: FC<{
     setTimeout(() => textareaRef.current?.focus(), 0);
   }, [acceptPendingAttachments, pendingAttachments, consumePendingAttachments]);
 
-  const currentContextLabel = useMemo(() => {
+  const editorSelection = useMemo(() => {
     if (!selectionRange) return null;
     const file = files.find((f) => f.id === activeFileId);
     if (!file?.content) return null;
     const start = offsetToLineCol(file.content, selectionRange.start);
     const end = offsetToLineCol(file.content, selectionRange.end);
-    return `@${file.relativePath}:${start.line}:${start.col}-${end.line}:${end.col}`;
-  }, [selectionRange, activeFileId, files]);
+    return {
+      proposedDraft: captureProposedDraft(draftSessionId, file.content),
+      label: `@${file.relativePath}:${start.line}:${start.col}-${end.line}:${end.col}`,
+      filePath: file.relativePath,
+      selectedText: file.content.slice(
+        selectionRange.start,
+        selectionRange.end,
+      ),
+    };
+  }, [draftSessionId, selectionRange, activeFileId, files]);
+  const liveTextSelection = pdfSelectionContext ?? editorSelection;
 
   const handlePinnedContextMouseEnter = useCallback(
     (context: PinnedContext) => {
@@ -1249,7 +1502,7 @@ export const ChatComposer: FC<{
         context &&
         isSelectionRangeContextLabel(context.label) &&
         (!context.selectionPinned ||
-          context.label === currentContextLabel ||
+          context.label === editorSelection?.label ||
           (pdfSelectionContext &&
             isSameSelectionContext(context, pdfSelectionContext)))
       ) {
@@ -1264,7 +1517,7 @@ export const ChatComposer: FC<{
     },
     [
       pinnedContexts,
-      currentContextLabel,
+      editorSelection?.label,
       pdfSelectionContext,
       commentSelectionContext,
       setSelectionRange,
@@ -1326,7 +1579,6 @@ export const ChatComposer: FC<{
   // Text and comments share one live selection lifecycle; grouping is visual only.
   useEffect(() => {
     if (!acceptPendingAttachments) return;
-    const file = files.find((f) => f.id === activeFileId);
     const keepContext = (context: PinnedContext) => {
       if (!context.comment || !commentsLoaded) return true;
       return Boolean(
@@ -1348,20 +1600,7 @@ export const ChatComposer: FC<{
         }
       }
     }
-    const liveContext: PinnedContext | null =
-      commentSelectionContext ??
-      pdfSelectionContext ??
-      (selectionRange && currentContextLabel && file?.content
-        ? {
-            proposedDraft: captureProposedDraft(draftSessionId, file.content),
-            label: currentContextLabel,
-            filePath: file.relativePath,
-            selectedText: file.content.slice(
-              selectionRange.start,
-              selectionRange.end,
-            ),
-          }
-        : null);
+    const liveContext = commentSelectionContext ?? liveTextSelection;
     setPinnedContexts((prev) => {
       const retained = prev.filter(
         (context) =>
@@ -1384,7 +1623,20 @@ export const ChatComposer: FC<{
             target.start,
             target.end,
           )
-        : [];
+        : liveContext &&
+            liveContext === pdfSelectionContext &&
+            pdfSelectionAnchor
+          ? commentsInPdfSelection(
+              liveContext.filePath,
+              pdfComments ?? [],
+              pdfSelectionAnchor,
+              // A recovered range belongs to the saved highlight and can be
+              // compared with the new selection while other ranges load.
+              recoveredPdfComments?.source === pdfSelectionAnchor.source
+                ? recoveredPdfComments.ranges
+                : undefined,
+            )
+          : [];
       const next = [
         ...retained,
         ...(liveContext && keepContext(liveContext) && !alreadyPinned
@@ -1400,12 +1652,12 @@ export const ChatComposer: FC<{
       return pinnedContextsEqual(prev, next) ? prev : next;
     });
   }, [
-    draftSessionId,
+    liveTextSelection,
     pdfSelectionContext,
+    pdfSelectionAnchor,
+    pdfComments,
+    recoveredPdfComments,
     commentSelectionContext,
-    selectionRange,
-    currentContextLabel,
-    activeFileId,
     files,
     commentsByFile,
     commentsLoaded,
@@ -1560,12 +1812,14 @@ export const ChatComposer: FC<{
   );
 
   const openSlashTrigger = useCallback(() => {
+    setToolbarShortcutsOpen(false);
     slashRangeRef.current = insertTriggerAtSelection("/");
     setSlashQuery("");
     setMentionQuery(null);
   }, [insertTriggerAtSelection]);
 
   const openMentionTrigger = useCallback(() => {
+    setToolbarShortcutsOpen(false);
     insertTriggerAtSelection("@");
     setMentionQuery("");
     setSlashQuery(null);
@@ -1966,7 +2220,7 @@ export const ChatComposer: FC<{
         modelButtonRef.current &&
         !modelButtonRef.current.contains(target)
       ) {
-        setModelPickerOpen(false);
+        setOpenPicker((open) => (open === "model" ? null : open));
       }
     };
     document.addEventListener("mousedown", handleClickOutside);
@@ -1978,6 +2232,7 @@ export const ChatComposer: FC<{
   const showStop = isStreaming && !hasMessageInput;
   const submitControl = (
     <TooltipIconButton
+      data-composer-submit
       tooltip={
         showStop
           ? isStopping
@@ -2023,6 +2278,204 @@ export const ChatComposer: FC<{
     </TooltipIconButton>
   );
 
+  const answerContexts = useMemo(
+    () =>
+      activeQuestion
+        ? pinnedContexts.filter(
+            (context) => context.comment || isPromptSelection(context),
+          )
+        : null,
+    [activeQuestion, pinnedContexts],
+  );
+  const contextBadges = (
+    <ContextBadgeList
+      contexts={answerContexts ?? pinnedContexts}
+      compact={!!answerContexts}
+      maxRows={activeQuestion ? undefined : isExpanded ? 3 : 2}
+      className={!isExpanded && !activeQuestion ? "shrink" : undefined}
+      isLive={(context) =>
+        !context.selectionPinned &&
+        (Boolean(context.comment) ||
+          isSelectionRangeContextLabel(context.label))
+      }
+      renderContext={(ctx) => {
+        const i = pinnedContexts.indexOf(ctx);
+        const earlierDraft = isEarlierDraftContext(
+          ctx,
+          draftSessionId,
+          files.find((file) => file.relativePath === ctx.filePath)?.content,
+        );
+        const draftLabel = ctx.proposedDraft
+          ? earlierDraft
+            ? "Agent proposed · Earlier draft"
+            : "Agent proposed"
+          : null;
+        const badge = ctx.imageDataUrl ? (
+          <span
+            className="inline-flex max-w-full items-center gap-1 rounded-sm border border-border bg-transparent py-0.5 pr-0.5 pl-1 font-mono text-muted-foreground text-xs transition-colors hover:border-muted-foreground/50 hover:bg-muted/50 hover:text-foreground"
+            data-attachment-chip="true"
+          >
+            <ChatImagePreview
+              src={ctx.imageDataUrl}
+              sourcePath={ctx.filePath}
+              alt={ctx.label}
+              label={ctx.label}
+              tooltip={ctx.attachment ? ctx.filePath : undefined}
+              thumbnailClassName="size-4 shrink-0 rounded-sm border-0 object-cover"
+            />
+            <button
+              type="button"
+              aria-label="Remove attachment"
+              onMouseDown={handleContextRemoveMouseDown}
+              onClick={() => handlePinnedContextRemove(i)}
+              className="shrink-0 rounded-sm p-0.5 hover:bg-muted-foreground/20"
+            >
+              <XIcon className="size-3" />
+            </button>
+          </span>
+        ) : (
+          <span
+            role="button"
+            tabIndex={0}
+            aria-label={`Show ${ctx.comment ? "comment @" : ctx.selectionKey?.startsWith("file:") ? "file " : "selection "}${ctx.label}`}
+            data-attachment-chip={ctx.attachment ? "true" : undefined}
+            data-selection-chip={
+              ctx.comment || ctx.attachment ? undefined : "true"
+            }
+            data-comment-chip={ctx.comment ? "true" : undefined}
+            data-selection-pinned={Boolean(ctx.selectionPinned)}
+            onMouseDown={(event) => {
+              if (ctx.comment) event.preventDefault();
+            }}
+            onClick={() => handlePinnedContextActivate(ctx)}
+            onKeyDown={(event) => {
+              if (event.target !== event.currentTarget) return;
+              if (event.key !== "Enter" && event.key !== " ") return;
+              event.preventDefault();
+              handlePinnedContextActivate(ctx);
+            }}
+            onMouseEnter={() => handlePinnedContextMouseEnter(ctx)}
+            onMouseLeave={handlePinnedContextMouseLeave}
+            onFocus={() => handlePinnedContextMouseEnter(ctx)}
+            onBlur={handlePinnedContextMouseLeave}
+            className={cn(
+              "inline-flex max-w-full cursor-pointer items-center gap-1 rounded-sm py-0.5 pr-0.5 pl-1 font-mono text-xs transition-colors focus-visible:outline-none focus-visible:ring-2",
+              ctx.attachment
+                ? "border border-border bg-transparent text-muted-foreground hover:border-muted-foreground/50 hover:bg-muted/50 hover:text-foreground focus-visible:ring-ring/50"
+                : "focus-visible:ring-blue-500/50",
+              ctx.attachment
+                ? ""
+                : ctx.comment
+                  ? ctx.comment.agent
+                    ? "bg-[#7252b5] text-white hover:bg-[#62439e]"
+                    : "bg-[#eab308] text-white hover:bg-[#d6a207]"
+                  : "bg-muted text-muted-foreground hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/40 dark:hover:text-blue-300",
+            )}
+            title={
+              ctx.comment?.text ??
+              (ctx.pdf
+                ? `${ctx.pdf.documentPath} · PDF p.${ctx.pdf.page}\n${ctx.selectedText}`
+                : undefined) ??
+              (ctx.proposedDraft ? ctx.selectedText : undefined)
+            }
+          >
+            {ctx.attachment && (
+              <FileIcon aria-hidden="true" className="size-3 shrink-0" />
+            )}
+            {draftLabel && (
+              <span
+                className="shrink-0 font-sans"
+                data-proposed-draft-context="true"
+              >
+                {draftLabel} ·
+              </span>
+            )}
+            <span data-context-label="true" className="min-w-0 truncate">
+              {ctx.comment ? `@${ctx.label}` : ctx.label}
+              <span data-context-glow="true" aria-hidden="true">
+                {ctx.comment ? `@${ctx.label}` : ctx.label}
+              </span>
+            </span>
+            {(ctx.comment || isSelectionRangeContextLabel(ctx.label)) && (
+              <span className="relative size-4 shrink-0">
+                <PinIcon
+                  aria-hidden="true"
+                  className={cn(
+                    "absolute inset-0.5 size-3 transition-opacity duration-150 motion-reduce:duration-75",
+                    ctx.selectionPinned ? "opacity-0" : "opacity-100",
+                  )}
+                />
+                <PinIcon
+                  aria-label={
+                    ctx.selectionPinned
+                      ? ctx.comment
+                        ? "Pinned comment"
+                        : "Pinned selection"
+                      : undefined
+                  }
+                  aria-hidden={!ctx.selectionPinned || undefined}
+                  className={cn(
+                    "absolute inset-0.5 size-3 fill-current transition-opacity duration-150 motion-reduce:duration-75",
+                    ctx.selectionPinned ? "opacity-100" : "opacity-0",
+                  )}
+                />
+                {!ctx.selectionPinned && (
+                  <Hint
+                    content={
+                      ctx.comment
+                        ? "Keep this comment while selecting others"
+                        : "Keep this selection while selecting more text"
+                    }
+                  >
+                    <button
+                      type="button"
+                      aria-label={ctx.comment ? "Pin comment" : "Pin selection"}
+                      onMouseDown={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                      }}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setPinnedContexts((prev) =>
+                          prev.map((context, index) =>
+                            index === i
+                              ? { ...context, selectionPinned: true }
+                              : context,
+                          ),
+                        );
+                      }}
+                      className="absolute inset-0 rounded-sm transition-colors hover:bg-muted-foreground/20"
+                    />
+                  </Hint>
+                )}
+              </span>
+            )}
+            <button
+              type="button"
+              aria-label="Remove context"
+              onClick={(event) => {
+                event.stopPropagation();
+                handlePinnedContextRemove(i);
+              }}
+              onMouseDown={(event) => {
+                if (ctx.comment) event.preventDefault();
+                handleContextRemoveMouseDown(event);
+              }}
+              className="rounded-sm p-0.5 transition-colors hover:bg-muted-foreground/20"
+            >
+              <XIcon className="size-3" />
+            </button>
+          </span>
+        );
+        return ctx.attachment && !ctx.imageDataUrl ? (
+          <Hint content={ctx.filePath}>{badge}</Hint>
+        ) : (
+          badge
+        );
+      }}
+    />
+  );
+
   return (
     <div ref={composerRef} className="relative flex min-h-0 flex-col p-3">
       {!isCollapsed && queueTab && (
@@ -2062,6 +2515,16 @@ export const ChatComposer: FC<{
         createPortal(
           <PopupSurface
             ref={modelPickerRef}
+            id={modelPickerId}
+            role="dialog"
+            aria-label="Model settings"
+            tabIndex={-1}
+            onKeyDown={(event) => {
+              if (event.key !== "Escape") return;
+              consumeKey(event);
+              setOpenPicker(null);
+              modelButtonRef.current?.focus();
+            }}
             className="fixed flex w-72 max-w-[calc(100vw-1rem)] flex-col overflow-hidden"
             style={{
               left: pickerPos.left,
@@ -2088,7 +2551,7 @@ export const ChatComposer: FC<{
                     }
                     className="flex size-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     onClick={() => {
-                      setModelPickerOpen(false);
+                      setOpenPicker(null);
                       void invoke("open_settings_window", {
                         section: "agent",
                         provider: selectedProvider,
@@ -2104,19 +2567,11 @@ export const ChatComposer: FC<{
                 </Hint>
               }
             >
-              <BotIcon
+              <BotMessageSquareIcon
                 className="size-3.5 text-muted-foreground"
                 aria-hidden="true"
               />
-              <span>
-                {multipleProvidersEnabled
-                  ? "Model selection"
-                  : enabledProviders.claude
-                    ? "Claude Models"
-                    : enabledProviders.pi
-                      ? "Pi Models"
-                      : "Codex Models"}
-              </span>
+              <h2>Model</h2>
             </PopupHeader>
             <PopupSeparator />
             {multipleProvidersEnabled ? (
@@ -2240,7 +2695,7 @@ export const ChatComposer: FC<{
                 className="app-scrollbar min-h-0 overflow-y-auto"
               >
                 <div className="flex items-center justify-between px-2 py-1 font-medium text-muted-foreground text-xs">
-                  <span>Model</span>
+                  <span>Available models</span>
                   <button
                     type="button"
                     disabled={
@@ -2762,199 +3217,14 @@ export const ChatComposer: FC<{
         ) : (
           <>
             <div data-chat-feedback-slot="inside" />
-            <AgentQuestionPrompt />
-            {/* Pinned context chips */}
-            <ContextBadgeList
-              contexts={pinnedContexts}
-              isLive={(context) =>
-                !context.selectionPinned &&
-                (Boolean(context.comment) ||
-                  isSelectionRangeContextLabel(context.label))
+            <AgentQuestionPrompt
+              customAnswerContext={
+                answerContexts
+                  ? { contexts: answerContexts, badges: contextBadges }
+                  : undefined
               }
-              renderContext={(ctx) => {
-                const i = pinnedContexts.indexOf(ctx);
-                const earlierDraft = isEarlierDraftContext(
-                  ctx,
-                  draftSessionId,
-                  files.find((file) => file.relativePath === ctx.filePath)
-                    ?.content,
-                );
-                const draftLabel = ctx.proposedDraft
-                  ? earlierDraft
-                    ? "Agent proposed · Earlier draft"
-                    : "Agent proposed"
-                  : null;
-                const badge = ctx.imageDataUrl ? (
-                  <span
-                    className="inline-flex max-w-full items-center gap-1 rounded-sm border border-border bg-transparent py-0.5 pr-0.5 pl-1 font-mono text-muted-foreground text-xs transition-colors hover:border-muted-foreground/50 hover:bg-muted/50 hover:text-foreground"
-                    data-attachment-chip="true"
-                  >
-                    <ChatImagePreview
-                      src={ctx.imageDataUrl}
-                      sourcePath={ctx.filePath}
-                      alt={ctx.label}
-                      label={ctx.label}
-                      tooltip={ctx.attachment ? ctx.filePath : undefined}
-                      thumbnailClassName="size-4 shrink-0 rounded-sm border-0 object-cover"
-                    />
-                    <button
-                      type="button"
-                      aria-label="Remove attachment"
-                      onMouseDown={handleContextRemoveMouseDown}
-                      onClick={() => handlePinnedContextRemove(i)}
-                      className="shrink-0 rounded-sm p-0.5 hover:bg-muted-foreground/20"
-                    >
-                      <XIcon className="size-3" />
-                    </button>
-                  </span>
-                ) : (
-                  <span
-                    role="button"
-                    tabIndex={0}
-                    aria-label={`Show ${ctx.comment ? "comment @" : ctx.selectionKey?.startsWith("file:") ? "file " : "selection "}${ctx.label}`}
-                    data-attachment-chip={ctx.attachment ? "true" : undefined}
-                    data-selection-chip={
-                      ctx.comment || ctx.attachment ? undefined : "true"
-                    }
-                    data-comment-chip={ctx.comment ? "true" : undefined}
-                    data-selection-pinned={Boolean(ctx.selectionPinned)}
-                    onMouseDown={(event) => {
-                      if (ctx.comment) event.preventDefault();
-                    }}
-                    onClick={() => handlePinnedContextActivate(ctx)}
-                    onKeyDown={(event) => {
-                      if (event.target !== event.currentTarget) return;
-                      if (event.key !== "Enter" && event.key !== " ") return;
-                      event.preventDefault();
-                      handlePinnedContextActivate(ctx);
-                    }}
-                    onMouseEnter={() => handlePinnedContextMouseEnter(ctx)}
-                    onMouseLeave={handlePinnedContextMouseLeave}
-                    onFocus={() => handlePinnedContextMouseEnter(ctx)}
-                    onBlur={handlePinnedContextMouseLeave}
-                    className={cn(
-                      "inline-flex max-w-full cursor-pointer items-center gap-1 rounded-sm py-0.5 pr-0.5 pl-1 font-mono text-xs transition-colors focus-visible:outline-none focus-visible:ring-2",
-                      ctx.attachment
-                        ? "border border-border bg-transparent text-muted-foreground hover:border-muted-foreground/50 hover:bg-muted/50 hover:text-foreground focus-visible:ring-ring/50"
-                        : "focus-visible:ring-blue-500/50",
-                      ctx.attachment
-                        ? ""
-                        : ctx.comment
-                          ? ctx.comment.agent
-                            ? "bg-[#7252b5] text-white hover:bg-[#62439e]"
-                            : "bg-[#eab308] text-white hover:bg-[#d6a207]"
-                          : "bg-muted text-muted-foreground hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/40 dark:hover:text-blue-300",
-                    )}
-                    title={
-                      ctx.comment?.text ??
-                      (ctx.pdf
-                        ? `${ctx.pdf.documentPath} · PDF p.${ctx.pdf.page}\n${ctx.selectedText}`
-                        : undefined) ??
-                      (ctx.proposedDraft ? ctx.selectedText : undefined)
-                    }
-                  >
-                    {ctx.attachment && (
-                      <FileIcon
-                        aria-hidden="true"
-                        className="size-3 shrink-0"
-                      />
-                    )}
-                    {draftLabel && (
-                      <span
-                        className="shrink-0 font-sans"
-                        data-proposed-draft-context="true"
-                      >
-                        {draftLabel} ·
-                      </span>
-                    )}
-                    <span
-                      data-context-label="true"
-                      className="min-w-0 truncate"
-                    >
-                      {ctx.comment ? `@${ctx.label}` : ctx.label}
-                      <span data-context-glow="true" aria-hidden="true">
-                        {ctx.comment ? `@${ctx.label}` : ctx.label}
-                      </span>
-                    </span>
-                    {(ctx.comment ||
-                      isSelectionRangeContextLabel(ctx.label)) && (
-                      <span className="relative size-4 shrink-0">
-                        <PinIcon
-                          aria-hidden="true"
-                          className={cn(
-                            "absolute inset-0.5 size-3 transition-opacity duration-150 motion-reduce:duration-75",
-                            ctx.selectionPinned ? "opacity-0" : "opacity-100",
-                          )}
-                        />
-                        <PinIcon
-                          aria-label={
-                            ctx.selectionPinned
-                              ? ctx.comment
-                                ? "Pinned comment"
-                                : "Pinned selection"
-                              : undefined
-                          }
-                          aria-hidden={!ctx.selectionPinned || undefined}
-                          className={cn(
-                            "absolute inset-0.5 size-3 fill-current transition-opacity duration-150 motion-reduce:duration-75",
-                            ctx.selectionPinned ? "opacity-100" : "opacity-0",
-                          )}
-                        />
-                        {!ctx.selectionPinned && (
-                          <Hint
-                            content={
-                              ctx.comment
-                                ? "Keep this comment while selecting others"
-                                : "Keep this selection while selecting more text"
-                            }
-                          >
-                            <button
-                              aria-label={
-                                ctx.comment ? "Pin comment" : "Pin selection"
-                              }
-                              onMouseDown={(event) => {
-                                event.preventDefault();
-                                event.stopPropagation();
-                              }}
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                setPinnedContexts((prev) =>
-                                  prev.map((context, index) =>
-                                    index === i
-                                      ? { ...context, selectionPinned: true }
-                                      : context,
-                                  ),
-                                );
-                              }}
-                              className="absolute inset-0 rounded-sm transition-colors hover:bg-muted-foreground/20"
-                            />
-                          </Hint>
-                        )}
-                      </span>
-                    )}
-                    <button
-                      aria-label="Remove context"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        handlePinnedContextRemove(i);
-                      }}
-                      onMouseDown={(event) => {
-                        if (ctx.comment) event.preventDefault();
-                        handleContextRemoveMouseDown(event);
-                      }}
-                      className="rounded-sm p-0.5 transition-colors hover:bg-muted-foreground/20"
-                    >
-                      <XIcon className="size-3" />
-                    </button>
-                  </span>
-                );
-                return ctx.attachment && !ctx.imageDataUrl ? (
-                  <Hint content={ctx.filePath}>{badge}</Hint>
-                ) : (
-                  badge
-                );
-              }}
             />
+            {!activeQuestion && contextBadges}
 
             {isDragOver ? (
               <div className="flex min-h-10 shrink-0 items-center justify-center px-4 py-3 text-muted-foreground text-sm">
@@ -3024,53 +3294,48 @@ export const ChatComposer: FC<{
                 </div>
               </div>
             ) : activeQuestion ? null : isCollapsed ? (
-              <div className="flex shrink-0 items-end gap-1 px-2 py-2">
+              <div
+                className={cn(
+                  "@container/mini-composer grid shrink-0 grid-cols-[minmax(0,1fr)_auto] grid-rows-[var(--mini-input-height,1.75rem)_var(--mini-controls-space,0px)] items-end gap-x-1 py-2 pe-(--mini-controls-inset) pl-1.5 transition-[grid-template-rows] duration-150 ease-out [--mini-controls-inset:0.5rem] motion-reduce:transition-none",
+                  miniControlsBelow && "[--mini-controls-space:2rem]",
+                )}
+              >
+                {/* Keep measuring the inline width after the draft grows wider. */}
+                <span
+                  ref={miniInlineMeasureRef}
+                  aria-hidden="true"
+                  className={cn(
+                    "invisible col-start-1 row-start-1 h-0 overflow-hidden whitespace-pre",
+                    MINI_INPUT_TEXT,
+                  )}
+                >
+                  {input.split("\n", 1)[0]}
+                </span>
                 <textarea
-                  ref={textareaRef}
+                  ref={attachTextarea}
                   data-chat-composer-input="true"
                   value={input}
                   onChange={handleInput}
+                  onScroll={(event) => updateMiniTextFade(event.currentTarget)}
                   onKeyDown={handleKeyDown}
                   onPaste={handlePaste}
                   placeholder={
                     pinnedContexts.some(isPromptSelection)
                       ? "Ask about this selection…"
-                      : `Write with ${PRODUCT_NAME}…`
+                      : "Message…"
                   }
-                  className="scrollbar-none max-h-12 min-h-8 flex-1 resize-none overflow-y-auto overflow-x-hidden bg-transparent px-2 py-1.5 text-sm outline-none placeholder:text-muted-foreground"
+                  className={cn(
+                    "app-scrollbar col-start-1 row-start-1 max-h-full min-w-0 resize-none self-start justify-self-stretch overflow-x-hidden bg-transparent py-[5px] outline-none [--scrollbar-rail-inset:4px] placeholder:truncate placeholder:text-muted-foreground",
+                    MINI_INPUT_TEXT,
+                    input ? "overflow-y-auto" : "overflow-y-hidden",
+                    miniControlsBelow &&
+                      "col-end-3 [--scrollbar-rail-extension:var(--mini-controls-inset)]",
+                  )}
                   rows={1}
                 />
 
-                <div className="flex shrink-0 items-center gap-2">
-                  <div className="flex items-center gap-0">
-                    {contextIndicator}
-                    <Hint content={modelTooltip}>
-                      <button
-                        ref={modelButtonRef}
-                        aria-label={modelTooltipLabel}
-                        type="button"
-                        onClick={() => setModelPickerOpen((v) => !v)}
-                        className="flex max-w-[170px] shrink-0 items-center gap-1 rounded-md px-1 py-1 text-muted-foreground text-xs transition-colors hover:bg-muted hover:text-foreground"
-                      >
-                        {selectedProvider === "codex" &&
-                          selectedCodexFastMode && (
-                            <ZapIcon
-                              aria-label="Fast mode enabled"
-                              fill="currentColor"
-                              className="size-3 shrink-0"
-                            />
-                          )}
-                        <span className="truncate">{pickerLabel}</span>
-                        {showEffort && (
-                          <span className="text-muted-foreground/60">
-                            {effortShortLabel(selectedEffort)}
-                          </span>
-                        )}
-                        <ChevronDownIcon className="size-3 shrink-0" />
-                      </button>
-                    </Hint>
-                    {executionModeButton}
-                  </div>
+                <div className="col-start-2 row-span-2 row-start-1 flex items-center gap-1">
+                  {agentControls}
 
                   {submitControl}
                 </div>
@@ -3078,7 +3343,7 @@ export const ChatComposer: FC<{
             ) : (
               <>
                 <textarea
-                  ref={textareaRef}
+                  ref={attachTextarea}
                   data-chat-composer-input="true"
                   value={input}
                   onChange={handleInput}
@@ -3089,78 +3354,131 @@ export const ChatComposer: FC<{
                       ? "Ask about this selection…"
                       : `Write with ${PRODUCT_NAME}…`
                   }
-                  className="scrollbar-none max-h-40 min-h-10 w-full shrink-0 resize-none overflow-y-auto overflow-x-hidden bg-transparent px-4 py-2 text-sm outline-none placeholder:text-muted-foreground"
+                  className={cn(
+                    "app-scrollbar app-scrollbar-rail max-h-40 min-h-0 resize-none overflow-x-hidden bg-transparent pt-[13px] pr-2 pb-[3px] pl-3 text-sm outline-none placeholder:text-muted-foreground",
+                    input ? "overflow-y-auto" : "overflow-y-hidden",
+                  )}
                   rows={1}
                 />
 
                 <div
                   ref={setToolbarElement}
                   data-chat-composer-toolbar
-                  className="relative flex shrink-0 items-center justify-end gap-2 px-2 pb-2"
+                  className="relative flex shrink-0 items-center justify-end px-2 pb-2 [--composer-collapse-ease:cubic-bezier(0.8,0,0.6,1)]"
+                  onBlur={(event) => {
+                    if (
+                      toolbarShortcutsOpen &&
+                      !event.currentTarget.contains(event.relatedTarget)
+                    ) {
+                      setToolbarShortcutsOpen(false);
+                    }
+                  }}
+                  onKeyDown={(event) => {
+                    if (!toolbarShortcutsOpen || event.key !== "Escape") return;
+                    event.preventDefault();
+                    event.stopPropagation();
+                    setToolbarShortcutsOpen(false);
+                    toolbarToggleRef.current?.focus({ preventScroll: true });
+                  }}
                 >
-                  <div
-                    data-composer-shortcuts
-                    aria-hidden={hideToolbarShortcuts || undefined}
-                    inert={hideToolbarShortcuts}
-                    className={cn(
-                      "mr-auto flex w-max shrink-0 items-center gap-0 whitespace-nowrap",
-                      // Keep its natural width measurable so shortcuts return as
-                      // soon as they fit, including after model labels change.
-                      hideToolbarShortcuts && "invisible absolute left-2",
-                    )}
-                  >
-                    <button
-                      type="button"
-                      onClick={openSlashTrigger}
-                      className="rounded-md px-1 py-1 text-muted-foreground text-xs transition-colors hover:bg-muted hover:text-foreground"
+                  <div className="flex min-h-7 min-w-6 flex-1 items-center overflow-x-clip">
+                    <div
+                      data-composer-shortcuts-track
+                      className={cn(
+                        "relative flex h-7 shrink-0 items-center overflow-hidden transition-[width] duration-200 motion-reduce:transition-none",
+                        showToolbarShortcuts
+                          ? "w-(--composer-shortcuts-width) ease-in-out"
+                          : "w-6 ease-(--composer-collapse-ease)",
+                        toolbarShortcutsOpen &&
+                          "w-[calc(var(--composer-shortcuts-width)+1.5rem)]",
+                      )}
                     >
-                      / for commands
-                    </button>
-                    <button
-                      type="button"
-                      onClick={openMentionTrigger}
-                      className="rounded-md px-1 py-1 text-muted-foreground text-xs transition-colors hover:bg-muted hover:text-foreground"
-                    >
-                      @ for mention
-                    </button>
+                      <button
+                        ref={toolbarToggleRef}
+                        type="button"
+                        aria-label={
+                          toolbarShortcutsOpen
+                            ? "Hide composer shortcuts"
+                            : "Show composer shortcuts"
+                        }
+                        aria-expanded={toolbarShortcutsOpen}
+                        aria-hidden={!compactToolbar || undefined}
+                        inert={!compactToolbar}
+                        onClick={() => setToolbarShortcutsOpen((open) => !open)}
+                        className={cn(
+                          "absolute left-0 z-10 flex h-7 w-6 items-center justify-center rounded-md text-muted-foreground transition-opacity duration-100 hover:bg-muted hover:text-foreground motion-reduce:transition-none",
+                          compactToolbar
+                            ? "delay-100 ease-(--composer-collapse-ease)"
+                            : "opacity-0",
+                        )}
+                      >
+                        {toolbarShortcutsOpen ? (
+                          <MinusIcon className="size-3.5" aria-hidden="true" />
+                        ) : (
+                          <PlusIcon className="size-3.5" aria-hidden="true" />
+                        )}
+                      </button>
+                      <div
+                        data-composer-shortcuts
+                        aria-hidden={!showToolbarShortcuts || undefined}
+                        inert={!showToolbarShortcuts}
+                        className={cn(
+                          "flex w-max shrink-0 items-center whitespace-nowrap transition-[opacity,translate] duration-100 motion-reduce:transition-none",
+                          compactToolbar && "translate-x-6",
+                          showToolbarShortcuts
+                            ? "delay-75"
+                            : "opacity-0 delay-25 ease-(--composer-collapse-ease)",
+                        )}
+                      >
+                        <button
+                          type="button"
+                          onClick={openSlashTrigger}
+                          className="rounded-md px-1 py-1 text-muted-foreground text-xs transition-colors hover:bg-muted hover:text-foreground"
+                        >
+                          / commands
+                        </button>
+                        <button
+                          type="button"
+                          onClick={openMentionTrigger}
+                          className="rounded-md px-1 py-1 text-muted-foreground text-xs transition-colors hover:bg-muted hover:text-foreground"
+                        >
+                          @ mention
+                        </button>
+                      </div>
+                    </div>
                   </div>
 
+                  {/* Reserve space for Send even while the agent controls fade. */}
+                  <div
+                    aria-hidden="true"
+                    className={cn(
+                      "shrink-0 transition-[width] duration-200 motion-reduce:transition-none",
+                      toolbarShortcutsOpen
+                        ? "w-(--composer-submit-width) ease-in-out"
+                        : "w-(--composer-controls-width) ease-(--composer-collapse-ease)",
+                    )}
+                  />
                   <div
                     data-composer-controls
-                    className="flex shrink-0 items-center gap-2"
+                    className={cn(
+                      "absolute right-2 flex min-w-0 max-w-[calc(100%-2.5rem)] items-center gap-1",
+                      // Let clicks pass through the space behind the fading controls.
+                      toolbarShortcutsOpen &&
+                        "pointer-events-none [&>[data-composer-submit]]:pointer-events-auto",
+                    )}
                   >
-                    {/* Model & settings selector */}
                     <div
-                      data-chat-agent-controls
-                      className="flex items-center gap-0"
+                      data-composer-agent-controls
+                      aria-hidden={toolbarShortcutsOpen || undefined}
+                      inert={toolbarShortcutsOpen}
+                      className={cn(
+                        "min-w-0 transition-opacity duration-200 motion-reduce:transition-none",
+                        toolbarShortcutsOpen
+                          ? "opacity-0 ease-in-out"
+                          : "ease-(--composer-collapse-ease)",
+                      )}
                     >
-                      {contextIndicator}
-                      <Hint content={modelTooltip}>
-                        <button
-                          ref={modelButtonRef}
-                          aria-label={modelTooltipLabel}
-                          type="button"
-                          onClick={() => setModelPickerOpen((v) => !v)}
-                          className="flex items-center gap-1 rounded-md px-1 py-1 text-muted-foreground text-xs transition-colors hover:bg-muted hover:text-foreground"
-                        >
-                          {selectedProvider === "codex" &&
-                            selectedCodexFastMode && (
-                              <ZapIcon
-                                aria-label="Fast mode enabled"
-                                fill="currentColor"
-                                className="size-3 shrink-0"
-                              />
-                            )}
-                          <span>{pickerLabel}</span>
-                          {showEffort && (
-                            <span className="text-muted-foreground/60">
-                              {effortShortLabel(selectedEffort)}
-                            </span>
-                          )}
-                          <ChevronDownIcon className="size-3" />
-                        </button>
-                      </Hint>
-                      {executionModeButton}
+                      {agentControls}
                     </div>
 
                     {submitControl}

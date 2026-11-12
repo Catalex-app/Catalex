@@ -1,9 +1,13 @@
+import {
+  beginProjectOpen,
+  updateProjectScreen,
+} from "@/lib/project-navigation";
 import { rebaseDocumentEdit } from "@/lib/rebase-document-edit";
 import { connectPanelDocumentView } from "@/lib/panel-document-view";
 import { getPanelWindowSession } from "@/lib/panel-window-runtime";
 import type { PdfSource } from "@/lib/mupdf/pdf-source";
 import { normalizeDocumentText, encodeDocumentText } from "@/lib/document-text";
-import type { ChatContextBadge } from "@/lib/chat-context";
+import type { ChatContextBadge, PdfSelectionAnchor } from "@/lib/chat-context";
 import type { PromptDiagnosticSnapshot } from "@/lib/prompt-library";
 import type { CompileDiagnostic } from "@/lib/latex-compiler";
 import { create } from "zustand";
@@ -158,8 +162,10 @@ export interface DocumentState {
   commentSelectionContext: ChatContextBadge | null;
   setCommentSelectionContext: (context: ChatContextBadge | null) => void;
   pdfSelectionContext: ChatContextBadge | null;
+  pdfSelectionAnchor: PdfSelectionAnchor | null;
   setPdfSelectionContext: (
     context: DocumentState["pdfSelectionContext"],
+    anchor?: PdfSelectionAnchor,
   ) => void;
   selectionPreviewRange: {
     fileId: string;
@@ -167,6 +173,7 @@ export interface DocumentState {
     end: number;
   } | null;
   jumpToPosition: number | null;
+  jumpToPositionHighlight: boolean;
   jumpToSelectionRange: { start: number; end: number } | null;
   isThreadOpen: boolean;
   /** Bumped whenever PDF bytes change — triggers re-render without storing bytes in state. */
@@ -203,7 +210,7 @@ export interface DocumentState {
   setSelectionPreviewRange: (
     range: { fileId: string; start: number; end: number } | null,
   ) => void;
-  requestJumpToPosition: (position: number) => void;
+  requestJumpToPosition: (position: number, highlight?: boolean) => void;
   requestJumpToSelectionRange: (range: { start: number; end: number }) => void;
   clearJumpRequest: () => void;
   setThreadOpen: (open: boolean) => void;
@@ -928,9 +935,11 @@ export const useDocumentStore = create<DocumentState>()((set, get) => ({
   selectionRange: null,
   promptDiagnostics: null,
   pdfSelectionContext: null,
+  pdfSelectionAnchor: null,
   commentSelectionContext: null,
   selectionPreviewRange: null,
   jumpToPosition: null,
+  jumpToPositionHighlight: false,
   jumpToSelectionRange: null,
   isThreadOpen: false,
   pdfRevision: 0,
@@ -951,7 +960,9 @@ export const useDocumentStore = create<DocumentState>()((set, get) => ({
       throw new Error("A project is already opening in this window.");
     openingProject = true;
     let pendingLease: string | null = null;
+    let finishOpening = () => {};
     try {
+      finishOpening = beginProjectOpen(rootPath);
       if (window.catalex)
         pendingLease = await invoke<string>("desktop:project:acquire", {
           path: rootPath,
@@ -981,35 +992,43 @@ export const useDocumentStore = create<DocumentState>()((set, get) => ({
 
       await restoreProjectChats(rootPath);
       clearPdfBytesCache();
-      set({
-        projectRoot: rootPath,
-        agentWorkspaceSessionId: null,
-        agentWorkspaceRoot: null,
-        isAgentWorkspaceReadOnly: false,
-        sourceViewSnapshot: null,
-        files: projectFiles,
-        folders: fsFolders,
-        activeFileId: initialFile?.id || projectFiles[0]?.id || "",
-        openFileIds: initialFile?.id
-          ? [initialFile.id]
-          : projectFiles[0]?.id
-            ? [projectFiles[0].id]
-            : [],
-        pdfRevision: 0,
-        compileError: null,
-        compileErrorCache: new Map(),
-        compileDiagnosticsCache: new Map(),
-        lastCompiledGenerations: new Map(),
-        initialized: true,
-        cursorPosition: 0,
-        outlineScrollPosition: null,
-        selectionRange: null,
-        pdfSelectionContext: null,
-        commentSelectionContext: null,
-        selectionPreviewRange: null,
-        jumpToPosition: null,
-        jumpToSelectionRange: null,
-      });
+      await updateProjectScreen(
+        "open",
+        () => {
+          set({
+            projectRoot: rootPath,
+            agentWorkspaceSessionId: null,
+            agentWorkspaceRoot: null,
+            isAgentWorkspaceReadOnly: false,
+            sourceViewSnapshot: null,
+            files: projectFiles,
+            folders: fsFolders,
+            activeFileId: initialFile?.id || projectFiles[0]?.id || "",
+            openFileIds: initialFile?.id
+              ? [initialFile.id]
+              : projectFiles[0]?.id
+                ? [projectFiles[0].id]
+                : [],
+            pdfRevision: 0,
+            compileError: null,
+            compileErrorCache: new Map(),
+            compileDiagnosticsCache: new Map(),
+            lastCompiledGenerations: new Map(),
+            initialized: true,
+            cursorPosition: 0,
+            outlineScrollPosition: null,
+            selectionRange: null,
+            pdfSelectionContext: null,
+            pdfSelectionAnchor: null,
+            commentSelectionContext: null,
+            selectionPreviewRange: null,
+            jumpToPosition: null,
+            jumpToPositionHighlight: false,
+            jumpToSelectionRange: null,
+          });
+        },
+        rootPath,
+      );
 
       // Initialize history system early so snapshots work before the panel is opened
       const historyStore = useHistoryStore.getState();
@@ -1027,6 +1046,7 @@ export const useDocumentStore = create<DocumentState>()((set, get) => ({
       activeProjectLease = pendingLease;
       pendingLease = null;
     } finally {
+      finishOpening();
       openingProject = false;
       if (pendingLease)
         await invoke("desktop:project:release", { token: pendingLease });
@@ -1055,31 +1075,39 @@ export const useDocumentStore = create<DocumentState>()((set, get) => ({
     clearEditorStateCache();
     clearCommentDocumentModels();
     clearPdfBytesCache();
-    set({
-      projectRoot: null,
-      agentWorkspaceSessionId: null,
-      agentWorkspaceRoot: null,
-      isAgentWorkspaceReadOnly: false,
-      sourceViewSnapshot: null,
-      files: [],
-      folders: [],
-      activeFileId: "",
-      openFileIds: [],
-      pdfRevision: 0,
-      compileError: null,
-      compileErrorCache: new Map(),
-      compileDiagnosticsCache: new Map(),
-      lastCompiledGenerations: new Map(),
-      cursorPosition: 0,
-      outlineScrollPosition: null,
-      selectionRange: null,
-      pdfSelectionContext: null,
-      commentSelectionContext: null,
-      selectionPreviewRange: null,
-      jumpToPosition: null,
-      jumpToSelectionRange: null,
-      initialized: false,
-    });
+    await updateProjectScreen(
+      "close",
+      () => {
+        set({
+          projectRoot: null,
+          agentWorkspaceSessionId: null,
+          agentWorkspaceRoot: null,
+          isAgentWorkspaceReadOnly: false,
+          sourceViewSnapshot: null,
+          files: [],
+          folders: [],
+          activeFileId: "",
+          openFileIds: [],
+          pdfRevision: 0,
+          compileError: null,
+          compileErrorCache: new Map(),
+          compileDiagnosticsCache: new Map(),
+          lastCompiledGenerations: new Map(),
+          cursorPosition: 0,
+          outlineScrollPosition: null,
+          selectionRange: null,
+          pdfSelectionContext: null,
+          pdfSelectionAnchor: null,
+          commentSelectionContext: null,
+          selectionPreviewRange: null,
+          jumpToPosition: null,
+          jumpToPositionHighlight: false,
+          jumpToSelectionRange: null,
+          initialized: false,
+        });
+      },
+      projectRoot,
+    );
     // All tabs have been saved under the old project before clearing the workspace.
     useAgentChatStore.getState().restoreProjectTabs(null);
     if (activeProjectLease) {
@@ -1115,6 +1143,7 @@ export const useDocumentStore = create<DocumentState>()((set, get) => ({
         : [...s.openFileIds, id],
       selectionRange: null,
       pdfSelectionContext: null,
+      pdfSelectionAnchor: null,
       commentSelectionContext: null,
       selectionPreviewRange: null,
       ...(pdfRootChanged ? { pdfRevision: s.pdfRevision + 1 } : {}),
@@ -1172,11 +1201,13 @@ export const useDocumentStore = create<DocumentState>()((set, get) => ({
     set({
       selectionRange: range,
       pdfSelectionContext: null,
+      pdfSelectionAnchor: null,
       commentSelectionContext: null,
     }),
-  setPdfSelectionContext: (pdfSelectionContext) =>
+  setPdfSelectionContext: (pdfSelectionContext, anchor) =>
     set({
       pdfSelectionContext,
+      pdfSelectionAnchor: pdfSelectionContext ? (anchor ?? null) : null,
       ...(pdfSelectionContext ? { commentSelectionContext: null } : {}),
     }),
   setCommentSelectionContext: (commentSelectionContext) =>
@@ -1184,16 +1215,22 @@ export const useDocumentStore = create<DocumentState>()((set, get) => ({
       commentSelectionContext,
       selectionRange: null,
       pdfSelectionContext: null,
+      pdfSelectionAnchor: null,
     }),
 
   setSelectionPreviewRange: (range) => set({ selectionPreviewRange: range }),
 
-  requestJumpToPosition: (position) => set({ jumpToPosition: position }),
+  requestJumpToPosition: (position, highlight = false) =>
+    set({ jumpToPosition: position, jumpToPositionHighlight: highlight }),
 
   requestJumpToSelectionRange: (range) => set({ jumpToSelectionRange: range }),
 
   clearJumpRequest: () =>
-    set({ jumpToPosition: null, jumpToSelectionRange: null }),
+    set({
+      jumpToPosition: null,
+      jumpToPositionHighlight: false,
+      jumpToSelectionRange: null,
+    }),
 
   addFile: (file) => {
     const id = file.relativePath;

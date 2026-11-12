@@ -665,6 +665,21 @@ function extractImageFileUrls(text: string): string[] {
   return imageUrls;
 }
 
+export async function readChatHistoryWindow(
+  projectRoot: string,
+  tabId: string,
+  start: number,
+  limit: number,
+) {
+  const messages = await invoke<AgentStreamMessage[]>("desktop:chat:messages", {
+    projectRoot,
+    tabId,
+    start,
+    limit,
+  });
+  return rehydrateGeneratedImageMessages(messages);
+}
+
 function rehydrateGeneratedImageMessages(
   messages: AgentStreamMessage[],
 ): AgentStreamMessage[] {
@@ -3193,14 +3208,11 @@ const createAgentChatState: StateCreator<AgentChatState> = (set, get) => ({
       if (start >= tab.history.start) return;
       // Writable suffixes must start on a persisted chunk boundary.
       start = Math.floor(start / 100) * 100;
-      const older = await invoke<AgentStreamMessage[]>(
-        "desktop:chat:messages",
-        {
-          projectRoot: state.chatProjectRoot,
-          tabId,
-          start,
-          limit: tab.history.start - start,
-        },
+      const older = await readChatHistoryWindow(
+        state.chatProjectRoot,
+        tabId,
+        start,
+        tab.history.start - start,
       );
       const current = get().tabs.find((item) => item.id === tabId);
       if (
@@ -3213,10 +3225,7 @@ const createAgentChatState: StateCreator<AgentChatState> = (set, get) => ({
       const currentHistory = current.history;
       set((value) =>
         applyTabUpdate(value, tabId, {
-          messages: [
-            ...rehydrateGeneratedImageMessages(older),
-            ...current.messages,
-          ],
+          messages: [...older, ...current.messages],
           history: {
             ...currentHistory,
             start,
@@ -3227,14 +3236,11 @@ const createAgentChatState: StateCreator<AgentChatState> = (set, get) => ({
       );
       return;
     }
-    const messages = await invoke<AgentStreamMessage[]>(
-      "desktop:chat:messages",
-      {
-        projectRoot: state.chatProjectRoot,
-        tabId,
-        start,
-        limit: limit ?? tab.history.total,
-      },
+    const messages = await readChatHistoryWindow(
+      state.chatProjectRoot,
+      tabId,
+      start,
+      limit ?? tab.history.total,
     );
     const current = get().tabs.find((item) => item.id === tabId);
     if (get().chatProjectRoot !== state.chatProjectRoot || !current)
@@ -3250,7 +3256,7 @@ const createAgentChatState: StateCreator<AgentChatState> = (set, get) => ({
       applyTabUpdate(value, tabId, {
         lastCommunicationProvider: lastCommunicationProvider(current),
         lastCommunication: lastCommunicationDetails(current),
-        messages: rehydrateGeneratedImageMessages(messages),
+        messages,
         history:
           start === 0 && messages.length === tab.history!.total
             ? undefined

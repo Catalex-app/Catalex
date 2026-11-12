@@ -9,6 +9,7 @@ import {
   lastCommunicationProvider,
 } from "@/stores/agent-chat-store";
 import { ThemeProvider } from "next-themes";
+import { DEFAULT_APP_THEME } from "@/lib/app-theme";
 import { toast } from "sonner";
 import { getPanelWindowSession } from "@/lib/panel-window-runtime";
 import { useDocumentStore } from "@/stores/document-store";
@@ -218,7 +219,11 @@ function PanelContent() {
 export function PanelWindow() {
   return (
     <ErrorBoundary FallbackComponent={ErrorFallback}>
-      <ThemeProvider attribute="class" defaultTheme="light" enableSystem>
+      <ThemeProvider
+        attribute="class"
+        defaultTheme={DEFAULT_APP_THEME}
+        enableSystem
+      >
         <TooltipProvider>
           <PanelContent />
           <Toaster />

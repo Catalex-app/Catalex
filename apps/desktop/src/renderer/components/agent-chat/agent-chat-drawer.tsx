@@ -24,7 +24,7 @@ import { SessionSelector } from "./session-selector";
 
 const MIN_OPEN_HEIGHT = 150;
 const DEFAULT_HEIGHT = 360;
-const OPEN_HEIGHT_RATIO = 0.5;
+const DRAWER_HEIGHT_RATIO = 0.6;
 const COLLAPSE_OPEN_TRANSITION_MS = 160;
 const OPEN_DRAG_THRESHOLD = 22;
 const COLLAPSE_SNAP_DISTANCE = 16;
@@ -41,6 +41,7 @@ export function AgentChatDrawer({
   onOpenChange,
   preferredHeight,
   onHeightChange,
+  availableHeight,
   displayControl,
   isExiting = false,
   transitionMorphActive = false,
@@ -52,6 +53,7 @@ export function AgentChatDrawer({
   onOpenChange?: (open: boolean) => void;
   preferredHeight?: number;
   onHeightChange?: (height: number) => void;
+  availableHeight?: number;
   displayControl?: ReactNode;
   isExiting?: boolean;
   transitionMorphActive?: boolean;
@@ -64,7 +66,7 @@ export function AgentChatDrawer({
   introRevealActive?: boolean;
 }) {
   const { resume } = useActiveAgentQuestion();
-  const heightRatio = resume ? 0.85 : OPEN_HEIGHT_RATIO;
+  const heightRatio = resume ? 0.85 : DRAWER_HEIGHT_RATIO;
   const drawerCollapseRequestNonce = useAgentChatStore(
     (s) => s.drawerCollapseRequestNonce,
   );
@@ -79,7 +81,7 @@ export function AgentChatDrawer({
   const [localPreferredHeight, setLocalPreferredHeight] =
     useState(DEFAULT_HEIGHT);
   const chosenHeight = preferredHeight ?? localPreferredHeight;
-  const [height, setHeight] = useState(chosenHeight);
+  const [parentHeight, setParentHeight] = useState<number>();
   const [panelTransitionMs, setPanelTransitionMs] = useState(300);
   const [isDragging, setIsDragging] = useState(false);
   const [isCollapsePreview, setIsCollapsePreview] = useState(false);
@@ -104,59 +106,22 @@ export function AgentChatDrawer({
     : 0;
   const containerRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
-  const chromeRef = useRef<HTMLDivElement>(null);
-  const composerSlotRef = useRef<HTMLDivElement>(null);
+  const messagesRef = useRef<HTMLDivElement>(null);
   const handledCollapseRequestRef = useRef(drawerCollapseRequestNonce);
   const hasDraggedRef = useRef(false);
   const dragActiveRef = useRef(false);
   const dragCleanupRef = useRef<(() => void) | null>(null);
-  const heightRef = useRef(height);
   useEffect(() => () => dragCleanupRef.current?.(), []);
 
   const pendingAttachments = useAgentChatStore((s) => s.pendingAttachments);
-  const getOpenMaxHeight = useCallback(() => {
-    const parent = containerRef.current?.parentElement;
-    return parent ? parent.clientHeight * heightRatio : 400;
-  }, [heightRatio]);
-
-  const clampOpenHeight = useCallback(
-    (value: number) => {
-      if (!Number.isFinite(value) || value <= 0) return MIN_OPEN_HEIGHT;
-      return Math.min(
-        Math.max(Math.ceil(value), MIN_OPEN_HEIGHT),
-        getOpenMaxHeight(),
-      );
-    },
-    [getOpenMaxHeight],
+  const hostHeight = availableHeight ?? parentHeight;
+  const maxOpenHeight =
+    hostHeight === undefined ? 400 : hostHeight * heightRatio;
+  const minOpenHeight = Math.min(MIN_OPEN_HEIGHT, maxOpenHeight);
+  const restingHeight = Math.min(
+    Math.max(chosenHeight, minOpenHeight),
+    maxOpenHeight,
   );
-
-  const getCollapsedContentHeight = useCallback(() => {
-    const chromeHeight = chromeRef.current?.getBoundingClientRect().height ?? 0;
-    const composerHeight =
-      composerSlotRef.current?.getBoundingClientRect().height ?? 0;
-    const measured = Math.ceil(chromeHeight + composerHeight);
-    if (!Number.isFinite(measured) || measured <= 0) return 0;
-    return Math.min(measured, getOpenMaxHeight());
-  }, [getOpenMaxHeight]);
-
-  const ensureMinPanelHeight = useCallback(() => {
-    if (!isOpen || dragActiveRef.current) return;
-    const collapsedRequired = getCollapsedContentHeight();
-
-    const nextHeight = clampOpenHeight(
-      Math.max(chosenHeight, collapsedRequired - displayControlExtraHeight),
-    );
-    if (nextHeight !== heightRef.current) {
-      heightRef.current = nextHeight;
-      setHeight(nextHeight);
-    }
-  }, [
-    clampOpenHeight,
-    getCollapsedContentHeight,
-    isOpen,
-    displayControlExtraHeight,
-    chosenHeight,
-  ]);
 
   // Auto-open only when a new attachment is added.
   useEffect(() => {
@@ -168,24 +133,17 @@ export function AgentChatDrawer({
     }
   }, [isOpen, pendingAttachments]);
 
-  // Preserve the chosen height across composer/tab changes. Grow only when
-  // header and composer content cannot fit, never by accumulating resize deltas.
-  // Collapsed sizing is handled by CSS so constrained content cannot shrink-loop.
   useLayoutEffect(() => {
-    ensureMinPanelHeight();
-  }, [ensureMinPanelHeight, isDragging]);
-
-  useEffect(() => {
-    if (typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(() => {
-      ensureMinPanelHeight();
-    });
+    if (availableHeight !== undefined) return;
     const parent = containerRef.current?.parentElement;
-    if (parent) observer.observe(parent);
-    if (chromeRef.current) observer.observe(chromeRef.current);
-    if (composerSlotRef.current) observer.observe(composerSlotRef.current);
+    if (!parent) return;
+    const measure = () => setParentHeight(parent.clientHeight);
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(parent);
     return () => observer.disconnect();
-  }, [ensureMinPanelHeight]);
+  }, [availableHeight]);
 
   const setTransitionFor = useCallback(() => {
     setPanelTransitionMs(COLLAPSE_OPEN_TRANSITION_MS);
@@ -211,11 +169,23 @@ export function AgentChatDrawer({
 
       const wasOpenAtDragStart = isOpen;
       const startY = e.clientY;
-      // Hover chrome may still be animating; it must not reduce the saved base.
+      const visibleHeight =
+        (panelRef.current?.offsetHeight ??
+          restingHeight + displayControlExtraHeight) -
+        displayControlExtraHeight;
+      // Start from the current autofit height without counting the mode switcher.
       const startHeight = wasOpenAtDragStart
-        ? heightRef.current
-        : (panelRef.current?.offsetHeight ?? heightRef.current) -
-          displayControlExtraHeight;
+        ? Math.min(maxOpenHeight, Math.max(restingHeight, visibleHeight))
+        : visibleHeight;
+      const historyHeight = messagesRef.current?.offsetHeight;
+      // The composer and header stay visible as the history runs out of room.
+      const dragMinHeight =
+        historyHeight !== undefined
+          ? Math.min(
+              maxOpenHeight,
+              Math.max(minOpenHeight, visibleHeight - historyHeight),
+            )
+          : minOpenHeight;
       const dragExtraHeight = displayControl ? DISPLAY_CONTROL_EXTRA_HEIGHT : 0;
       let openedFromCollapsedDrag = false;
       let collapseOnRelease = false;
@@ -233,38 +203,30 @@ export function AgentChatDrawer({
           setPanelTransitionMs(COLLAPSE_OPEN_TRANSITION_MS);
           setIsOpen(true);
         }
-        if (Math.abs(delta) < 3) return;
-        if (!hasDraggedRef.current) setIsDragging(true);
-        hasDraggedRef.current = true;
+        if (!hasDraggedRef.current) {
+          if (Math.abs(delta) < 3) return;
+          setIsDragging(true);
+          hasDraggedRef.current = true;
+        }
 
-        // Keep the composer readable as the message area runs out of space.
-        // scrollHeight avoids measuring a composer already squeezed by the drag.
-        const chromeHeight =
-          chromeRef.current?.getBoundingClientRect().height ?? 0;
-        const composerHeight = composerSlotRef.current?.scrollHeight ?? 0;
-        const minOpenHeight = Math.min(
-          Math.max(
-            chromeHeight - dragExtraHeight + composerHeight + 2,
-            MIN_OPEN_HEIGHT,
-          ),
-          getOpenMaxHeight(),
-        );
         collapseOnRelease =
           wasOpenAtDragStart &&
           delta < 0 &&
-          startHeight + delta <= minOpenHeight + COLLAPSE_SNAP_DISTANCE;
+          startHeight + delta <= dragMinHeight + COLLAPSE_SNAP_DISTANCE;
         setIsCollapsePreview(collapseOnRelease);
         const newHeight = Math.min(
-          Math.max(startHeight + delta, minOpenHeight),
-          getOpenMaxHeight(),
+          Math.max(startHeight + delta, dragMinHeight),
+          maxOpenHeight,
         );
-        heightRef.current = newHeight;
         if (panelRef.current) {
-          panelRef.current.style.height = `${newHeight + dragExtraHeight}px`;
+          panelRef.current.style.setProperty(
+            "--drawer-drag-height",
+            `${newHeight + dragExtraHeight}px`,
+          );
           panelRef.current.style.setProperty(
             "--drawer-message-opacity",
             String(
-              Math.min(1, (newHeight - minOpenHeight) / MESSAGE_FADE_DISTANCE),
+              Math.min(1, (newHeight - dragMinHeight) / MESSAGE_FADE_DISTANCE),
             ),
           );
         }
@@ -272,6 +234,10 @@ export function AgentChatDrawer({
 
       const handleMouseUp = () => {
         if (!dragActiveRef.current) return;
+        const panel = panelRef.current;
+        const nextHeight = panel
+          ? Number.parseFloat(getComputedStyle(panel).height) - dragExtraHeight
+          : startHeight;
         dragActiveRef.current = false;
         setIsDragging(false);
         setIsCollapsePreview(false);
@@ -281,10 +247,10 @@ export function AgentChatDrawer({
           setIsOpen(false);
         } else if (
           hasDraggedRef.current &&
-          (wasOpenAtDragStart || openedFromCollapsedDrag)
+          (wasOpenAtDragStart || openedFromCollapsedDrag) &&
+          // A drag blocked by the minimum leaves the resting height intact.
+          (!wasOpenAtDragStart || Math.abs(nextHeight - startHeight) >= 1)
         ) {
-          const nextHeight = heightRef.current;
-          setHeight(nextHeight);
           setLocalPreferredHeight(nextHeight);
           onHeightChange?.(nextHeight);
         }
@@ -296,6 +262,7 @@ export function AgentChatDrawer({
         document.removeEventListener("mousemove", handleMouseMove);
         document.removeEventListener("mouseup", handleMouseUp);
         window.removeEventListener("blur", handleMouseUp);
+        panelRef.current?.style.removeProperty("--drawer-drag-height");
         panelRef.current?.style.removeProperty("--drawer-message-opacity");
         dragActiveRef.current = false;
         dragCleanupRef.current = null;
@@ -305,7 +272,9 @@ export function AgentChatDrawer({
       document.addEventListener("mouseup", handleMouseUp);
     },
     [
-      getOpenMaxHeight,
+      restingHeight,
+      maxOpenHeight,
+      minOpenHeight,
       displayControlExtraHeight,
       isOpen,
       transitionMorphActive,
@@ -326,14 +295,16 @@ export function AgentChatDrawer({
       // Let flex layout shrink the options, not a measured height feeding back
       // into itself whenever the composer is constrained.
       return {
-        maxHeight: `${heightRatio * 100}%`,
+        maxHeight: `calc(${heightRatio * 100}% + ${displayControlExtraHeight}px)`,
         maxWidth: DRAWER_MAX_WIDTH,
         borderRadius: DRAWER_CORNER_RADIUS,
       };
     }
+    const requestedHeight = isDragging
+      ? "var(--drawer-drag-height)"
+      : `${restingHeight + displayControlExtraHeight}px`;
     return {
-      height:
-        (isDragging ? heightRef.current : height) + displayControlExtraHeight,
+      height: `calc-size(auto, min(max(size, ${requestedHeight}), ${maxOpenHeight + displayControlExtraHeight}px))`,
       maxWidth: DRAWER_MAX_WIDTH,
       borderRadius: DRAWER_CORNER_RADIUS,
     };
@@ -341,26 +312,15 @@ export function AgentChatDrawer({
 
   const setDrawerOpen = useCallback(
     (nextOpen: boolean) => {
-      if (nextOpen) {
-        if (isOpen) return;
-        ensureMinPanelHeight();
-        setTransitionFor();
-        setIsOpen(true);
-        return;
-      }
-      if (!isOpen) return;
+      if (nextOpen === isOpen) return;
       setTransitionFor();
-      setIsOpen(false);
+      setIsOpen(nextOpen);
     },
-    [ensureMinPanelHeight, isOpen, setTransitionFor],
+    [isOpen, setIsOpen, setTransitionFor],
   );
 
   const handleHeaderBarClick = useCallback(() => {
     if (transitionMorphActive) return;
-    if (hasDraggedRef.current) {
-      hasDraggedRef.current = false;
-      return;
-    }
     setDrawerOpen(!isOpen);
   }, [isOpen, setDrawerOpen, transitionMorphActive]);
 
@@ -424,7 +384,6 @@ export function AgentChatDrawer({
       >
         {/* Header with drag handle, tab bar, and session selector */}
         <div
-          ref={chromeRef}
           className="@container/chat-drawer shrink-0 transition-[opacity,transform,max-height] duration-200 ease-out"
           style={{
             opacity: transitionMorphActive ? (morphToPanel ? 0 : 1) : 1,
@@ -478,6 +437,7 @@ export function AgentChatDrawer({
                   setIsHandleFocused(false);
               }}
               onMouseDownCapture={(event) => {
+                if (event.button === 0) hasDraggedRef.current = false;
                 if (
                   (event.target as HTMLElement).closest(
                     '[data-chat-display="Expanded"]',
@@ -487,10 +447,11 @@ export function AgentChatDrawer({
                 }
               }}
               onClickCapture={(event) => {
-                if (hasDraggedRef.current) {
+                if (!hasDraggedRef.current) return;
+                hasDraggedRef.current = false;
+                if (event.detail > 0) {
                   event.preventDefault();
                   event.stopPropagation();
-                  hasDraggedRef.current = false;
                 }
               }}
             >
@@ -562,12 +523,13 @@ export function AgentChatDrawer({
           />
         </div>
 
-        {/* Messages area (hidden in collapsed mode) */}
+        {/* History fills the remaining space without increasing the autofit height. */}
         {showFullChatContent && (
           <div
             key={activeTabId}
+            ref={messagesRef}
             data-chat-messages
-            className="chat-conversation-fade relative min-h-0 flex-1 overflow-hidden"
+            className="chat-conversation-fade relative min-h-0 flex-1 overflow-hidden [contain:size]"
             style={{ opacity: "var(--drawer-message-opacity, 1)" }}
           >
             <ChatMessages
@@ -581,7 +543,6 @@ export function AgentChatDrawer({
 
         {/* Composer */}
         <div
-          ref={composerSlotRef}
           data-chat-composer-shell="true"
           data-composer-transfer-phase={composerTransferPhase}
           className="mt-auto flex min-h-0 flex-col"

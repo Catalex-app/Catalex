@@ -40,7 +40,7 @@ See [desktop setup](../development/setup.md) for native dependencies. Tests use 
 pnpm -C apps/desktop exec playwright test -c playwright.config.ts
 ```
 
-The Playwright configuration starts Vite. Interactive harnesses use `/?debug=<name>`. Useful focused guides cover [agent stop/pause](agent-pause-harness.md) and [sidebar animation](sidebar-animation-harness.md).
+The Playwright configuration starts Vite. See the [browser demo catalog](browser-demos.md) for starting URLs and the full list. Interactive harnesses use `/?debug=<name>`. Useful focused guides cover [agent stop/pause](agent-pause-harness.md) and [sidebar animation](sidebar-animation-harness.md).
 
 For composer transfer or sidebar motion changes, run the owning regression suite:
 
@@ -50,6 +50,12 @@ pnpm -C apps/desktop exec playwright test -c playwright.config.ts e2e/sidebar-an
 ```
 
 Inspect rendered behavior and visual fit for UI changes; code checks alone are insufficient.
+
+Formatting regressions are covered by `agent-file-review.spec.ts` (editable review,
+applying, and recovery) and `text-editor-header.spec.ts` (background work, panel
+focus, and compact toolbars). The review test pauses the mocked backend response
+inside the test; the demo needs no special controls. `menu-views-smoke.mjs` checks
+the toolbar and native menu together.
 
 ## Electron application checks
 
@@ -68,6 +74,10 @@ node apps/desktop/e2e/electron/panel-review-smoke.mjs
 node apps/desktop/e2e/electron/prompt-library-smoke.mjs
 node apps/desktop/e2e/electron/pdf-file-comments-smoke.mjs
 node apps/desktop/e2e/electron/agent-pdf-comments-smoke.mjs
+node apps/desktop/e2e/electron/application-menu-smoke.mjs
+node apps/desktop/e2e/electron/menu-updates-smoke.mjs
+node apps/desktop/e2e/electron/menu-comments-smoke.mjs
+node apps/desktop/e2e/electron/menu-views-smoke.mjs
 ```
 
 The compilation cancellation smoke uses an isolated profile, a controlled latexmk
@@ -101,6 +111,32 @@ See [agent harnesses](../development/agent-harnesses.md) for provider boundaries
 
 Current runtime verification is on macOS. Windows/Linux packaging targets do not establish runtime or installer parity.
 
+The application-menu smoke uses an isolated Electron profile and temporary project.
+It invokes the real native menu items and checks Markdown/LaTeX formatting,
+selection retention, disabling formatting after focus moves to search or the Markdown iframe, preview Find routing, Find and
+Replace, the New File dialog, Markdown PDF export, recent projects, project
+closing, PDF-local versus app zoom, shortcut recording in Settings, editor pop-out
+cleanup, shortcut customization across windows, and a full application restart.
+Dialog paths are controlled by the test; application actions use real IPC and
+storage. Rendered screenshots are saved under
+`output/playwright/electron/application-menu/`.
+When the background runner cannot acquire macOS window focus, the smoke emits
+Electron's window-focus event explicitly to check routing. This does not replace
+an interactive check of switching windows through the macOS menu bar.
+
+The menu-comments smoke checks native Add Comment routing between the editor and Markdown iframe, saved source anchors, standalone PDF comments, the existing project-manager dialog, and visibility checkboxes. Screenshots are saved under `output/playwright/electron/menu-comments/`.
+
+The menu-views smoke also verifies that exporting a focused standalone PDF writes
+the original bytes even when a hidden compiled preview is mounted.
+
+The menu-views smoke checks the existing Markdown, LaTeX, and CSV switches through native menus, toolbar/menu selection synchronization, hidden switches for single-view files, expanded panels, and pop-outs, agent workspace behavior, and read-only content. It also double-clicks panel headers and checks formatting through both the native menu and existing toolbar inside the expanded editor, including pointer access and restoration. Screenshots are saved under `output/playwright/electron/menu-views/`.
+
+The menu-updates smoke invokes Check for Updates through the native Catalex menu,
+using controlled GitHub responses with the real update service and production UI.
+It checks new and existing About windows, one shared request, the disabled busy
+label across window changes, available/current/error results, and retry. Screenshots
+are saved under `output/playwright/electron/menu-updates/`.
+
 ## macOS permission prompts
 
 To retest first-use permissions, quit Catalex, install the build being tested, and reset only its macOS privacy permissions:
@@ -127,3 +163,57 @@ The Markdown highlighting checks cover common language aliases and LaTeX, litera
 Math-engine checks cover KaTeX/MathJax switching, inline and aligned display equations, horizontal scrolling for wide displays, malformed-input recovery, document macros and recursion limits, independent theme selection, keyboard navigation between Typora menu levels, and preference rehydration. The production chunk check blocks external network requests. The native Markdown smoke exports a MathJax PDF, checks that prose around inline math stays on one line, and saves a rendered PDF screenshot for inspection. File-choice checks cover separate documents, identical file IDs in different projects, defaults, and rehydration. The native Markdown smoke verifies engine changes for the same file across a preview pop-out and the main window, global-default synchronization without replacing explicit file choices, a different file inheriting the default, and saved choices after a full Electron restart.
 
 Typora menu checks use a long theme list to verify the five-item recent limit, duplicate promotion, missing-file filtering, the right-side check layout, selected-theme centering, top-of-list fallback, and back navigation. Native checks verify recent themes across windows and a full restart.
+
+The `project-navigation` harness renders the real App with an in-memory project.
+Its browser suite checks rightward opening, leftward return, and fading in both directions, independent
+row movement and opacity, stationary loading feedback, duplicate-open protection,
+light/dark appearance, a reversed screen transition with the closed project appearing and settling
+before its neighbours without an outline, even in the
+middle of the list, reduced motion, missing View Transition support, failed
+loading and saving, recovery, and interrupted navigation. Mid-transition
+screenshots are saved under `output/playwright/project-handoff-*.png`.
+
+The `sidebar-status` browser suite checks the app-wide stacked/separate indicator
+preference, mouse and keyboard toggling without file selection, non-interactive
+single indicators, action-only indicator tooltips, sibling button semantics, cross-window sync,
+and reload persistence. Bubble animation checks sample rendered entrance frames,
+resolve comments, remove the final icon, exercise rapid reappearance, and cover
+stacked/separate layouts and reduced motion. Frame samples also verify that
+neighboring icons slide when a middle indicator is added or removed. Native verification uses isolated Electron profiles and
+temporary projects to check synchronization and full application restarts.
+
+Chat session context-menu checks cover Pop out and Archive in half-mode tabs,
+the shared mini/half session popup, and the sidebar. The `session-popout`,
+`chat-tab-archive`, and `chat-tab-archive-scroll` browser suites verify background
+chat preservation, duplicate pop-out focus, archive cancellation, busy-chat
+protection, and two-step menu confirmation without resizing tabs. Archive shares the file-trash
+confirmation control, with a black fill in light mode
+and a white fill in dark mode; Escape dismisses it and reopening
+the menu resets confirmation. The native panel-window smoke
+also opens saved chats from the tab and session-popup menus.
+
+The shared context-menu trigger exposes `data-context-menu-open` independently
+of tooltip state. Use `menu-open:` alongside a row's existing hover/focus styles
+to retain its highlight while the menu is open; composite triggers support their
+direct child row. It changes presentation only, not selection or keyboard focus.
+The `context-menu-source` suite checks session/file/folder rows in light and dark
+modes, Escape, outside dismissal, and reopening. Tab checks also retain the
+existing outline while moving the pointer into the menu.
+
+The per-document context-menu coordinator owns the active registration, input
+isolation, and secondary-click guard. Menus register their mounted element and
+release on close or unmount; iframe menu requests consult the same coordinator.
+Background siblings become inert while a menu is open, so an outside left-click
+only dismisses it even inside the chat drawer or a preview iframe. Cleanup
+restores only inert attributes added by the coordinator. Radix still owns
+navigation, dismissal, and modal behavior; other dropdowns are not registered.
+The keyboard boundary leaves menu keys to Radix and blocks background shortcuts;
+Electron also suppresses native accelerators until the menu closes. Text actions
+run after dismissal so native editing commands can focus their source again.
+
+Coordinator unit tests cover registration, stale cleanup, inert restoration,
+keyboard filtering, and document isolation. The `context-menu-input` suite checks
+outside-click consumption and the next normal click in sidebar, session-popup,
+and half-mode menus, plus keyboard navigation and shortcut restoration. Existing
+source/single-menu tests cover highlights, unmount cleanup, and separate windows.
+The native context-menu smoke also checks native accelerator suppression/restoration.

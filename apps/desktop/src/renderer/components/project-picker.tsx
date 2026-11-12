@@ -1,3 +1,4 @@
+import { openRecentProject } from "@/hooks/use-project-actions";
 import { Hint } from "@/components/ui/tooltip";
 import { toast } from "sonner";
 import { invoke } from "@/lib/desktop/core";
@@ -24,7 +25,6 @@ import {
 } from "lucide-react";
 import { useSettingsStore } from "@/stores/settings-store";
 import { useProjectStore } from "@/stores/project-store";
-import { useDocumentStore } from "@/stores/document-store";
 import { useAgentChatStore } from "@/stores/agent-chat-store";
 import { useClaudeSetupStore } from "@/stores/claude-setup-store";
 import { useCodexSetupStore } from "@/stores/codex-setup-store";
@@ -185,7 +185,6 @@ export function ProjectPicker() {
   };
   const addRecentProject = useProjectStore((s) => s.addRecentProject);
   const removeRecentProject = useProjectStore((s) => s.removeRecentProject);
-  const openProject = useDocumentStore((s) => s.openProject);
   const dropAreaRef = useRef<HTMLDivElement>(null);
   const sidebarDropRef = useRef<HTMLDivElement>(null);
   const [isDragOver, setIsDragOver] = useState(false);
@@ -361,14 +360,7 @@ export function ProjectPicker() {
     }
   };
 
-  const handleOpenRecent = async (path: string) => {
-    try {
-      await openProject(path);
-      addRecentProject(path);
-    } catch (error) {
-      toast.error(String(error instanceof Error ? error.message : error));
-    }
-  };
+  const handleOpenRecent = openRecentProject;
 
   if (showTemplateGallery) {
     return (
@@ -664,7 +656,16 @@ export function ProjectPicker() {
                                   Currently open
                                 </span>
                               ) : (
-                                formatRecentProjectTimestamp(project.lastOpened)
+                                <>
+                                  <span data-project-opened-at>
+                                    {formatRecentProjectTimestamp(
+                                      project.lastOpened,
+                                    )}
+                                  </span>
+                                  <span data-project-opening-label>
+                                    Opening…
+                                  </span>
+                                </>
                               )}
                             </td>
                             <td className="whitespace-nowrap rounded-r-xl border border-transparent border-l-0 bg-background px-5 py-3 text-center transition-colors group-hover:border-border/60 group-hover:border-l-0">

@@ -98,6 +98,13 @@ test("Locate PDF/editor uses short scrolling without per-frame native mappings",
     .getByRole("button", { name: "Locate PDF position", exact: true })
     .click();
   await pdfSamples();
+  await expect(
+    page.locator('[data-navigation-highlight="pdf"]'),
+  ).toBeInViewport();
+  await expect(
+    page.locator('[data-navigation-highlight="editor"]'),
+  ).toHaveCount(0);
+  await page.screenshot({ path: test.info().outputPath("located-pdf.png") });
   expect(
     Number(await page.getByTestId("synctex-view-calls").textContent()) -
       callsBefore,
@@ -126,11 +133,27 @@ test("Locate PDF/editor uses short scrolling without per-frame native mappings",
     .getByRole("button", { name: "Locate editor position", exact: true })
     .click();
   await editorSamples();
+  await expect(
+    page.locator('[data-navigation-highlight="editor"]'),
+  ).toBeInViewport();
   expect(
     Number(await page.getByTestId("synctex-edit-calls").textContent()) -
       editsBefore,
   ).toBe(1);
   await page.screenshot({ path: test.info().outputPath("located-editor.png") });
+
+  const editorHighlight = page.locator('[data-navigation-highlight="editor"]');
+  await expect(editorHighlight).toHaveCount(0);
+  await pdf
+    .locator('[data-page-number="7"]')
+    .dblclick({ position: { x: 110, y: 110 } });
+  await expect(editorHighlight).toBeInViewport();
+  await expect(page.getByTestId("synctex-edit-calls")).toHaveText(
+    String(editsBefore + 2),
+  );
+  await page.screenshot({
+    path: test.info().outputPath("double-click-located-editor.png"),
+  });
 });
 
 test("reduced motion locates the PDF immediately", async ({ page }) => {
@@ -161,6 +184,11 @@ test("reduced motion locates the PDF immediately", async ({ page }) => {
       return isNavigationScrolling(element);
     }),
   ).toBe(false);
+  const highlight = page.locator('[data-navigation-highlight="pdf"]');
+  await expect(highlight).toBeVisible();
+  await expect(highlight).toHaveCount(0);
+  await page.getByRole("button", { name: "Locate PDF position" }).click();
+  await expect(highlight).toBeVisible();
 });
 
 test("PDF highlight clicks animate the source comment into view", async ({

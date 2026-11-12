@@ -7,7 +7,10 @@ import { useAgentQuestionStore } from "@/stores/agent-question-store";
 import { useDocumentStore } from "@/stores/document-store";
 import { useAgentReviewQueueStore } from "@/stores/agent-review-queue-store";
 import { useProposedChangesStore } from "@/stores/proposed-changes-store";
-import { AskUserQuestionWidget } from "./tool-widgets";
+import {
+  AskUserQuestionWidget,
+  type CustomAnswerContext,
+} from "./tool-widgets";
 import { useState } from "react";
 import { TriangleAlertIcon } from "lucide-react";
 import { toast } from "sonner";
@@ -184,7 +187,11 @@ export function useActiveAgentQuestion() {
   return { tab, live, question, draft, resume };
 }
 
-export function AgentQuestionPrompt() {
+export function AgentQuestionPrompt({
+  customAnswerContext,
+}: {
+  customAnswerContext?: CustomAnswerContext;
+} = {}) {
   const { tab, live, question, draft, resume } = useActiveAgentQuestion();
   const answer = useAgentQuestionStore((s) => s.answer);
   const answerRestored = useAgentChatStore((s) => s._answerRestoredQuestion);
@@ -202,6 +209,7 @@ export function AgentQuestionPrompt() {
         key={question.requestId}
         input={{ questions: [question] }}
         allowSkip={!draft && !resume}
+        customAnswerContext={draft || resume ? undefined : customAnswerContext}
         onAnswer={(value) =>
           resume
             ? usePausedReviewStore.getState().answer(tab.id, value)

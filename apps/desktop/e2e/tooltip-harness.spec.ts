@@ -191,13 +191,14 @@ test("model hints show the current thinking effort for both providers", async ({
 }) => {
   await page.goto("/?debug=claude-models");
   const model = page.getByRole("button", { name: /Opus 4.8/ });
+  const popup = page.getByRole("dialog", { name: "Model settings" });
   await model.hover();
   await expect(page.getByRole("tooltip")).toContainText(
     "Thinking effort: Medium",
   );
   await model.click();
   await page.getByRole("button", { name: "High", exact: true }).click();
-  await page.getByRole("textbox", { name: "Ask me anything" }).click();
+  await popup.press("Escape");
   await model.hover();
   await expect(page.getByRole("tooltip")).toContainText(
     "Thinking effort: High",
@@ -208,8 +209,13 @@ test("model hints show the current thinking effort for both providers", async ({
   });
   await model.click();
   await page.getByRole("button", { name: "Codex", exact: true }).click();
-  await page.getByRole("textbox", { name: "Ask me anything" }).click();
-  await page.getByRole("button", { name: "GPT-5.4", exact: true }).hover();
+  await popup.press("Escape");
+  await page
+    .getByRole("button", {
+      name: "GPT-5.4 · Model settings",
+      exact: true,
+    })
+    .hover();
   await expect(page.getByRole("tooltip")).toContainText(
     "Thinking effort: Medium",
   );

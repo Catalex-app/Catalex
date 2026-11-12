@@ -49,6 +49,13 @@ export interface StructuredTextData {
   blocks: StructuredTextBlock[];
 }
 
+/** Half-open UTF-16 offsets in one page's text lines joined by newlines. */
+export interface PdfTextRange {
+  page: number;
+  from: number;
+  to: number;
+}
+
 export interface LinkData {
   x: number;
   y: number;

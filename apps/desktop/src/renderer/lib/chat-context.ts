@@ -1,3 +1,14 @@
+import type { PdfCommentAnchor } from "@/components/workspace/editor/inline-comments";
+import type { PdfSource } from "./mupdf/pdf-source";
+import type { PdfTextRange } from "./mupdf/types";
+
+export interface PdfSelectionAnchor {
+  fingerprint: string;
+  ranges: PdfTextRange[];
+  regions?: PdfCommentAnchor["regions"];
+  source: PdfSource;
+}
+
 export interface ChatContextBadge {
   label: string;
   filePath: string;

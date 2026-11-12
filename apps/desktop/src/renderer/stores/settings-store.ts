@@ -157,6 +157,7 @@ export interface SettingsState {
   setSpellCheck: (enabled: boolean) => void;
   setSpellingLanguage: (language: SpellingLanguage) => void;
   learnSpellingWord: (word: string) => void;
+  removeSpellingWord: (word: string) => void;
   showEditorMinimap: boolean;
   setShowEditorMinimap: (visible: boolean) => void;
   editorMinimapLayers: MinimapLayers;
@@ -228,6 +229,10 @@ export interface SettingsState {
   setEditorFontSize: (fontSize: number) => void;
   setEditorProblemsPanelOpen: (projectKey: string, open: boolean) => void;
   setEditorCommentsPanelOpen: (projectKey: string, open: boolean) => void;
+  setEditorInfoBar: (
+    projectKey: string,
+    bar: "problems" | "comments" | null,
+  ) => void;
   setEditorCommentFilter: (
     projectKey: string,
     filter: EditorCommentFilter,
@@ -889,6 +894,10 @@ export const useSettingsStore = create<SettingsState>()(
         set((state) => ({
           spellingWords: normalizeSpellingWords([...state.spellingWords, word]),
         })),
+      removeSpellingWord: (word) =>
+        set((state) => ({
+          spellingWords: state.spellingWords.filter((entry) => entry !== word),
+        })),
       showEditorMinimap: true,
       setShowEditorMinimap: (visible) => set({ showEditorMinimap: visible }),
       editorMinimapLayers: DEFAULT_MINIMAP_LAYERS,
@@ -1102,6 +1111,17 @@ export const useSettingsStore = create<SettingsState>()(
           editorCommentsPanelOpenByProject: {
             ...state.editorCommentsPanelOpenByProject,
             [projectKey]: open,
+          },
+        })),
+      setEditorInfoBar: (projectKey, bar) =>
+        set((state) => ({
+          editorProblemsPanelOpenByProject: {
+            ...state.editorProblemsPanelOpenByProject,
+            [projectKey]: bar === "problems",
+          },
+          editorCommentsPanelOpenByProject: {
+            ...state.editorCommentsPanelOpenByProject,
+            [projectKey]: bar === "comments",
           },
         })),
       setEditorCommentFilter: (projectKey, filter) =>

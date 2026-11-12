@@ -51,10 +51,27 @@ try {
   const page = await app.firstWindow();
   const win = await app.browserWindow(page);
   await win.evaluate((window) => {
+    const setIgnore = window.webContents.setIgnoreMenuShortcuts.bind(
+      window.webContents,
+    );
+    window.webContents.setIgnoreMenuShortcuts = (ignore) => {
+      window.__contextMenuShortcutsIgnored = ignore;
+      setIgnore(ignore);
+    };
+  });
+  await win.evaluate((window) => {
     window.setSize(1280, 900);
     window.show();
     window.focus();
   });
+  await page.locator("#loading-screen").waitFor({ state: "hidden" });
+  await page.evaluate(() =>
+    localStorage.setItem(
+      "catalex-onboarding",
+      JSON.stringify({ state: { completed: true, step: 3 }, version: 0 }),
+    ),
+  );
+  await page.reload();
   await page.locator("#loading-screen").waitFor({ state: "hidden" });
   await app.evaluate(({ dialog }, projectPath) => {
     dialog.showOpenDialog = async () => ({
@@ -76,11 +93,25 @@ try {
   await expect(
     page.getByRole("menuitem", { name: "Copy", exact: true }),
   ).toBeEnabled();
+  await expect
+    .poll(() => win.evaluate((window) => window.__contextMenuShortcutsIgnored))
+    .toBe(true);
+  const windowCount = app.windows().length;
+  await page.keyboard.press(
+    process.platform === "darwin" ? "Meta+Shift+n" : "Control+Shift+n",
+  );
+  await expect(
+    page.getByRole("menuitem", { name: "Copy", exact: true }),
+  ).toBeVisible();
+  expect(app.windows().length).toBe(windowCount);
   await page.screenshot({
     animations: "disabled",
     path: path.join(artifacts, "electron-editor-menu.png"),
   });
   await page.getByRole("menuitem", { name: "Copy", exact: true }).click();
+  await expect
+    .poll(() => win.evaluate((window) => window.__contextMenuShortcutsIgnored))
+    .toBe(false);
   await expect
     .poll(() =>
       app.evaluate(async ({ clipboard }) =>

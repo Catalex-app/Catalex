@@ -2,6 +2,31 @@
 
 ## [Unreleased]
 
+## [0.3.0]
+
+### TL;DR
+
+- Use native menus for file, editing, comment, and workspace actions.
+- Work more comfortably in narrow windows, with steadier chat sizing and consistent Find controls.
+- Resize PDF comment highlights and manage your personal spelling dictionary.
+
+### Full Changelog
+
+- Native menus: Access New File, recent projects, Save, PDF export, Find and Replace, formatting, comments, workspace views, panel expansion, pop-outs, and interface zoom. Menu state follows the focused panel, document type, and customized shortcuts across windows and restarts.
+- About and updates: Show the app name and version in the native About dialog. Check for Updates opens Settings → About and shares the existing update check, including its busy state.
+- Workspace sizing: Preserve usable pane widths and each project's preferred sidebar width as the window shrinks. Keep resize handles clear of source/preview navigation controls and fit header actions, comments, and minimaps into narrow panes.
+- Chat sizing: Adapt composer controls to the available width while keeping typed slash commands and mentions available. Stabilize draft and question heights, scrolling, focus, and Mini/Half/Full transitions. Restore missing Half-mode chat history and preserve the preferred drawer height after temporary viewport limits.
+- Chat actions and context: Open saved chats in pop-outs from shared context menus, and confirm before archiving. Attach selected document context to custom answers while an agent question is pending.
+- Find: Use consistent info bars to search text and comments in the editor, Markdown, and PDFs, and search saved chat history. Preserve queries and options, route Find to the active pane, and keep PDF search through recompilation. Close search explicitly with its close control.
+- Context menus: Keep keyboard and mouse input with the open menu, consume outside clicks when dismissing, and restore normal input afterward. Preserve the source row's highlight while its menu is open.
+- Comments: Fit comment cards and navigation controls into narrow panes. Support Command+Enter for a new line and copy comment content. Keep Markdown comment creation in selection controls and the native Edit menu.
+- PDF comments: Drag either endpoint to resize a standalone PDF highlight, with text snapping, live preview, undo/redo, and persistence across pop-outs and restarts. Include overlapping comments when sending selected PDF text to chat.
+- Spell Check settings: Group spell-check controls in a dedicated tab. View and remove personal dictionary words, with changes synchronized across windows and saved after restart.
+- Appearance: Apply Light, Dark, and System preferences to Electron's native interface. Match window backgrounds to the app theme during resizing and across windows.
+- Navigation: Briefly highlight the destination after locating an editor or preview position. Restore pointer access to expanded panels during project transitions.
+- Sidebar: Show unresolved human and agent comments alongside warnings and errors. Switch multiple indicators between stacked and separate layouts, with a saved app-wide preference and reduced-motion support.
+- Project transitions: Animate opening and closing projects with staggered horizontal movement, revealing the returning project's row first. Respect reduced motion and recover from interrupted or failed navigation.
+
 ## [0.2.1]
 
 ### TL;DR

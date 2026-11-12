@@ -2,21 +2,11 @@ import { expect, test, type Page } from "@playwright/test";
 
 async function seed(page: Page, phase: string) {
   await page.evaluate(async (phase) => {
-    const resource = performance
-      .getEntriesByType("resource")
-      .find(
-        (item) =>
-          new URL(item.name).pathname ===
-          "/src/renderer/stores/agent-chat-store.ts",
-      );
+    const resource = { name: "/src/renderer/stores/agent-chat-store.ts" };
     const { useAgentChatStore } = await import(resource!.name);
-    const queueResource = performance
-      .getEntriesByType("resource")
-      .find(
-        (item) =>
-          new URL(item.name).pathname ===
-          "/src/renderer/stores/agent-review-queue-store.ts",
-      );
+    const queueResource = {
+      name: "/src/renderer/stores/agent-review-queue-store.ts",
+    };
     const { useAgentReviewQueueStore } = await import(queueResource!.name);
     useAgentReviewQueueStore.setState({ entries: [] });
     const messages = [
@@ -148,13 +138,7 @@ test("archives a paused refinement through the visible archive action", async ({
   await toggle.waitFor();
   await seed(page, "tool");
   const id = await page.evaluate(async () => {
-    const resource = (name: string) =>
-      performance
-        .getEntriesByType("resource")
-        .find(
-          (entry) =>
-            new URL(entry.name).pathname === `/src/renderer/stores/${name}.ts`,
-        )!.name;
+    const resource = (name: string) => `/src/renderer/stores/${name}.ts`;
     const { useAgentChatStore: chat } = await import(
       resource("agent-chat-store")
     );
@@ -219,13 +203,9 @@ test("archives a paused refinement through the visible archive action", async ({
   const tab = page.locator(`[data-tab-id="${id}"]`);
   const setReviewPhase = async (phase: string) =>
     page.evaluate(async (phase) => {
-      const resource = performance
-        .getEntriesByType("resource")
-        .find(
-          (entry) =>
-            new URL(entry.name).pathname ===
-            "/src/renderer/stores/agent-review-queue-store.ts",
-        )!;
+      const resource = {
+        name: "/src/renderer/stores/agent-review-queue-store.ts",
+      };
       const { useAgentReviewQueueStore } = await import(resource.name);
       useAgentReviewQueueStore.setState((state: any) => ({
         entries: state.entries.map((entry: any) => ({ ...entry, phase })),
@@ -242,22 +222,14 @@ test("archives a paused refinement through the visible archive action", async ({
   });
   await setReviewPhase("revising");
   await tab.hover();
-  await tab
-    .locator("..")
-    .getByRole("button", { name: "Archive chat", exact: true })
-    .click();
+  await tab.click({ button: "right" });
   await page
-    .getByRole("button", { name: "Confirm archive", exact: true })
+    .getByRole("menuitem", { name: "Archive chat", exact: true })
     .click();
+  await page.getByRole("menuitem", { name: "Confirm", exact: true }).click();
   await expect(tab).toHaveCount(0);
   const cleanup = await page.evaluate(async (id) => {
-    const resource = performance
-      .getEntriesByType("resource")
-      .find(
-        (entry) =>
-          new URL(entry.name).pathname ===
-          "/src/renderer/stores/agent-chat-store.ts",
-      )!;
+    const resource = { name: "/src/renderer/stores/agent-chat-store.ts" };
     const { useAgentChatStore } = await import(resource.name);
     const tab = useAgentChatStore
       .getState()
@@ -301,13 +273,7 @@ test("interrupted refinement explains waiting reviews and links back to the hold
   )
     await toggle.click();
   await page.evaluate(async () => {
-    const resource = (name: string) =>
-      performance
-        .getEntriesByType("resource")
-        .find(
-          (entry) =>
-            new URL(entry.name).pathname === `/src/renderer/stores/${name}.ts`,
-        )!.name;
+    const resource = (name: string) => `/src/renderer/stores/${name}.ts`;
     const { useAgentChatStore: chat } = await import(
       resource("agent-chat-store")
     );

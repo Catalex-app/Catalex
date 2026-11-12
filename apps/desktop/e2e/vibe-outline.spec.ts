@@ -133,6 +133,46 @@ test("outline changes ownership on view switches with scrolling unlocked", async
   await expect(current).toHaveText(initial!);
 });
 
+test("split dragging starts just outside the sync controls", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/?debug=comment-workspace&pdf");
+  const seam = page.locator("[data-workspace-resize-seam]");
+  const controls = page.getByTestId("sync-navigation-control");
+  const seamX = async () => (await seam.boundingBox())!.x;
+  const drag = async (edge: "top" | "bottom", gap: number, delta: number) => {
+    const bounds = (await controls.boundingBox())!;
+    const x = bounds.x + bounds.width / 2;
+    const y = edge === "top" ? bounds.y - gap : bounds.y + bounds.height + gap;
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    await page.mouse.move(x + delta, y, { steps: 5 });
+    await page.mouse.up();
+  };
+
+  await expect(controls).toHaveCSS("height", "36px");
+  const initialX = await seamX();
+  await drag("top", 10, 40);
+  expect(await seamX()).toBeCloseTo(initialX, 0);
+  await drag("top", 16, 40);
+  expect(await seamX()).toBeGreaterThan(initialX + 20);
+
+  await controls
+    .getByRole("button", { name: "Disable synchronized scrolling" })
+    .click();
+  await expect(controls).toHaveCSS("height", "116px");
+  const unlockedX = await seamX();
+  await drag("bottom", 10, -40);
+  expect(await seamX()).toBeCloseTo(unlockedX, 0);
+  await drag("bottom", 16, -40);
+  expect(await seamX()).toBeLessThan(unlockedX - 20);
+  await controls
+    .getByRole("button", { name: "Enable synchronized scrolling" })
+    .click();
+  await expect(controls).toHaveCSS("height", "36px");
+});
+
 test("Markdown preview refreshes outline ownership without another scroll", async ({
   page,
 }) => {

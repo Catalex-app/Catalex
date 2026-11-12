@@ -13,7 +13,7 @@ describe("useProjectStore", () => {
 
   it("persists sidebar widths per project and resets only the requested project", async () => {
     const store = useProjectStore.getState();
-    store.setProjectSidebarWidth("/a", 330);
+    store.setProjectSidebarWidth("/a", 210);
     store.setProjectSidebarWidth("/b", 380);
     const saved = localStorage.getItem("catalex-projects")!;
     useProjectStore.setState({ sidebarWidthsByProject: {} }, false);
@@ -21,7 +21,7 @@ describe("useProjectStore", () => {
     localStorage.setItem("catalex-projects", saved);
     await useProjectStore.persist.rehydrate();
     expect(useProjectStore.getState().sidebarWidthsByProject).toEqual({
-      "/a": 330,
+      "/a": 210,
       "/b": 380,
     });
     store.setProjectSidebarWidth("/a", null);
@@ -32,6 +32,8 @@ describe("useProjectStore", () => {
     expect(useProjectStore.getState().sidebarWidthsByProject["/b"]).toBe(380);
     store.setProjectSidebarWidth("/b", 1000);
     expect(useProjectStore.getState().sidebarWidthsByProject["/b"]).toBe(420);
+    store.setProjectSidebarWidth("/b", 100);
+    expect(useProjectStore.getState().sidebarWidthsByProject["/b"]).toBe(200);
   });
 
   describe("addRecentProject", () => {

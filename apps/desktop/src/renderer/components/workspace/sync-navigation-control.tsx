@@ -5,20 +5,21 @@ import {
   Link2Icon,
   Unlink2Icon,
 } from "lucide-react";
+import type { Ref } from "react";
 
 export function SyncNavigationControl({
+  ref,
   previewLabel,
   onNavigateToPreview,
   onNavigateToEditor,
-  onActiveChange,
   scrollSyncLocked = false,
   scrollSyncMuted = false,
   onScrollSyncEnabledChange,
 }: {
+  ref?: Ref<HTMLDivElement>;
   previewLabel: string;
   onNavigateToPreview: () => void;
   onNavigateToEditor: () => void;
-  onActiveChange?: (active: boolean) => void;
   scrollSyncLocked?: boolean;
   scrollSyncMuted?: boolean;
   onScrollSyncEnabledChange: (enabled: boolean) => void;
@@ -51,6 +52,7 @@ export function SyncNavigationControl({
         ))}
       </div>
       <div
+        ref={ref}
         data-testid="sync-navigation-control"
         data-scroll-sync-linked={linked}
         className="pointer-events-auto absolute top-1/2 left-0 z-20 flex w-full -translate-y-1/2 cursor-default flex-col"
@@ -58,14 +60,6 @@ export function SyncNavigationControl({
         onMouseDownCapture={(event) => event.stopPropagation()}
         onTouchStartCapture={(event) => event.stopPropagation()}
         onDoubleClick={(event) => event.stopPropagation()}
-        onPointerEnter={() => onActiveChange?.(true)}
-        onPointerLeave={() => onActiveChange?.(false)}
-        onFocus={() => onActiveChange?.(true)}
-        onBlur={(event) => {
-          if (!event.currentTarget.contains(event.relatedTarget)) {
-            onActiveChange?.(false);
-          }
-        }}
       >
         <div
           aria-hidden={linked}

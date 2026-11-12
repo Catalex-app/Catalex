@@ -43,6 +43,36 @@ Node remains outside the renderer. The Claude bridge uses Electron's executable
 in Node mode and clears `ELECTRON_RUN_AS_NODE` before starting native Claude or
 its tools. It does not bundle another JavaScript runtime.
 
+Features define actions beside their existing controls, with optional `menu`
+metadata (`group`, `section`, `order`, and optionally `submenu`). The UI and native
+menu use the same action label, callback, selected state, and availability.
+`useAppActions` exposes those definitions; adding an action to an exposed group
+requires no entry in Electron's menu builder. Register the definitions once at
+the owning feature, not once per rendered button: responsive toolbars can render
+the same action in both their main row and overflow menu.
+Formatting availability follows the mounted CodeMirror editor’s live read-only
+and editable state. It has no separate menu checklist for agent or review stages.
+`WorkspacePanel` registers Expand/Restore and Pop out once, sharing them with its
+header controls. Only the focused panel exposes those actions under View; focus
+inside a preview iframe also counts as focus in its enclosing panel.
+
+`src/application-menu.ts` contains only the serializable menu projection and its
+validation. `use-application-menu.ts` sends that projection through the existing
+preload bridge. Electron renders it alongside native system roles and window,
+Settings, and update actions. It has no document-format catalog or workspace
+layout rules. Native clicks carry an owner key back to the current action;
+stale or unavailable actions are ignored. Multiple panel owners use explicit
+active/fallback targeting, never registration order. `use-action-target.ts`
+retains content selection across native menu blur and observes iframe focus;
+an expanded panel's dialog role does not exclude its editor.
+
+Shortcuts retain their existing handlers. Save uses the same operation from the
+editor, the app shortcut, and the menu; PDF/image zoom remains local. Shortcut
+recording bypasses native accelerators. Manage Comments exposes the existing sidebar project-manager dialog; it does not
+change the per-document comment strips or their visibility. Workspace
+switches share their definitions with the toolbar and are absent during panel
+expansion and in pop-out windows.
+
 ## Desktop frontend
 
 | Location | Responsibility |
@@ -96,7 +126,8 @@ change workspace layout, available features, or mode transition behavior. Keep t
 Workspace panels share a temporary expanded state in `workspace-layout.tsx`.
 `workspace-panel.tsx` keeps the live content mounted and lifts the selected panel
 above the app while making the surrounding workspace inactive. The split ratios
-remain unchanged. Headers use the same expand/restore control; Escape restores
+remain unchanged. Expanded ancestors temporarily drop their view-transition name
+so the project screen cannot trap the panel below its backdrop. Headers use the same expand/restore control; Escape restores
 the panel after nested menus or search have handled the key. The editor and preview expand the same `WorkspacePanel` boundary, including its
 header and content. File tabs stay outside that boundary; file-change notices
 stay inside the editor panel. Markdown forwards Escape from its iframe.
@@ -293,8 +324,10 @@ and is not automatically isolated by this app-profile setting.
 The desktop workflow currently builds only macOS ARM64 DMG artifacts on pull
 requests, manual dispatch, and version-tag pushes. Windows/Linux builds and
 release artifacts are paused; their runtime and installer parity remain unverified.
-Validated `v*` tags prepare a draft GitHub release with the macOS DMG and changelog
-after the build and tests pass. Publication and Latest selection are manual after
+Validated prerelease tags (`v*-*`) prepare a draft GitHub release with the macOS
+DMG and changelog after the build and tests pass. Stable releases use the local
+signed and notarized build described in [Releases](releases.md), followed by
+manual draft creation. Publication and Latest selection are manual after
 installer review. Pull requests and non-tag manual runs only build.
 
 Automatic updating is explicitly unavailable. The workflow does not consume
@@ -322,6 +355,15 @@ historical, draft, or stale previews retain navigation without live comment
 markers. Marker activation uses the existing PDF comment interaction, including
 source synchronization when the editor is visible.
 
+Sidebar file indicators show unresolved human and agent comments in their existing
+yellow and violet colors, followed by compilation warnings and errors. The icons
+stack below a sidebar width of 230 px and sit 2 px apart at wider widths. Stacked
+icons use silhouette masks so their transparent gaps follow the row's current
+background. Each indicator has an accessible label. New icons pop in, and
+removed icons are hidden from accessibility immediately while their 220ms bubble
+burst plays. Icon positions and strip width animate over 160ms. Reduced motion
+skips these effects.
+
 Sidebar file and session context menus use explicit targets with `openPanelWindow`; they do not change the main file or chat selection. Small text files load on demand, and saved sessions restore through `loadChatInBackground` with project and duplicate checks before opening a window. Archived sessions must be restored first.
 
 Prompt expansion uses one shared file-aware rule across Mini, Half, Full, and chat pop-outs. Standalone PDF, image, and binary files suppress only the new-chat automatic expansion; editable source files (including LaTeX with a PDF preview) keep that default. Manual expansion or collapse overrides the default for the current file visit; changing the active file or project clears it in the owner window, and chat entry also resets it. Pinning remains persistent across file and chat changes. Prompt availability and library settings are unchanged.
@@ -333,3 +375,24 @@ Markdown previews parse HTML snippets before sanitizing them and rendering math.
 Markdown fenced code uses `rehype-highlight` with the common language grammars plus LaTeX, after sanitization and KaTeX. Only explicit, supported language labels are highlighted; unknown languages, unlabeled blocks, and inline code remain plain. Raw HTML code markup retains its existing source annotations. Token styles follow the built-in light/dark preview palettes; imported themes receive a text-color-based fallback and can override the low-specificity `.hljs-*` rules. Code text, whitespace, and block source positions remain unchanged.
 
 The Markdown preview menu separates the math engine from the visual theme. KaTeX remains the default; MathJax is loaded on demand and renders bundled SVG without remote fonts or iframe scripts. Its TeX package list covers notation while excluding HTML/link injection and dynamic package loading. `markdownMathEnginesByFile` uses the existing settings persistence and window synchronization, keyed by the project root and file ID like LaTeX compiler choices. Files without a saved choice follow `defaultMarkdownMathEngine`, configured in Settings → Rendering → Markdown and initially KaTeX. Changing the default preserves explicit per-file choices; selecting an engine in the preview affects only that file. Both engines share Markdown parsing, sanitization, and theme selection; this is not an OpenReview compatibility mode. Installed Typora and project CSS choices share a two-level menu using the existing dropdown components. The first level shows up to five available recent themes, identified by absolute path. Persisted recency determines membership while a separate persisted display order keeps retained rows in place. Selecting an existing theme only updates recency and the checkmark; a new theme evicts the least recently used entry and is appended at the bottom immediately. All Typora themes opens the second level in the same menu, with a back row and a separately scrolling list. It centers the selected custom theme on entry, or starts at the top for a built-in theme. Missing theme files are omitted from recents. Theme rows show background/text/accent colors as three squares in the existing 16px icon slot. GitHub themes use their built-in colors; custom themes use approximate palettes with neutral colors for unrecognized values. Each square has a thin dark outline in light menus and a light outline in dark menus so matching colors remain visible. Visible installed-theme rows read and cache local palettes without rendering theme CSS or loading its imports; project CSS edits update swatches directly.
+
+While a project loads, Welcome stays still, is temporarily inert, and shows
+“Opening…” on the selected row. A failed open restores interaction. Once loading
+succeeds, the selected row moves right faster and farther than the other rows,
+which follow with distinct movement and fade timings. Welcome and its rows clear
+in the first 180 ms; the workspace then fades in and moves right from a 28 px
+offset over 250 ms, keeping the screen handoff at 430 ms without ghosting the
+outgoing screen. A gentler movement curve keeps the motion readable.
+After saving, the workspace fades and moves left for 190 ms, then Welcome returns
+over 160 ms. Rows fade in over 100–134 ms and begin moving 20 ms after their
+fade starts, so they are clearly visible while still travelling. The closed
+project's row appears 45 ms before the other rows and settles first; its
+neighbours follow softly, with all rows in place by 490 ms. No outline or
+persistent selection is added. There is no artificial loading delay or scale
+change.
+`lib/project-navigation.ts` uses the browser View Transition API with separate row
+snapshots, keeping only the current React screen mounted. It waits for the state
+update rather than the animation, cleans up interrupted transitions, and skips
+screen motion for reduced motion, hidden windows, or unsupported browsers.
+Proposal state activates before the workspace's first paint so the incoming
+snapshot contains the workspace.

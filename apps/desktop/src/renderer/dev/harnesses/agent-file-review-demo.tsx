@@ -687,6 +687,13 @@ Publish the current figure and close the experiment.
             ? disk.get(`${candidate}/${change.filePath}`)!
             : new TextEncoder().encode(decision.content),
         );
+        // Match native settlement: a completed decision updates the draft too;
+        // partial decisions retain the pending proposal for further review.
+        if (!decision.partial)
+          disk.set(
+            `${candidate}/${change.filePath}`,
+            disk.get(`${root}/${change.filePath}`)!,
+          );
         const cached = urls.get(`${root}/${change.filePath}`);
         if (cached) URL.revokeObjectURL(cached);
         urls.delete(`${root}/${change.filePath}`);

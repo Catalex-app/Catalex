@@ -1,3 +1,4 @@
+import { useAppAction } from "@/hooks/use-app-actions";
 import { useEffect, useState } from "react";
 import { ListChecksIcon, MessageSquareTextIcon, XIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -33,14 +34,26 @@ export function CommentDeleteButtons() {
       if (root && projectRoot === root && !busy) setOpen(true);
     };
     window.addEventListener(OPEN_COMMENT_MANAGER_EVENT, requestOpen);
+
     return () =>
       window.removeEventListener(OPEN_COMMENT_MANAGER_EVENT, requestOpen);
   }, [root, busy]);
+
+  const manageAction = useAppAction({
+    id: "manage-comments",
+    label: "Manage comments",
+    enabled: !!root && !busy,
+    run: () => setOpen(true),
+    menu: { group: "Edit", section: 0, order: 1, submenu: "Comments" },
+  });
   return (
     <Dialog
       open={open}
       onOpenChange={(value) => {
-        if (!busy) setOpen(value);
+        if (!busy) {
+          if (value) manageAction.run();
+          else setOpen(false);
+        }
       }}
     >
       <SidebarRow asChild>
@@ -49,14 +62,14 @@ export function CommentDeleteButtons() {
             <ListChecksIcon className="size-4" />
           </SidebarRowIcon>
           <span className="min-w-0 flex-1 truncate text-xs">
-            Manage comments
+            {manageAction.label}
           </span>
           <DialogTrigger asChild>
             <Button
               variant="outline"
               size="xs"
               className="h-5 px-1.5 text-[10px]"
-              disabled={!root || busy}
+              disabled={!manageAction.enabled}
             >
               Manage
             </Button>
@@ -86,7 +99,7 @@ export function CommentDeleteButtons() {
               <XIcon className="size-4" />
             </Button>
           </div>
-          <DialogTitle>Manage comments</DialogTitle>
+          <DialogTitle>{manageAction.label}</DialogTitle>
         </DialogHeader>
         <div className="min-h-0 overflow-y-auto">
           {root && (

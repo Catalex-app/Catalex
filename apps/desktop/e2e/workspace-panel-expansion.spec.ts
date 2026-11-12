@@ -281,12 +281,15 @@ test("Markdown expansion supports its theme menu, iframe Escape and backdrop foc
   });
   await expect(expanded).toBeVisible();
   await expanded
-    .getByRole("combobox", { name: "Markdown preview theme" })
+    .getByRole("button", { name: "Markdown preview settings" })
     .click();
   await expect(
-    page.getByRole("option", { name: "GitHub Dark", exact: true }),
+    page.getByRole("menuitemradio", { name: "GitHub Dark", exact: true }),
   ).toBeVisible();
-  await page.getByRole("option", { name: "GitHub Dark", exact: true }).click();
+  await page
+    .getByRole("menuitemradio", { name: "GitHub Dark", exact: true })
+    .click();
+  await page.keyboard.press("Escape");
   await page.evaluate(() => document.documentElement.classList.add("dark"));
   await page.screenshot({
     path: test.info().outputPath("expanded-markdown-dark-narrow.png"),
@@ -327,7 +330,7 @@ test("PDF and panel morph together on expand and restore", async ({ page }) => {
         const samples: {
           width: number;
           pageWidth: number;
-          viewportWidth: number;
+          contentWidth: number;
           top: number;
           left: number;
           moving: boolean;
@@ -349,7 +352,13 @@ test("PDF and panel morph together on expand and restore", async ({ page }) => {
             samples.push({
               width: rect.width,
               pageWidth: pdfPage.getBoundingClientRect().width,
-              viewportWidth: viewport.clientWidth,
+              contentWidth:
+                viewport.clientWidth -
+                (Number.parseFloat(
+                  getComputedStyle(viewport).getPropertyValue(
+                    "--pdf-minimap-inset",
+                  ),
+                ) || 0),
               top: rect.top,
               left: rect.left,
               moving: panel.hasAttribute("data-panel-expansion-motion"),
@@ -376,9 +385,9 @@ test("PDF and panel morph together on expand and restore", async ({ page }) => {
     expect(intermediate.length).toBeGreaterThan(2);
     for (const sample of intermediate) {
       expect(sample.moving).toBe(true);
-      // Fit width keeps the same 16px page padding on every rendered frame.
+      // Fit width keeps 16px page padding inside the area left by the minimap.
       expect(
-        Math.abs(sample.pageWidth - (sample.viewportWidth - 32)),
+        Math.abs(sample.pageWidth - (sample.contentWidth - 32)),
       ).toBeLessThan(3);
       expect(sample.transition).toBe("0s");
     }
@@ -737,4 +746,34 @@ test("expanded window controls reveal their full icon and label together", async
       page.getByRole("dialog", { name: `${label} expanded`, exact: true }),
     ).toHaveCount(0);
   }
+});
+
+test("expanded editor escapes the project transition backdrop and remains clickable", async ({
+  page,
+}) => {
+  await page.goto("/?debug=markdown-workspace");
+  await page.locator("#root").evaluate((root) => {
+    root.style.viewTransitionName = "project-screen";
+  });
+  const toolbar = page.getByTestId("markdown-editor-toolbar");
+  const bounds = await toolbar.boundingBox();
+  await toolbar.dblclick({ position: { x: bounds!.width / 2, y: 2 } });
+  const panel = page.getByRole("dialog", {
+    name: "Editor expanded",
+    exact: true,
+  });
+  await expect(panel).not.toHaveAttribute("data-panel-expansion-motion");
+  const editor = panel.locator(".cm-content");
+  await editor.click();
+  await page.keyboard.insertText("expansion-click-works");
+  await expect(editor).toContainText("expansion-click-works");
+  await expect(page.locator("#root")).toHaveCSS("view-transition-name", "none");
+  await panel
+    .getByRole("button", { name: "Restore Editor", exact: true })
+    .click();
+  await expect(panel).toHaveCount(0);
+  await expect(page.locator("#root")).toHaveCSS(
+    "view-transition-name",
+    "project-screen",
+  );
 });

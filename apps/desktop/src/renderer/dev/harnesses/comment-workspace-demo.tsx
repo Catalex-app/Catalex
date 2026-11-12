@@ -11,6 +11,7 @@ import { ThemeProvider, useTheme } from "next-themes";
 import { WorkspaceLayout } from "@/components/workspace/workspace-layout";
 import { Toaster } from "@/components/ui/sonner";
 import { useDocumentStore } from "@/stores/document-store";
+import { useAgentQuestionStore } from "@/stores/agent-question-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import { useProposedChangesStore } from "@/stores/proposed-changes-store";
 import {
@@ -36,6 +37,75 @@ const chatStatusOptions = {
 type DemoChatStatus = keyof typeof chatStatusOptions;
 
 const projectRoot = "/browser-demo/Comment Review";
+const demoChatId = "demo-review";
+const demoSessionId = "demo-review-chat";
+
+const outlineQuestion = {
+  question: "Which outline should I use?",
+  options: [
+    { label: "Use the existing outline" },
+    { label: "Draft a new outline" },
+  ],
+};
+
+const longOutlineQuestion = {
+  question:
+    "How should I reorganize the manuscript so readers understand the main result before getting into the experimental details?",
+  options: [
+    {
+      label: "Keep the existing outline",
+      description: "Clarify the transitions between sections.",
+    },
+    {
+      label: "Lead with the main result",
+      description: "Move the strongest finding into the introduction.",
+    },
+    {
+      label: "Organize by research question",
+      description: "Pair each question with its method and result.",
+    },
+    {
+      label: "Organize by experiment",
+      description: "Walk through the experiments in the order they ran.",
+    },
+    {
+      label: "Move technical details to the appendix",
+      description: "Keep the main text focused on the findings.",
+    },
+    {
+      label: "Draft two alternative outlines",
+      description: "Compare a results-first outline with a methods-first one.",
+    },
+  ],
+};
+
+function showDemoQuestion() {
+  const questions = useAgentQuestionStore.getState();
+  useAgentChatStore.getState()._setStreaming(demoChatId, true);
+  if (questions.questions.some((question) => question.tabId === demoChatId))
+    return;
+  const variant = new URLSearchParams(window.location.search).get("question");
+  questions.receive({
+    requestId: `demo-outline-question-${crypto.randomUUID()}`,
+    tabId: demoChatId,
+    sessionId: demoSessionId,
+    projectRoot,
+    ...(variant === "long" ? longOutlineQuestion : outlineQuestion),
+  });
+}
+
+function closeDemoQuestion(requestId: string) {
+  useAgentQuestionStore.getState().remove(requestId);
+  useAgentChatStore.setState((state) => ({
+    isStreaming: false,
+    tabs: state.tabs.map((tab) =>
+      tab.id === demoChatId
+        ? { ...tab, isStreaming: false, pendingQuestion: null }
+        : tab,
+    ),
+  }));
+}
+
 const documents = {
   [minimapDemoName]: minimapDemoSource,
   "sample.tex": String.raw`\documentclass[12pt]{article}
@@ -228,6 +298,9 @@ This paragraph repeats the experimental setup described in the manuscript.
 };
 
 function initializeDemo() {
+  const questionMode = new URLSearchParams(window.location.search).has(
+    "question",
+  );
   const comments: InlineCommentsByFile = {};
   const add = (
     filePath: keyof typeof documents,
@@ -484,8 +557,8 @@ function initializeDemo() {
   useAgentChatStore.setState((state) => {
     const tab = {
       ...state.tabs[0],
-      id: "demo-review",
-      runtimeSessionKey: "demo-review-chat",
+      id: demoChatId,
+      runtimeSessionKey: demoSessionId,
       title: "Review manuscript comments",
       provider: "codex" as const,
       messages,
@@ -504,10 +577,26 @@ function initializeDemo() {
       error: null,
     };
   });
+  if (questionMode) {
+    useSettingsStore.getState().setWorkspacePreferences(projectRoot, {
+      mode: "duet",
+      chatLayout: "drawer",
+    });
+    showDemoQuestion();
+  }
 }
 
 function DemoWorkspace() {
   const [ready, setReady] = useState(false);
+  const questionMode = new URLSearchParams(window.location.search).has(
+    "question",
+  );
+  const demoQuestion = useAgentQuestionStore((state) =>
+    state.questions.find((question) => question.tabId === demoChatId),
+  );
+  const isDemoChatActive = useAgentChatStore(
+    (state) => state.activeTabId === demoChatId,
+  );
   const [chatStatus, setChatStatus] = useState<DemoChatStatus | "">(() => {
     const value = new URLSearchParams(window.location.search).get(
       "chat-status",
@@ -634,9 +723,23 @@ function DemoWorkspace() {
       <div className="flex shrink-0 flex-wrap items-center gap-3 border-border border-b bg-muted/40 px-3 py-1 text-xs">
         <span className="font-medium">Browser demo · Comment Review</span>
         <span className="flex-1 text-muted-foreground">
-          Dummy project · Temporary local LaTeX compilation · No live agent ·
-          Reload to reset
+          {questionMode
+            ? "No live agent"
+            : "Dummy project · Temporary local LaTeX compilation · No live agent · Reload to reset"}
         </span>
+        {questionMode && (
+          <button
+            type="button"
+            className="w-28 rounded border border-border px-2 py-1 hover:bg-muted disabled:opacity-50"
+            disabled={!ready || !isDemoChatActive}
+            onClick={() => {
+              if (demoQuestion) closeDemoQuestion(demoQuestion.requestId);
+              else showDemoQuestion();
+            }}
+          >
+            {demoQuestion ? "Close question" : "Open question"}
+          </button>
+        )}
         <select
           aria-label="Preview chat status"
           className="rounded border border-border bg-background px-2 py-1"

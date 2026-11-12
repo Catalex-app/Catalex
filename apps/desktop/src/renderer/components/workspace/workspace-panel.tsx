@@ -1,3 +1,5 @@
+import { useAppActions, type AppAction } from "@/hooks/use-app-actions";
+import { useActionTarget } from "@/hooks/use-action-target";
 import {
   createContext,
   useContext,
@@ -16,6 +18,7 @@ import {
   Minimize2Icon,
   AppWindowIcon,
   EllipsisIcon,
+  SearchIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Kbd } from "@/components/ui/kbd";
@@ -30,6 +33,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Hint } from "@/components/ui/tooltip";
 import { ProblemsMotion } from "./editor/problems-motion";
+import { documentBarSummaryButtonClassName } from "./document-navigation-styles";
 import { PanelResizeHandle } from "react-resizable-panels";
 import { cn } from "@/lib/utils";
 import { isMacPlatform } from "@/lib/keyboard-shortcuts";
@@ -47,9 +51,13 @@ export interface WorkspacePanelExpansion {
   disabled?: boolean;
   onPopOut?: () => void;
 }
-const ExpansionContext = createContext<WorkspacePanelExpansion | undefined>(
-  undefined,
-);
+const ExpansionContext = createContext<
+  | (WorkspacePanelExpansion & {
+      toggleAction: AppAction;
+      popOutAction: AppAction;
+    })
+  | undefined
+>(undefined);
 
 const MotionContext = createContext<PanelExpansionMotion | undefined>(
   undefined,
@@ -92,6 +100,30 @@ export function WorkspacePanel({
   const expanded = expansion?.expanded ?? false;
   const motion = usePanelExpansionMotion(panelRef, expanded);
   const floating = motion.floating;
+  const actionTarget = useActionTarget(
+    () => panelRef.current,
+    expansion?.label,
+    undefined,
+    true,
+  );
+  const [toggleAction, popOutAction] = useAppActions([
+    {
+      id: "panel:expand",
+      label: expanded ? "Restore Focused Panel" : "Expand Focused Panel",
+      enabled: !expansion?.disabled,
+      visible: !!expansion?.onExpandedChange,
+      run: () => expansion?.onExpandedChange?.(!expanded),
+      menu: actionTarget ? { group: "View", section: 1, order: 0 } : undefined,
+    },
+    {
+      id: "panel:pop-out",
+      label: "Pop Out Focused Panel",
+      enabled: !expansion?.disabled,
+      visible: !!expansion?.onPopOut,
+      run: () => expansion?.onPopOut?.(),
+      menu: actionTarget ? { group: "View", section: 1, order: 1 } : undefined,
+    },
+  ]);
 
   useLayoutEffect(() => {
     const panel = panelRef.current;
@@ -168,7 +200,7 @@ export function WorkspacePanel({
     panel.addEventListener("focusin", focusin);
     panel.addEventListener("pointerdown", pointerdown, true);
     const keydown = (event: KeyboardEvent) => {
-      // Menus, dialogs and editor search get the first chance to handle Escape.
+      // Menus and dialogs get the first chance to handle Escape.
       if (event.defaultPrevented) return;
       const target = event.target;
       if (
@@ -269,7 +301,13 @@ export function WorkspacePanel({
   }, [floating, motion]);
 
   return (
-    <ExpansionContext.Provider value={expansion ?? inheritedExpansion}>
+    <ExpansionContext.Provider
+      value={
+        expansion
+          ? { ...expansion, toggleAction, popOutAction }
+          : inheritedExpansion
+      }
+    >
       <MotionContext.Provider value={expansion ? motion : inheritedMotion}>
         {floating &&
           createPortal(
@@ -356,12 +394,15 @@ export function WorkspacePanel({
   );
 }
 
+const panelControlSeparatorClassName = "mx-2 h-4 w-px shrink-0 bg-border";
+
 /** Shared header action, using the same placement in every live panel. */
 export function WorkspacePanelExpandControl({
   actionsLabel = "Panel",
   floatingBar = false,
   hasTrailingContent = false,
   overflowContent,
+  overflowFind,
   onActionsOpenChange,
   onActionsEscapeKeyDown,
 }: {
@@ -369,18 +410,19 @@ export function WorkspacePanelExpandControl({
   floatingBar?: boolean;
   hasTrailingContent?: boolean;
   overflowContent?: ReactNode;
+  overflowFind?: () => void;
   onActionsOpenChange?: (open: boolean) => void;
   onActionsEscapeKeyDown?: (event: KeyboardEvent) => void;
 } = {}) {
   const expansion = useContext(ExpansionContext);
   const motion = useContext(MotionContext);
-  const expandAfterMenuClose = useRef(false);
-  if (!expansion && !overflowContent) return null;
+  const actionAfterMenuClose = useRef<(() => unknown) | null>(null);
+  if (!expansion && !overflowContent && !overflowFind) return null;
   const label = expansion?.label ?? actionsLabel;
   const hasWindowActions = !!(
     expansion?.onExpandedChange || expansion?.onPopOut
   );
-  const hasActions = hasWindowActions || !!overflowContent;
+  const hasActions = hasWindowActions || !!overflowContent || !!overflowFind;
   const primary = expansion?.onExpandedChange && (
     <Hint
       content={`Restore ${expansion.label} (Esc)`}
@@ -392,8 +434,8 @@ export function WorkspacePanelExpandControl({
         className="h-7 gap-1.5 text-muted-foreground focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset"
         aria-label={`Restore ${expansion.label}`}
         aria-pressed
-        disabled={expansion.disabled}
-        onClick={() => expansion.onExpandedChange?.(false)}
+        disabled={expansion.toggleAction.enabled === false}
+        onClick={expansion.toggleAction.run}
       >
         <Minimize2Icon className="size-3" />
         Restore
@@ -407,8 +449,8 @@ export function WorkspacePanelExpandControl({
         size="xs"
         className="h-7 gap-1.5 text-muted-foreground focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset"
         aria-label={`Pop out ${expansion.label}`}
-        disabled={expansion.disabled}
-        onClick={expansion.onPopOut}
+        disabled={expansion.popOutAction.enabled === false}
+        onClick={expansion.popOutAction.run}
       >
         <AppWindowIcon className="size-3.5" />
         Pop out
@@ -438,7 +480,7 @@ export function WorkspacePanelExpandControl({
           <div
             data-panel-control-separator=""
             aria-hidden="true"
-            className="mx-2 h-4 w-px shrink-0 bg-border"
+            className={panelControlSeparatorClassName}
           />
         </ProblemsMotion>
         <ButtonGroup
@@ -469,11 +511,12 @@ export function WorkspacePanelExpandControl({
               align="end"
               onEscapeKeyDown={onActionsEscapeKeyDown}
               onCloseAutoFocus={(event) => {
-                if (!expandAfterMenuClose.current) return;
+                const action = actionAfterMenuClose.current;
+                if (!action) return;
                 event.preventDefault();
-                expandAfterMenuClose.current = false;
-                // Let the menu release focus before the expanded panel receives it.
-                expansion?.onExpandedChange?.(!expansion.expanded);
+                actionAfterMenuClose.current = null;
+                // Let the menu release focus before the panel receives it.
+                action();
               }}
             >
               {expansion && (
@@ -482,7 +525,8 @@ export function WorkspacePanelExpandControl({
                     <DropdownMenuItem
                       aria-label={`${expansion.expanded ? "Restore" : "Expand"} ${label}`}
                       onSelect={() => {
-                        expandAfterMenuClose.current = true;
+                        actionAfterMenuClose.current =
+                          expansion.toggleAction.run;
                       }}
                     >
                       {expansion.expanded ? (
@@ -498,8 +542,8 @@ export function WorkspacePanelExpandControl({
                   )}
                   {expansion.onPopOut && (
                     <DropdownMenuItem
-                      aria-label={`Pop out ${label}`}
-                      onSelect={expansion.onPopOut}
+                      aria-label={`Pop out ${expansion.label}`}
+                      onSelect={expansion.popOutAction.run}
                     >
                       <AppWindowIcon className="size-3.5" />
                       Pop out
@@ -511,10 +555,20 @@ export function WorkspacePanelExpandControl({
                       </DropdownMenuShortcut>
                     </DropdownMenuItem>
                   )}
-                  {hasWindowActions && overflowContent && (
+                  {hasWindowActions && (overflowFind || overflowContent) && (
                     <DropdownMenuSeparator />
                   )}
                 </>
+              )}
+              {overflowFind && (
+                <DropdownMenuItem
+                  onSelect={() => {
+                    actionAfterMenuClose.current = overflowFind;
+                  }}
+                >
+                  <SearchIcon className="size-3.5" />
+                  Find…
+                </DropdownMenuItem>
               )}
               {overflowContent}
             </DropdownMenuContent>
@@ -529,6 +583,9 @@ type WorkspacePanelHeaderProps = {
   actionsLabel?: string;
   trailingContent?: ReactNode;
   overflowContent?: ReactNode;
+  findAction?: () => void;
+  findOpen?: boolean;
+  findInOverflow?: boolean;
   onActionsOpenChange?: (open: boolean) => void;
   onActionsEscapeKeyDown?: (event: KeyboardEvent) => void;
   /** Visible content on the right, before the window controls. */
@@ -575,6 +632,9 @@ export function WorkspacePanelHeader(props: WorkspacePanelHeaderProps) {
     hasTrailingContent,
     trailingContent,
     overflowContent,
+    findAction,
+    findOpen,
+    findInOverflow,
     onActionsOpenChange,
     onActionsEscapeKeyDown,
     onDoubleClick,
@@ -583,6 +643,21 @@ export function WorkspacePanelHeader(props: WorkspacePanelHeaderProps) {
     onMouseLeave,
     ...rest
   } = props;
+  const trailingRef = useRef<HTMLDivElement>(null);
+  const [compact, setCompact] = useState(false);
+  const measureFind = !!findAction && findInOverflow === undefined;
+  useLayoutEffect(() => {
+    if (!measureFind) return;
+    const header = trailingRef.current?.parentElement;
+    if (!header) return;
+    const measure = () => setCompact(header.clientWidth < 360);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(header);
+    return () => observer.disconnect();
+  }, [measureFind]);
+  const overflowFind = findInOverflow ?? compact;
+  const showFindButton = !!findAction && !findOpen && !overflowFind;
   const shared = {
     "data-workspace-panel-header": "",
     className: cn(
@@ -622,8 +697,8 @@ export function WorkspacePanelHeader(props: WorkspacePanelHeaderProps) {
         !isBlankPanelHeader(event)
       )
         return;
-      if (event.altKey) expansion.onPopOut?.();
-      else expansion.onExpandedChange?.(!expansion.expanded);
+      if (event.altKey) expansion.popOutAction.run();
+      else expansion.toggleAction.run();
     },
   };
   const content = (
@@ -631,14 +706,39 @@ export function WorkspacePanelHeader(props: WorkspacePanelHeaderProps) {
       {children}
       <div data-panel-header-space="" className="w-14 shrink-0 self-stretch" />
       <div
+        ref={trailingRef}
         data-panel-header-trailing=""
         className="ml-auto flex shrink-0 items-center"
       >
         {trailingContent}
+        {findAction && (
+          <ProblemsMotion kind="button" open={showFindButton}>
+            <div className="flex items-center">
+              <div
+                data-panel-find-separator=""
+                aria-hidden="true"
+                className={panelControlSeparatorClassName}
+              />
+              <Hint content="Find">
+                <button
+                  type="button"
+                  className={documentBarSummaryButtonClassName}
+                  aria-label="Find"
+                  onClick={findAction}
+                >
+                  <SearchIcon className="size-3.5" />
+                </button>
+              </Hint>
+            </div>
+          </ProblemsMotion>
+        )}
         <WorkspacePanelExpandControl
           actionsLabel={actionsLabel}
-          hasTrailingContent={hasTrailingContent ?? !!trailingContent}
+          hasTrailingContent={
+            showFindButton || (hasTrailingContent ?? !!trailingContent)
+          }
           overflowContent={overflowContent}
+          overflowFind={!findOpen && overflowFind ? findAction : undefined}
           onActionsOpenChange={onActionsOpenChange}
           onActionsEscapeKeyDown={onActionsEscapeKeyDown}
         />

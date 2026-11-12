@@ -1,3 +1,5 @@
+import { useActionTarget } from "@/hooks/use-action-target";
+import { useAppAction } from "@/hooks/use-app-actions";
 import {
   pdfFileCommentTargets,
   validPdfCommentRegions,
@@ -19,8 +21,17 @@ import {
 } from "@/lib/workspace-compile";
 import { isComposingKey } from "@/lib/keyboard-events";
 import { DocumentZoomControl } from "../document-zoom-control";
+import {
+  documentBarFindControlWidth,
+  documentCounterClassName,
+  documentStepButtonClassName,
+} from "../document-navigation-styles";
 import { setCommentDraft } from "../editor/comment-draft-history";
-import { attachCommentToChat } from "@/lib/comment-chat-context";
+import {
+  attachCommentToChat,
+  commentChatContext,
+} from "@/lib/comment-chat-context";
+import type { ResizePdfComment } from "./use-pdf-file-comment-resize";
 import { isReferencePanelWindow } from "@/lib/panel-window-runtime";
 import { Hint } from "@/components/ui/tooltip";
 import {
@@ -103,6 +114,7 @@ import {
   PdfViewer,
   type PdfTextSelection,
   type PdfScrollPosition,
+  type PdfViewerSearch,
 } from "./pdf-viewer";
 import type {
   PdfReadingAnchor,
@@ -133,9 +145,6 @@ type FitMode = "fit-width" | "fit-height" | null;
 const DEFAULT_FIT_MODE: Exclude<FitMode, null> = "fit-width";
 const RECOMPILE_BUTTON_WIDTH = 100;
 const RECOMPILE_ICON_BUTTON_WIDTH = 28;
-const PAGE_COUNTER_CLASS =
-  "flex h-7 shrink-0 items-center justify-center gap-0.5 px-[5px] text-xs tabular-nums";
-const PAGE_STEP_CLASS = "h-7 w-5 shrink-0";
 type CompilerChoice = `latexmk:${ConcreteCompilerEngine}` | "tectonic";
 
 /** Per-root zoom state cache: rootFileId → { scale, fitMode } */
@@ -259,7 +268,8 @@ export function PdfPreview({
     ((page: number, pdfY?: number) => void) | null
   >(null);
   const [scale, setScale] = useState<number>(1.0);
-  const [toolbarCompactLevel, setToolbarCompactLevel] = useState(0);
+  const [{ level: toolbarCompactLevel, findInOverflow }, setToolbarLayout] =
+    useState({ level: 0, findInOverflow: false });
   // Shrink Recompile first, then overflow page navigation, fits, and export.
   const hideRecompileLabel = toolbarCompactLevel >= 1;
   const hidePageNavigation = toolbarCompactLevel >= 2;
@@ -467,6 +477,11 @@ export function PdfPreview({
   const setPdfCommentFullWidth = useSettingsStore(
     (s) => s.setPdfCommentFullWidth,
   );
+  const [activeSearch, setActiveSearch] = useState<PdfViewerSearch | null>(
+    null,
+  );
+  const searchOpen = activeSearch?.open ?? false;
+  const showFind = !!activeSearch && !searchOpen && !editorVisible;
   const [newCommentId, setNewCommentId] = useState<string | null>(null);
   const [commentRequestRevision, setCommentRequestRevision] = useState(0);
   const [centerRequestedComment, setCenterRequestedComment] = useState(false);
@@ -478,9 +493,7 @@ export function PdfPreview({
   const commentFilter = useSettingsStore(
     (s) => s.editorCommentFilterByProject[panelsProjectKey] ?? "all",
   );
-  const saveCommentsPanelOpen = useSettingsStore(
-    (s) => s.setEditorCommentsPanelOpen,
-  );
+  const setEditorInfoBar = useSettingsStore((s) => s.setEditorInfoBar);
   const saveCommentFilter = useSettingsStore((s) => s.setEditorCommentFilter);
   const activeFileComments = activeFile
     ? (projectComments[activeFile.relativePath] ?? []).filter(
@@ -495,6 +508,7 @@ export function PdfPreview({
     !isolatedSnapshot &&
     !agentWorkspaceRoot &&
     activeFileComments.length > 0;
+  const showPdfCommentSummary = showPdfCommentControls && !commentsPanelOpen;
   const selectedChatCommentsJson = useAgentChatStore((state) =>
     JSON.stringify(
       state.tabs
@@ -509,6 +523,49 @@ export function PdfPreview({
   const selectedChatComments = useMemo<Array<{ filePath: string; id: string }>>(
     () => JSON.parse(selectedChatCommentsJson),
     [selectedChatCommentsJson],
+  );
+  const resizePdfComment = useCallback<ResizePdfComment>(
+    (target, anchor) => {
+      const document = useDocumentStore.getState();
+      if (
+        !projectRoot ||
+        document.projectRoot !== projectRoot ||
+        document.agentWorkspaceRoot ||
+        target.filePath !== pdfDocumentPath ||
+        anchor.fingerprint !== pdfFingerprint
+      )
+        return;
+      const signature = (pdf: typeof target.comment.pdf) =>
+        pdf && JSON.stringify([pdf.fingerprint, pdf.text, pdf.regions]);
+      const original = signature(target.comment.pdf);
+      if (signature(anchor) === original) return;
+      let resized: PdfCommentTarget["comment"] | undefined;
+      setProjectComments((current) => {
+        const comments = current[target.filePath]?.map((comment) => {
+          if (
+            comment.id !== target.comment.id ||
+            comment.resolved ||
+            signature(comment.pdf) !== original
+          )
+            return comment;
+          resized = { ...comment, pdf: anchor, line: anchor.regions[0].page };
+          return resized;
+        });
+        return resized && comments
+          ? { ...current, [target.filePath]: comments }
+          : current;
+      }, true);
+      const live = useDocumentStore.getState().commentSelectionContext;
+      if (
+        resized &&
+        live?.filePath === target.filePath &&
+        live.comment?.id === target.comment.id
+      )
+        document.setCommentSelectionContext(
+          commentChatContext(target.filePath, resized),
+        );
+    },
+    [projectRoot, pdfDocumentPath, pdfFingerprint, setProjectComments],
   );
   const commentActions = useCallback(
     (target: PdfCommentTarget) => {
@@ -648,21 +705,25 @@ export function PdfPreview({
     contentGeneration,
   ]);
   const navigateCommentInPdf = useCallback(
-    async (commentId: string) => {
+    async (commentId: string, searchFilePath?: string) => {
       const token = ++commentNavigationToken.current;
       const isCurrentCompileContext = captureCompileContext();
       const target = commentTargets.find(
         (target) =>
           target.comment.id === commentId &&
-          target.filePath === activeFile?.relativePath,
+          target.filePath === (searchFilePath ?? activeFile?.relativePath),
       );
       if (!target || !commentLookup) return;
-      if (target.comment.pdf) {
-        const region = target.comment.pdf.regions[0];
-        scrollToPageRef.current?.(region.page, region.y);
+      const reveal = (page: number, y: number) => {
+        scrollToPageRef.current?.(page, y);
+        if (searchFilePath) return;
         setCenterRequestedComment(true);
         setNewCommentId(commentId);
         setCommentRequestRevision((revision) => revision + 1);
+      };
+      if (target.comment.pdf) {
+        const region = target.comment.pdf.regions[0];
+        reveal(region.page, region.y);
         return;
       }
       const controller = new AbortController();
@@ -678,12 +739,9 @@ export function PdfPreview({
           ),
         );
         if (!box) continue;
-        if (!target.comment.isEditing)
+        if (!searchFilePath && !target.comment.isEditing)
           commentActions(target).onAttach?.(target.comment);
-        scrollToPageRef.current?.(page, box.y);
-        setCenterRequestedComment(true);
-        setNewCommentId(commentId);
-        setCommentRequestRevision((revision) => revision + 1);
+        reveal(page, box.y);
         return;
       }
       if (!isCurrentCompileContext()) return;
@@ -709,6 +767,13 @@ export function PdfPreview({
       commentActions,
       isStandalonePdf,
     ],
+  );
+  const locateSearchComment = useCallback(
+    (commentId: string | null, filePath: string) => {
+      if (commentId) void navigateCommentInPdf(commentId, filePath);
+      else commentNavigationToken.current += 1;
+    },
+    [navigateCommentInPdf],
   );
   const navigateComment = useCallback(
     (target: PdfCommentTarget) => {
@@ -852,7 +917,8 @@ export function PdfPreview({
       commentWidth -
       56 -
       41;
-    setToolbarCompactLevel((previous) => {
+    setToolbarLayout((previous) => {
+      const findWidth = showFind ? documentBarFindControlWidth : 0;
       for (let level = 0; level <= 5; level++) {
         const rightWidth = hasCurrentPdfData
           ? (toolbarProbeRefs.current[Math.max(0, Math.min(level - 1, 3))]
@@ -864,10 +930,16 @@ export function PdfPreview({
           (level >= 5 ? exportWidth : 0) -
           (level >= 1 ? labelWidth : 0);
         // Collapse as needed during a morph, but only reveal controls after it settles.
-        if (level < previous && layoutAnimating) continue;
-        if (required + (level < previous ? 16 : 0) <= available) return level;
+        if (level < previous.level && layoutAnimating) continue;
+        const expanding = level < previous.level || previous.findInOverflow;
+        if (required + findWidth + (expanding ? 16 : 0) > available) continue;
+        return level === previous.level && !previous.findInOverflow
+          ? previous
+          : { level, findInOverflow: false };
       }
-      return 5;
+      return previous.level === 5 && previous.findInOverflow === showFind
+        ? previous
+        : { level: 5, findInOverflow: showFind };
     });
   }, [
     hasCurrentPdfData,
@@ -875,6 +947,7 @@ export function PdfPreview({
     actionsOpen,
     isEditingPage,
     layoutAnimating,
+    showFind,
   ]);
 
   useLayoutEffect(() => {
@@ -961,7 +1034,7 @@ export function PdfPreview({
   );
 
   const navigateSynctexResultToSource = useCallback(
-    (result: SynctexResult, scrollOnly = false) => {
+    (result: SynctexResult, navigation: "locate" | "sync") => {
       if (isolatedSnapshot) return;
       const normalize = (path: string) =>
         path.replace(/\\/g, "/").replace(/^\.\//, "");
@@ -973,7 +1046,7 @@ export function PdfPreview({
 
       const state = useDocumentStore.getState();
       const needsSwitch = state.activeFileId !== targetFile.id;
-      if (scrollOnly && !scrollSyncEnabled && needsSwitch) return;
+      if (navigation === "sync" && !scrollSyncEnabled && needsSwitch) return;
       if (needsSwitch) setActiveFile(targetFile.id);
 
       const fileContent = targetFile.content ?? "";
@@ -984,10 +1057,18 @@ export function PdfPreview({
       const offset = lines.offset(result.line, Math.max(0, result.column));
 
       const navigate = () => {
-        if (scrollOnly) {
+        if (navigation === "locate") {
+          const current = useDocumentStore.getState();
+          if (
+            current.projectRoot !== state.projectRoot ||
+            current.activeFileId !== targetFile.id
+          )
+            return;
+        }
+        if (navigation === "sync") {
           onScrollSyncToEditor?.(offset);
         } else {
-          requestJumpToPosition(offset);
+          requestJumpToPosition(offset, navigation === "locate");
         }
       };
       if (needsSwitch) setTimeout(navigate, 100);
@@ -1008,9 +1089,10 @@ export function PdfPreview({
   const handleSynctexClick = useCallback(
     async (page: number, x: number, y: number) => {
       if (isolatedSnapshot || !projectRoot) return;
+      const isCurrentContext = captureCompileContext();
       const result = await synctexEdit(projectRoot, page, x, y);
-      if (!result) return;
-      navigateSynctexResultToSource(result);
+      if (!result || !isCurrentContext()) return;
+      navigateSynctexResultToSource(result, "locate");
     },
     [isolatedSnapshot, navigateSynctexResultToSource, projectRoot],
   );
@@ -1033,23 +1115,46 @@ export function PdfPreview({
           kind: pdfDocumentKind,
           page: selection.pageNumber,
         } as const;
-        useDocumentStore.getState().setPdfSelectionContext({
-          selectionKey: pdfSelectionKey(
+        const anchor =
+          !agentWorkspaceRoot &&
+          pdfFingerprint &&
+          selection.source &&
+          selection.source === standalonePdfData &&
+          selection.ranges?.length
+            ? {
+                fingerprint: pdfFingerprint,
+                ranges: selection.ranges,
+                regions: selection.regions,
+                source: selection.source,
+              }
+            : undefined;
+        useDocumentStore.getState().setPdfSelectionContext(
+          {
+            selectionKey: pdfSelectionKey(
+              pdf,
+              selection.pdfX,
+              selection.pdfY,
+              selection.text,
+            ),
             pdf,
-            selection.pdfX,
-            selection.pdfY,
-            selection.text,
-          ),
-          pdf,
-          label: pdfSelectionFallbackLabel(selection, pdfDocumentPath),
-          filePath: pdfDocumentPath,
-          selectedText: selection.text,
-        });
+            label: pdfSelectionFallbackLabel(selection, pdfDocumentPath),
+            filePath: pdfDocumentPath,
+            selectedText: selection.text,
+          },
+          anchor,
+        );
       } else {
         useDocumentStore.getState().setPdfSelectionContext(null);
       }
     },
-    [isolatedSnapshot, pdfDocumentPath, pdfDocumentKind],
+    [
+      isolatedSnapshot,
+      pdfDocumentPath,
+      pdfDocumentKind,
+      agentWorkspaceRoot,
+      pdfFingerprint,
+      standalonePdfData,
+    ],
   );
 
   const canMapPdfComment = Boolean(pdfComments && projectRoot);
@@ -1315,6 +1420,7 @@ export function PdfPreview({
       const sel = pdfSelection;
       setPdfSelection(null);
       sel.clear();
+      if (fileComment) document.setPdfSelectionContext(null);
     },
     [
       pdfSelection,
@@ -1330,6 +1436,25 @@ export function PdfPreview({
       projectRoot,
       onRevealSource,
     ],
+  );
+
+  const commentTarget = useActionTarget(
+    () => previewContainerRef.current,
+    activeFile?.id ?? "",
+  );
+  const commentTool = pdfToolbarActions.find(
+    (action) => action.id === "comment",
+  );
+  const addCommentAction = useAppAction(
+    {
+      id: "add-comment",
+      label: commentTool?.label ?? "Comment",
+      visible: !!commentTool,
+      enabled: !!pdfSelection && !commentTool?.disabled,
+      run: () => handlePdfToolbarAction("comment"),
+      menu: { group: "Edit", section: 0, order: 0, submenu: "Comments" },
+    },
+    commentTarget ? "active" : "inactive",
   );
 
   const handlePdfToolbarDismiss = useCallback(
@@ -1479,6 +1604,18 @@ export function PdfPreview({
     await exportPdfSource(currentPdf, filePath);
   }, [isStandalonePdf, standalonePdfData, exportFileName]);
 
+  const exportAction = useAppAction(
+    {
+      id: "export-pdf",
+      label: "Export PDF",
+      visible: hasCurrentPdfData,
+      enabled: hasCurrentPdfData,
+      run: handleExport,
+      menu: { group: "File", section: 2, order: 1 },
+    },
+    commentTarget ? "active" : "fallback",
+  );
+
   const handleCurrentPageChange = useCallback(
     (page: number) => {
       setCurrentPage((prev) => {
@@ -1516,7 +1653,7 @@ export function PdfPreview({
     )
       return;
     setResolvedSource(result);
-    navigateSynctexResultToSource(result);
+    navigateSynctexResultToSource(result, "locate");
   }, [
     isolatedSnapshot,
     projectRoot,
@@ -1728,7 +1865,7 @@ export function PdfPreview({
       position.pdfY,
     );
     if (!result || epoch !== scrollSyncRequestIdRef.current) return;
-    const source = inverseNavigationRef.current(result, true);
+    const source = inverseNavigationRef.current(result, "sync");
     if (source)
       linkedReadingAnchorRef.current = {
         source,
@@ -2414,9 +2551,15 @@ export function PdfPreview({
                   editorVisible={editorVisible}
                   layoutAnimating={layoutAnimating}
                   actionsFor={commentActions}
+                  pdfSource={
+                    isActive && !isolatedSnapshot ? standalonePdfData : null
+                  }
+                  onResizePdf={resizePdfComment}
                   requestedCommentId={newCommentId}
                   requestRevision={commentRequestRevision}
                   centerRequested={centerRequestedComment}
+                  onSearchNavigate={locateSearchComment}
+                  searchActive={isActive}
                 >
                   <PdfViewer
                     dataSource={dataSource}
@@ -2427,6 +2570,11 @@ export function PdfPreview({
                     isolatedSelection={isolatedSnapshot}
                     documentReloadRevision={isolatedSnapshot ? pdfRevision : 0}
                     isActive={isActive}
+                    searchAvailable={!editorVisible}
+                    infoBarProjectKey={
+                      isolatedSnapshot ? undefined : panelsProjectKey
+                    }
+                    onSearchChange={setActiveSearch}
                     isCompiling={!isStandalonePdf && isCompiling}
                     onError={isActive ? setPdfError : undefined}
                     onLoadSuccess={isActive ? handleLoadSuccess : undefined}
@@ -2724,7 +2872,7 @@ export function PdfPreview({
                   <Button
                     variant="ghost"
                     size="icon"
-                    className={PAGE_STEP_CLASS}
+                    className={documentStepButtonClassName}
                     onClick={() => goToPage(currentPage - 1)}
                     disabled={currentPage <= 1}
                     aria-label="Page Up"
@@ -2737,7 +2885,7 @@ export function PdfPreview({
                   <Hint content="Click to jump to page">
                     <button
                       type="button"
-                      className={`${PAGE_COUNTER_CLASS} rounded-md text-muted-foreground hover:bg-muted ${isEditingPage ? "invisible" : ""}`}
+                      className={`${documentCounterClassName} rounded-md text-muted-foreground hover:bg-muted ${isEditingPage ? "invisible" : ""}`}
                       onClick={() => {
                         cancelledPageInputRef.current = false;
                         setIsEditingPage(true);
@@ -2778,7 +2926,7 @@ export function PdfPreview({
                   <Button
                     variant="ghost"
                     size="icon"
-                    className={PAGE_STEP_CLASS}
+                    className={documentStepButtonClassName}
                     onClick={() => goToPage(currentPage + 1)}
                     disabled={currentPage >= numPages}
                     aria-label="Page Down"
@@ -2849,9 +2997,11 @@ export function PdfPreview({
             {level === 0 && (
               <>
                 <div className="flex shrink-0 items-center">
-                  <div className={PAGE_STEP_CLASS} />
-                  <div className={PAGE_COUNTER_CLASS}>{pageCounterLabel}</div>
-                  <div className={PAGE_STEP_CLASS} />
+                  <div className={documentStepButtonClassName} />
+                  <div className={documentCounterClassName}>
+                    {pageCounterLabel}
+                  </div>
+                  <div className={documentStepButtonClassName} />
                 </div>
                 <div className="mx-1 h-4 w-px shrink-0" />
               </>
@@ -2884,8 +3034,14 @@ export function PdfPreview({
             data-pdf-menu-page-count
             className="relative ml-auto inline-flex h-5 min-w-12 shrink-0 items-center justify-end text-muted-foreground text-xs tabular-nums"
           >
-            <span className={cn("px-1", isEditingPage && "invisible")}>
-              {currentPage} / {numPages}
+            <span
+              className={cn(
+                documentCounterClassName,
+                "h-full px-1",
+                isEditingPage && "invisible",
+              )}
+            >
+              {pageCounterLabel}
             </span>
             {isEditingPage && (
               <input
@@ -2965,9 +3121,9 @@ export function PdfPreview({
           </DropdownMenuItem>
         )}
         {hideExport && (
-          <DropdownMenuItem onSelect={handleExport}>
+          <DropdownMenuItem onSelect={exportAction.run}>
             <DownloadIcon className="size-3.5" />
-            Export PDF
+            {exportAction.label}
           </DropdownMenuItem>
         )}
       </>
@@ -2981,6 +3137,9 @@ export function PdfPreview({
     >
       <WorkspacePanelHeader
         actionsLabel="PDF"
+        findAction={editorVisible ? undefined : activeSearch?.show}
+        findOpen={searchOpen}
+        findInOverflow={findInOverflow}
         overflowContent={overflowContent}
         onActionsEscapeKeyDown={(event) => {
           if (!isEditingPage) return;
@@ -3003,10 +3162,7 @@ export function PdfPreview({
             className="flex shrink-0 items-center"
           >
             <div className="flex items-center gap-1">{pageControls}</div>
-            <ProblemsMotion
-              kind="button"
-              open={showPdfCommentControls && !commentsPanelOpen}
-            >
+            <ProblemsMotion kind="button" open={showPdfCommentSummary}>
               <div
                 data-pdf-comments-summary
                 className="flex shrink-0 items-center"
@@ -3017,15 +3173,16 @@ export function PdfPreview({
                 />
                 <CommentsSummaryButton
                   comments={activeFileComments}
-                  onOpen={() => saveCommentsPanelOpen(panelsProjectKey, true)}
+                  onOpen={() => {
+                    if (searchOpen) activeSearch?.close();
+                    setEditorInfoBar(panelsProjectKey, "comments");
+                  }}
                 />
               </div>
             </ProblemsMotion>
           </div>
         }
-        hasTrailingContent={
-          hasCurrentPdfData || (showPdfCommentControls && !commentsPanelOpen)
-        }
+        hasTrailingContent={hasCurrentPdfData || showPdfCommentSummary}
         ref={toolbarRowRef}
         data-pdf-toolbar
         className={
@@ -3043,14 +3200,14 @@ export function PdfPreview({
           }
         >
           {compilerControls}
-          {hasCurrentPdfData && !hideExport && (
-            <Hint content="Export PDF">
+          {exportAction.visible && !hideExport && (
+            <Hint content={exportAction.label}>
               <Button
                 variant="ghost"
                 size="icon"
                 className="size-7 shrink-0"
-                onClick={handleExport}
-                aria-label="Export PDF"
+                onClick={exportAction.run}
+                aria-label={exportAction.label}
               >
                 <DownloadIcon className="size-3.5" />
               </Button>
@@ -3069,7 +3226,7 @@ export function PdfPreview({
           comments={activeFileComments}
           filter={commentFilter}
           onFilter={(filter) => saveCommentFilter(panelsProjectKey, filter)}
-          onClose={() => saveCommentsPanelOpen(panelsProjectKey, false)}
+          onClose={() => setEditorInfoBar(panelsProjectKey, null)}
           onNavigate={(comment) => void navigateCommentInPdf(comment.id)}
         />
       </ProblemsMotion>
@@ -3083,7 +3240,7 @@ export function PdfPreview({
           contextLabel={pdfContextLabel}
           selectionContext={pdfSelectionContext}
           actions={pdfToolbarActions}
-          onAction={handlePdfToolbarAction}
+          onAction={addCommentAction.run}
           onDismiss={handlePdfToolbarDismiss}
         />
       )}

@@ -1,9 +1,12 @@
+import { useAppAction } from "@/hooks/use-app-actions";
+import "./sidebar-status-motion.css";
 import {
   insertMarkdownFileLinksAtPoint,
   updateMarkdownFileDropCaret,
 } from "./editor/markdown-file-drop";
 import { useUpdater } from "@/hooks/use-updater";
 import { PRODUCT_NAME } from "../../../branding";
+import { useProjectComments } from "./editor/use-project-comments";
 import { CommentDeleteButtons } from "./editor/comment-delete-buttons";
 import { PROJECT_COMMENTS_REFRESH_EVENT } from "@/lib/workspace-events";
 import { toast } from "sonner";
@@ -25,6 +28,7 @@ import {
 import {
   buildFileTree,
   getFileIcon,
+  renderSidebarFileName,
   SidebarFileTree,
   type SidebarFileTreeNode,
 } from "./sidebar-files";
@@ -43,6 +47,7 @@ import {
   useRef,
   useEffect,
   useLayoutEffect,
+  useId,
 } from "react";
 import {
   FileTextIcon,
@@ -70,7 +75,7 @@ import {
   SidebarIcon,
   UserIcon,
   GitMergeIcon,
-  BotIcon,
+  BotMessageSquareIcon,
 } from "lucide-react";
 import { invoke } from "@/lib/desktop/core";
 import {
@@ -84,7 +89,7 @@ import {
   type DragStartEvent,
   type DragEndEvent,
 } from "@dnd-kit/core";
-import { useTheme } from "next-themes";
+import { useAppTheme } from "@/lib/app-theme";
 import { useDocumentStore, type ProjectFile } from "@/stores/document-store";
 import { useHistoryStore } from "@/stores/history-store";
 import { useProposedChangesStore } from "@/stores/proposed-changes-store";
@@ -135,6 +140,7 @@ import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
+  ContextMenuConfirmItem,
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
@@ -182,7 +188,7 @@ function openSettingsWindow(section?: "about") {
 function SidebarUtilityControls() {
   const { notice: updateStatus } = useUpdater();
   const hasUpdate = updateStatus.state === "available";
-  const { theme, setTheme } = useTheme();
+  const { theme, setTheme } = useAppTheme();
   const ThemeIcon =
     theme === "system" ? MonitorIcon : theme === "dark" ? MoonIcon : SunIcon;
   const themeLabel =
@@ -485,31 +491,163 @@ const CONFLICT_TEXT_CLASS = "text-violet-700 dark:text-violet-300";
 const CONFLICT_SELECTED_CLASS =
   "bg-violet-100 hover:bg-violet-200 dark:bg-violet-600/20 dark:hover:bg-violet-600/30";
 
-function FileCompileStatus({ fileId }: { fileId: string }) {
-  const diagnostics = useFileCompileDiagnostics(fileId);
-  const hasError = diagnostics.some((item) => item.severity === "error");
-  if (!diagnostics.length) return null;
-  const label = hasError
-    ? "LaTeX compilation error"
-    : "LaTeX compilation warning";
-  const details = diagnostics.map((item) => item.message).join("\n");
-  const Icon = hasError ? CircleXIcon : TriangleAlertIcon;
+interface FileCommentCounts {
+  human: number;
+  agent: number;
+}
 
+function FileStatus({
+  fileId,
+  commentCounts,
+}: {
+  fileId: string;
+  commentCounts?: FileCommentCounts;
+}) {
+  const diagnostics = useFileCompileDiagnostics(fileId);
+  const maskId = useId();
+  const indicators = [
+    ...(["human", "agent"] as const).flatMap((author) => {
+      const count = commentCounts?.[author] ?? 0;
+      if (!count) return [];
+      const label = `${count} unresolved ${author} ${count === 1 ? "comment" : "comments"}`;
+      return [
+        {
+          key: author,
+          label,
+          className: author === "human" ? "text-[#eab308]" : "text-[#7252b5]",
+          Icon: MessageSquareTextIcon,
+        },
+      ];
+    }),
+    ...(["warning", "error"] as const).flatMap((severity) => {
+      const items = diagnostics.filter((item) => item.severity === severity);
+      if (!items.length) return [];
+      const label = `LaTeX compilation ${severity}`;
+      return [
+        {
+          key: severity,
+          label,
+          className:
+            severity === "error"
+              ? "text-red-600 dark:text-red-400"
+              : "text-yellow-600 dark:text-yellow-400",
+          Icon: severity === "error" ? CircleXIcon : TriangleAlertIcon,
+        },
+      ];
+    }),
+  ];
+  // Retain disappearing icons just long enough for their inert bubble burst.
+  const signature = indicators.map((indicator) => indicator.key).join(",");
+  const [presence, setPresence] = useState(() => ({
+    signature,
+    items: indicators.map((indicator) => ({ indicator, exiting: false })),
+  }));
+  if (presence.signature !== signature) {
+    const order = ["human", "agent", "warning", "error"];
+    setPresence({
+      signature,
+      items: [
+        ...indicators.map((indicator) => ({ indicator, exiting: false })),
+        ...presence.items
+          .filter(
+            ({ indicator }) =>
+              !indicators.some((item) => item.key === indicator.key),
+          )
+          .map((item) => ({ ...item, exiting: true })),
+      ].sort(
+        (a, b) =>
+          order.indexOf(a.indicator.key) - order.indexOf(b.indicator.key),
+      ),
+    });
+  }
+  useEffect(() => {
+    if (!presence.items.some((item) => item.exiting)) return;
+    const reducedMotion = matchMedia(
+      "(prefers-reduced-motion: reduce)",
+    ).matches;
+    const timeout = window.setTimeout(
+      () => {
+        setPresence((current) => ({
+          ...current,
+          items: current.items.filter((item) => !item.exiting),
+        }));
+      },
+      reducedMotion ? 0 : 240,
+    );
+    return () => window.clearTimeout(timeout);
+  }, [presence]);
+  if (!presence.items.length) return null;
   return (
-    <Hint content={`${label} (last compile)\n${details}`}>
-      <span
-        className={cn(
-          "inline-flex shrink-0",
-          hasError
-            ? "text-red-600 dark:text-red-400"
-            : "text-yellow-600 dark:text-yellow-400",
-        )}
-        role="img"
-        aria-label={label}
-      >
-        <Icon className="size-3.5" aria-hidden="true" />
-      </span>
-    </Hint>
+    <span
+      className="file-status-strip relative inline-block shrink-0"
+      style={{
+        width: `calc(14px + ${presence.items.length - 1} * var(--file-status-step))`,
+      }}
+    >
+      {presence.items.map(({ indicator, exiting }, index) => {
+        const { key, label, className, Icon } =
+          indicators.find((item) => item.key === indicator.key) ?? indicator;
+        const NextIcon = presence.items[index + 1]?.indicator.Icon;
+        const id = `${maskId}-${key}`;
+        return (
+          <span
+            key={key}
+            className={cn(
+              "file-status-indicator inline-flex shrink-0",
+              className,
+            )}
+            style={{
+              right: `calc(${presence.items.length - 1 - index} * var(--file-status-step))`,
+            }}
+            data-status-key={key}
+            data-exiting={exiting}
+            role="img"
+            aria-hidden={exiting || undefined}
+            aria-label={label}
+          >
+            <span className="file-status-glyph">
+              {NextIcon ? (
+                <svg
+                  className="size-3.5 overflow-visible"
+                  viewBox="0 0 24 24"
+                  aria-hidden="true"
+                >
+                  <defs>
+                    <mask
+                      id={id}
+                      maskUnits="userSpaceOnUse"
+                      x="-4"
+                      y="-4"
+                      width="32"
+                      height="32"
+                      style={{ maskType: "luminance" }}
+                    >
+                      <rect x="-4" y="-4" width="32" height="32" fill="white" />
+                      {/* Six-pixel overlap, with a transparent halo following the next icon's silhouette. */}
+                      <NextIcon
+                        className="size-6"
+                        x={(8 * 24) / 14}
+                        y={0}
+                        width={24}
+                        height={24}
+                        fill="black"
+                        stroke="black"
+                        strokeWidth={5}
+                      />
+                    </mask>
+                  </defs>
+                  <g className="file-status-masked-icon" mask={`url(#${id})`}>
+                    <Icon className="size-6" width={24} height={24} />
+                  </g>
+                </svg>
+              ) : (
+                <Icon className="size-3.5" aria-hidden="true" />
+              )}
+            </span>
+          </span>
+        );
+      })}
+    </span>
   );
 }
 
@@ -725,7 +863,7 @@ function SystemPromptsSection({
       <SidebarSectionHeader
         section="system-prompts"
         title="System Prompts"
-        icon={<BotIcon className="size-3.5" />}
+        icon={<BotMessageSquareIcon className="size-3.5" />}
         collapsed={isCollapsed}
         onToggle={onToggle}
       />
@@ -928,6 +1066,30 @@ function SidebarDefault({
   const renameFolder = useDocumentStore((s) => s.renameFolder);
   const refreshFiles = useDocumentStore((s) => s.refreshFiles);
   const projectRoot = useDocumentStore((s) => s.projectRoot);
+  const agentWorkspaceRoot = useDocumentStore((s) => s.agentWorkspaceRoot);
+  const [commentFiles, , , commentsLoaded] = useProjectComments(
+    agentWorkspaceRoot ? null : projectRoot,
+  );
+  const commentCountsByPath = useMemo(
+    () =>
+      new Map(
+        commentsLoaded
+          ? Object.entries(commentFiles).map(([path, comments]) => [
+              path,
+              comments.reduce<FileCommentCounts>(
+                (counts, comment) => {
+                  if (!comment.resolved && comment.text.trim()) {
+                    counts[comment.origin ? "agent" : "human"] += 1;
+                  }
+                  return counts;
+                },
+                { human: 0, agent: 0 },
+              ),
+            ])
+          : [],
+      ),
+    [commentFiles, commentsLoaded],
+  );
   const folders = useDocumentStore((s) => s.folders);
   const zoteroAuthenticated = useZoteroStore((s) => s.isAuthenticated);
   const zoteroUsername = useZoteroStore((s) => s.username);
@@ -2276,6 +2438,14 @@ function SidebarDefault({
     setAddDialogOpen(true);
   };
 
+  const newFileAction = useAppAction({
+    id: "new-file",
+    label: "New File",
+    enabled: !!projectRoot && !disableInteractiveIntegrations,
+    run: () => openNewFileDialog(),
+    menu: { group: "File", section: 0, order: 0 },
+  });
+
   const openNewFolderDialog = (parent?: string) => {
     setFolderDialogParent(parent);
     setNewFolderName("");
@@ -2334,7 +2504,10 @@ function SidebarDefault({
     );
     return (
       <>
-        <FileCompileStatus fileId={file.id} />
+        <FileStatus
+          fileId={file.id}
+          commentCounts={commentCountsByPath.get(file.relativePath)}
+        />
         {lineStats?.added ? (
           <span className="font-mono text-[11px] text-green-600">
             +{lineStats.added}
@@ -2423,9 +2596,9 @@ function SidebarDefault({
                 </DropdownMenuTrigger>
               </Hint>
               <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={() => openNewFileDialog()}>
+                <DropdownMenuItem onClick={newFileAction.run}>
                   <FileTextIcon className="mr-2 size-4" />
-                  New File
+                  {newFileAction.label}
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => openNewFolderDialog()}>
                   <FolderPlusIcon className="mr-2 size-4" />
@@ -2508,6 +2681,7 @@ function SidebarDefault({
                         gitIgnoredPaths={gitIgnoredPaths}
                         gitConflictPaths={gitConflictPaths}
                         gitLineStatsByPath={gitLineStatsByPath}
+                        commentCountsByPath={commentCountsByPath}
                         pendingReviewFilePaths={pendingReviewFilePaths}
                         unsavedLineStatsByPath={unsavedLineStatsByPath}
                         nativeDragOver={nativeDragOver}
@@ -2516,9 +2690,9 @@ function SidebarDefault({
                   </DroppableRoot>
                 </ContextMenuTrigger>
                 <ContextMenuContent>
-                  <ContextMenuItem onClick={() => openNewFileDialog()}>
+                  <ContextMenuItem onClick={newFileAction.run}>
                     <FileTextIcon className="mr-2 size-4" />
-                    New File
+                    {newFileAction.label}
                   </ContextMenuItem>
                   <ContextMenuItem onClick={() => openNewFolderDialog()}>
                     <FolderPlusIcon className="mr-2 size-4" />
@@ -2559,7 +2733,7 @@ function SidebarDefault({
     <div
       ref={sidebarRef}
       data-workspace-assistant-mode={assistantMode}
-      className="flex h-full flex-col bg-background text-sidebar-foreground"
+      className="@container/file-sidebar flex h-full flex-col bg-background text-sidebar-foreground"
     >
       <TrafficLightSafeHeader trafficLightInset={trafficLightInset}>
         <div className="-ml-1 flex shrink-0 items-center gap-0.5">
@@ -3164,24 +3338,10 @@ interface FileTreeNodeProps {
   gitIgnoredPaths: Set<string>;
   gitConflictPaths: ReadonlySet<string>;
   gitLineStatsByPath: Map<string, GitFileLineStats>;
+  commentCountsByPath: ReadonlyMap<string, FileCommentCounts>;
   pendingReviewFilePaths: ReadonlySet<string>;
   unsavedLineStatsByPath: Map<string, GitFileLineStats>;
   nativeDragOver?: string | null;
-}
-
-function TrashMenuLabel() {
-  return (
-    <>
-      <span className="trash-menu-label" aria-hidden="true">
-        <Trash2Icon className="mr-2 size-4 text-destructive" />
-        Move to Trash
-      </span>
-      <span className="trash-menu-confirmation" aria-hidden="true">
-        <Trash2Icon className="mr-2 size-4 text-white" />
-        Confirm
-      </span>
-    </>
-  );
 }
 
 function FileTreeNode({
@@ -3202,13 +3362,13 @@ function FileTreeNode({
   gitIgnoredPaths,
   gitConflictPaths,
   gitLineStatsByPath,
+  commentCountsByPath,
   pendingReviewFilePaths,
   unsavedLineStatsByPath,
   nativeDragOver,
 }: FileTreeNodeProps) {
   const isExpanded = expandedFolders.has(node.relativePath);
   const [folderAddMenuOpen, setFolderAddMenuOpen] = useState(false);
-  const [confirmTrash, setConfirmTrash] = useState(false);
   const [chatMenuOpen, setChatMenuOpen] = useState(false);
 
   if (node.type === "folder") {
@@ -3222,7 +3382,7 @@ function FileTreeNode({
           <SidebarTreeGuide depth={depth} data-folder-guide={depth} />
         )}
         <DraggableItem id={node.relativePath} type="folder" name={node.name}>
-          <ContextMenu onOpenChange={() => setConfirmTrash(false)}>
+          <ContextMenu>
             <ContextMenuTrigger asChild>
               <div
                 className={cn(
@@ -3324,24 +3484,11 @@ function FileTreeNode({
                 <PencilIcon className="mr-2 size-4" />
                 Rename
               </ContextMenuItem>
-              <ContextMenuItem
-                variant="destructive"
-                className="trash-context-menu-item"
-                data-confirming={confirmTrash}
-                aria-label={confirmTrash ? "Confirm" : "Move to Trash"}
-                textValue={confirmTrash ? "Confirm" : "Move to Trash"}
-                onSelect={(event) => {
-                  if (!confirmTrash) {
-                    event.preventDefault();
-                    setConfirmTrash(true);
-                    return;
-                  }
-                  setConfirmTrash(false);
-                  onDeleteFolder(node.relativePath);
-                }}
-              >
-                <TrashMenuLabel />
-              </ContextMenuItem>
+              <ContextMenuConfirmItem
+                label="Move to Trash"
+                icon={Trash2Icon}
+                onConfirm={() => onDeleteFolder(node.relativePath)}
+              />
             </ContextMenuContent>
           </ContextMenu>
         </DraggableItem>
@@ -3366,6 +3513,7 @@ function FileTreeNode({
               gitIgnoredPaths={gitIgnoredPaths}
               gitConflictPaths={gitConflictPaths}
               gitLineStatsByPath={gitLineStatsByPath}
+              commentCountsByPath={commentCountsByPath}
               pendingReviewFilePaths={pendingReviewFilePaths}
               unsavedLineStatsByPath={unsavedLineStatsByPath}
               nativeDragOver={nativeDragOver}
@@ -3391,7 +3539,6 @@ function FileTreeNode({
     <DraggableItem id={file.relativePath} type="file" name={node.name}>
       <ContextMenu
         onOpenChange={() => {
-          setConfirmTrash(false);
           setChatMenuOpen(false);
         }}
       >
@@ -3408,6 +3555,7 @@ function FileTreeNode({
             <SidebarRow
               data-sidebar-file-id={encodeURIComponent(file.id)}
               data-middle-click-tab
+              aria-label={node.name}
               data-pending-ai-review={isPendingAIReview ? "true" : undefined}
               data-git-conflicted={isConflicted ? "true" : undefined}
               className={cn(
@@ -3420,6 +3568,35 @@ function FileTreeNode({
                       : "bg-sidebar-accent text-sidebar-accent-foreground"
                   : "hover:bg-sidebar-accent/50",
               )}
+              trailing={
+                <div className="ml-auto flex shrink-0 items-center gap-1.5">
+                  <FileStatus
+                    fileId={file.id}
+                    commentCounts={commentCountsByPath.get(file.relativePath)}
+                  />
+                  {lineStats?.added ? (
+                    <span className="font-mono text-[11px] text-green-600">
+                      +{lineStats.added}
+                    </span>
+                  ) : null}
+                  {lineStats?.deleted ? (
+                    <span className="font-mono text-[11px] text-red-600">
+                      -{lineStats.deleted}
+                    </span>
+                  ) : null}
+                  {isConflicted && (
+                    <GitMergeIcon
+                      aria-label="Unresolved Git conflict"
+                      className={cn("size-2.5 shrink-0", CONFLICT_TEXT_CLASS)}
+                    />
+                  )}
+                  {file.isDirty ? (
+                    <Hint content="Modified">
+                      <span className="size-2 rounded-full bg-blue-500" />
+                    </Hint>
+                  ) : null}
+                </div>
+              }
               depth={depth}
               onClick={() => {
                 useHistoryStore.getState().stopReview();
@@ -3444,42 +3621,16 @@ function FileTreeNode({
                         : undefined,
                 )}
               </SidebarRowIcon>
-              <span
-                className={cn(
-                  "min-w-0 flex-1 truncate",
-                  isConflicted
-                    ? CONFLICT_TEXT_CLASS
-                    : isPendingAIReview
-                      ? PENDING_AI_REVIEW_TEXT_CLASS
-                      : isIgnored && "text-muted-foreground",
-                )}
-              >
-                {node.name}
-              </span>
-              <div className="ml-auto flex shrink-0 items-center gap-1.5">
-                <FileCompileStatus fileId={file.id} />
-                {lineStats?.added ? (
-                  <span className="font-mono text-[11px] text-green-600">
-                    +{lineStats.added}
-                  </span>
-                ) : null}
-                {lineStats?.deleted ? (
-                  <span className="font-mono text-[11px] text-red-600">
-                    -{lineStats.deleted}
-                  </span>
-                ) : null}
-                {isConflicted && (
-                  <GitMergeIcon
-                    aria-label="Unresolved Git conflict"
-                    className={cn("size-2.5 shrink-0", CONFLICT_TEXT_CLASS)}
-                  />
-                )}
-                {file.isDirty ? (
-                  <Hint content="Modified">
-                    <span className="size-2 rounded-full bg-blue-500" />
-                  </Hint>
-                ) : null}
-              </div>
+              {renderSidebarFileName(
+                node.name,
+                isConflicted
+                  ? CONFLICT_TEXT_CLASS
+                  : isPendingAIReview
+                    ? PENDING_AI_REVIEW_TEXT_CLASS
+                    : isIgnored
+                      ? "text-muted-foreground"
+                      : undefined,
+              )}
             </SidebarRow>
           </ContextMenuTrigger>
         </Hint>
@@ -3512,25 +3663,12 @@ function FileTreeNode({
               <PencilIcon className="mr-2 size-4" />
               Rename
             </ContextMenuItem>
-            <ContextMenuItem
-              variant="destructive"
-              className="trash-context-menu-item"
-              data-confirming={confirmTrash}
-              aria-label={confirmTrash ? "Confirm" : "Move to Trash"}
-              textValue={confirmTrash ? "Confirm" : "Move to Trash"}
-              onSelect={(event) => {
-                if (!confirmTrash) {
-                  event.preventDefault();
-                  setConfirmTrash(true);
-                  return;
-                }
-                setConfirmTrash(false);
-                onDelete(file.id);
-              }}
+            <ContextMenuConfirmItem
+              label="Move to Trash"
+              icon={Trash2Icon}
+              onConfirm={() => onDelete(file.id)}
               disabled={fileCount <= 1}
-            >
-              <TrashMenuLabel />
-            </ContextMenuItem>
+            />
           </SidebarFileContextActions>
         </ContextMenuContent>
       </ContextMenu>
@@ -3587,6 +3725,23 @@ function CommentVisibilitySection() {
   const showPdfComments = useSettingsStore((s) => s.showPdfComments);
   const setDisplayComments = useSettingsStore((s) => s.setDisplayComments);
   const setShowPdfComments = useSettingsStore((s) => s.setShowPdfComments);
+  const enableComments = useAppAction({
+    id: "toggle-comments",
+    label: "Enable comments",
+    type: "checkbox",
+    checked: displayComments,
+    run: () => setDisplayComments(!displayComments),
+    menu: { group: "View", section: 3, order: 0 },
+  });
+  const previewComments = useAppAction({
+    id: "toggle-preview-comments",
+    label: "Show in preview",
+    type: "checkbox",
+    checked: showPdfComments,
+    enabled: displayComments,
+    run: () => setShowPdfComments(!showPdfComments),
+    menu: { group: "View", section: 3, order: 1 },
+  });
   return (
     <section
       data-sidebar-section="comment-visibility"
@@ -3607,17 +3762,17 @@ function CommentVisibilitySection() {
       />
       <SidebarSectionBody hidden={collapsed} className="space-y-0.5">
         <PromptSourceToggle
-          label="Enable comments"
+          label={enableComments.label}
           Icon={EyeIcon}
-          checked={displayComments}
-          onCheckedChange={setDisplayComments}
+          checked={enableComments.checked}
+          onCheckedChange={enableComments.run}
         />
         <PromptSourceToggle
-          label="Show in preview"
+          label={previewComments.label}
           Icon={PdfFileIcon}
-          checked={showPdfComments}
-          disabled={!displayComments}
-          onCheckedChange={setShowPdfComments}
+          checked={previewComments.checked}
+          disabled={!previewComments.enabled}
+          onCheckedChange={previewComments.run}
         />
         <CommentDeleteButtons />
       </SidebarSectionBody>

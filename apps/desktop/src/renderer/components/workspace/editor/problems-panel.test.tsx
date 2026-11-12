@@ -47,7 +47,9 @@ describe("ProblemsPanel", () => {
     expect(panel?.className).toContain("h-12");
     expect(panel?.className).toContain("border-b");
     expect(panel?.className).not.toContain("border-t");
-    expect(container.textContent).toContain("Problems");
+    expect(
+      panel?.querySelector('[role="group"][aria-label="Problem severity"]'),
+    ).not.toBeNull();
     expect(container.textContent).toContain("Missing $ inserted");
   });
   it("filters the bar, navigation, and bulk fixes without changing the diagnostics", () => {

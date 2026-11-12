@@ -9,6 +9,7 @@ import {
 import { useProjectComments } from "./use-project-comments";
 import {
   PDF_COMMENT_NAVIGATE_EVENT,
+  type CommentSearchNavigation,
   COMMENT_SEARCH_NAVIGATE_EVENT,
 } from "@/lib/workspace-events";
 export function useSearchComments(
@@ -75,26 +76,63 @@ export function useSearchComments(
     pdf,
     range,
   ]);
-  const navigate = (index: number) => {
+  const navigate = (
+    index: number,
+    source: HTMLElement | null,
+    preview: boolean,
+  ) => {
     const result = results[index];
-    if (!result) return;
-    const detail = {
-      projectRoot: root,
-      filePath: result.filePath,
-      commentId: result.commentId,
-    };
+    if (!result || !source) return;
+    const pane = source.closest<HTMLElement>("[data-preview-pane]");
     useSettingsStore.getState().setDisplayComments(true);
-    useSettingsStore.getState().setShowPdfComments(true);
+    if (preview) useSettingsStore.getState().setShowPdfComments(true);
     requestAnimationFrame(() => {
-      window.dispatchEvent(
-        new CustomEvent(COMMENT_SEARCH_NAVIGATE_EVENT, { detail }),
-      );
-      window.dispatchEvent(
-        new CustomEvent(PDF_COMMENT_NAVIGATE_EVENT, { detail }),
-      );
+      if (!source.isConnected) return;
+      if (preview) {
+        if (!pane) return;
+        window.dispatchEvent(
+          new CustomEvent<CommentSearchNavigation>(
+            COMMENT_SEARCH_NAVIGATE_EVENT,
+            {
+              detail: {
+                pane,
+                filePath: result.filePath,
+                commentId: result.commentId,
+              },
+            },
+          ),
+        );
+      } else {
+        window.dispatchEvent(
+          new CustomEvent(PDF_COMMENT_NAVIGATE_EVENT, {
+            detail: {
+              projectRoot: root,
+              filePath: result.filePath,
+              commentId: result.commentId,
+              searchSource: source,
+            },
+          }),
+        );
+      }
     });
   };
   return { results, navigate };
+}
+
+export function dismissSearchComment(
+  pane: HTMLElement,
+  result: { filePath: string; commentId: string },
+) {
+  window.dispatchEvent(
+    new CustomEvent<CommentSearchNavigation>(COMMENT_SEARCH_NAVIGATE_EVENT, {
+      detail: {
+        pane,
+        filePath: result.filePath,
+        commentId: result.commentId,
+        dismiss: true,
+      },
+    }),
+  );
 }
 
 // CSS highlights leave the comment card's editable DOM and undo history intact.

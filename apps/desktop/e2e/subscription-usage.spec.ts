@@ -31,11 +31,11 @@ test("queries on open and provider switch, with only reported bars", async ({
   const usageHeading = await usage
     .getByText("Subscription usage", { exact: true })
     .boundingBox();
-  const modelHeading = await page
-    .getByText("Model", { exact: true })
+  const modelListLabel = await page
+    .getByText("Available models", { exact: true })
     .boundingBox();
   expect(usageHeading!.x).toBe(providerHeading!.x);
-  expect(usageHeading!.x).toBe(modelHeading!.x);
+  expect(usageHeading!.x).toBe(modelListLabel!.x);
   await page.screenshot({ path: testInfo.outputPath("claude-usage.png") });
   await page
     .getByRole("group", { name: "Provider", exact: true })

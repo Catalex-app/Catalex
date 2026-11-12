@@ -1,3 +1,5 @@
+import { saveFile } from "@/lib/save-file";
+import { useAppActions } from "./use-app-actions";
 import { useEffect } from "react";
 import { invoke } from "@/lib/desktop/core";
 import {
@@ -11,10 +13,21 @@ import {
   resolveKeyboardShortcut,
   matchesKeyboardShortcut,
 } from "@/lib/keyboard-shortcuts";
-import { useDocumentStore } from "@/stores/document-store";
 import { useSettingsStore } from "@/stores/settings-store";
 
+const zoomActions = [
+  { id: "zoom-in", label: "Zoom In", run: zoomInApp },
+  { id: "zoom-out", label: "Zoom Out", run: zoomOutApp },
+  { id: "zoom-reset", label: "Reset Zoom", run: resetAppZoom },
+] as const;
+
 export function useAppZoomShortcuts() {
+  useAppActions(
+    zoomActions.map((action, order) => ({
+      ...action,
+      menu: { group: "View", section: 2, order },
+    })),
+  );
   const keyboardShortcutOverrides = useSettingsStore(
     (state) => state.keyboardShortcutOverrides,
   );
@@ -34,13 +47,10 @@ export function useAppZoomShortcuts() {
 
       e.preventDefault();
 
-      if (zoomAction === "zoom-in") {
-        zoomInApp().catch(console.error);
-      } else if (zoomAction === "zoom-out") {
-        zoomOutApp().catch(console.error);
-      } else {
-        resetAppZoom().catch(console.error);
-      }
+      zoomActions
+        .find((action) => action.id === zoomAction)
+        ?.run()
+        .catch(console.error);
     };
 
     document.addEventListener("keydown", handleZoomKeyDown, true);
@@ -64,11 +74,7 @@ export function useKeyboardShortcuts() {
 
       if (action === "save-file") {
         e.preventDefault();
-        const state = useDocumentStore.getState();
-        state.setIsSaving(true);
-        state.saveCurrentFile().finally(() => {
-          setTimeout(() => state.setIsSaving(false), 500);
-        });
+        void saveFile();
         return;
       }
 

@@ -1,3 +1,4 @@
+import { useAppActions } from "@/hooks/use-app-actions";
 import { useEditorStatisticsOverflow } from "./use-editor-statistics-overflow";
 import { WorkspacePanelHeader } from "../workspace-panel";
 import { Hint } from "@/components/ui/tooltip";
@@ -49,6 +50,10 @@ interface LatexEditorHeaderProps {
   wordCount: number;
   characterCount: number;
   trailingContent?: ReactNode;
+  findAction?: () => void;
+  findOpen?: boolean;
+  actionTarget?: boolean;
+  actionsEnabled?: boolean;
   onInlineFormat: (format: LatexInlineFormat) => void;
   onBlockFormat: (format: LatexBlockFormat) => void;
 }
@@ -69,11 +74,13 @@ const sectioningOptions: Array<{
 function ToolButton({
   label,
   shortcut,
+  disabled,
   onClick,
   children,
 }: {
   label: string;
   shortcut?: string;
+  disabled: boolean;
   onClick: () => void;
   children: ReactNode;
 }) {
@@ -86,6 +93,7 @@ function ToolButton({
         size="icon-sm"
         className="size-7"
         aria-label={label}
+        disabled={disabled}
         onClick={onClick}
       >
         {children}
@@ -100,6 +108,10 @@ export function LatexEditorHeader({
   wordCount,
   characterCount,
   trailingContent,
+  findAction,
+  findOpen,
+  actionTarget = true,
+  actionsEnabled = true,
   onInlineFormat,
   onBlockFormat,
 }: LatexEditorHeaderProps) {
@@ -108,14 +120,18 @@ export function LatexEditorHeader({
     statisticsRef,
     otherControlsRef,
     overflow,
+    findInOverflow,
     otherControlsVisible,
     setActionsOpen,
-  } = useEditorStatisticsOverflow();
+  } = useEditorStatisticsOverflow(!!findAction && !findOpen);
   const words = `${selectedCharacters > 0 ? `${selectedWords.toLocaleString()}/` : ""}${wordCount.toLocaleString()}`;
   const characters = `${selectedCharacters > 0 ? `${selectedCharacters.toLocaleString()}/` : ""}${characterCount.toLocaleString()}`;
   return (
     <WorkspacePanelHeader
       ref={headerRef}
+      findAction={findAction}
+      findOpen={findOpen}
+      findInOverflow={findInOverflow}
       actionsLabel="Editor"
       data-editor-statistics-overflow={overflow}
       hasTrailingContent={!overflow || otherControlsVisible}
@@ -169,10 +185,12 @@ export function LatexEditorHeader({
         </>
       }
       data-testid="latex-editor-toolbar"
-      className="flex h-12 shrink-0 items-center gap-2 border-border border-b bg-background px-2"
+      className="@container/editor-header flex h-12 shrink-0 items-center gap-2 border-border border-b bg-background px-2"
     >
       <FormattingControls
         statisticsOverflow={overflow}
+        actionTarget={actionTarget}
+        actionsEnabled={actionsEnabled}
         onInlineFormat={onInlineFormat}
         onBlockFormat={onBlockFormat}
       />
@@ -182,13 +200,102 @@ export function LatexEditorHeader({
 
 const FormattingControls = memo(function FormattingControls({
   statisticsOverflow,
+  actionTarget,
+  actionsEnabled,
   onInlineFormat,
   onBlockFormat,
-}: Pick<LatexEditorHeaderProps, "onInlineFormat" | "onBlockFormat"> & {
+}: Pick<
+  LatexEditorHeaderProps,
+  "onInlineFormat" | "onBlockFormat" | "actionTarget" | "actionsEnabled"
+> & {
   statisticsOverflow: boolean;
 }) {
+  const tools = [
+    {
+      id: "inline:bold",
+      label: "Bold",
+      icon: BoldIcon,
+      hint: "⌘B",
+      run: () => onInlineFormat("bold"),
+    },
+    {
+      id: "inline:italic",
+      label: "Italic",
+      icon: ItalicIcon,
+      hint: "⌘I",
+      run: () => onInlineFormat("italic"),
+    },
+    {
+      id: "block:quote",
+      label: "Quote",
+      icon: QuoteIcon,
+      hint: undefined,
+      run: () => onBlockFormat("quote"),
+    },
+    {
+      id: "block:unordered-list",
+      label: "Bulleted list",
+      icon: ListIcon,
+      hint: undefined,
+      run: () => onBlockFormat("unordered-list"),
+    },
+    {
+      id: "block:ordered-list",
+      label: "Numbered list",
+      icon: ListOrderedIcon,
+      hint: undefined,
+      run: () => onBlockFormat("ordered-list"),
+    },
+    {
+      id: "inline:link",
+      label: "Link",
+      icon: LinkIcon,
+      hint: undefined,
+      run: () => onInlineFormat("link"),
+    },
+    {
+      id: "inline:code",
+      label: "Monospace text",
+      icon: Code2Icon,
+      hint: undefined,
+      run: () => onInlineFormat("code"),
+    },
+    {
+      id: "inline:inline-math",
+      label: "Inline math",
+      icon: SigmaIcon,
+      hint: undefined,
+      run: () => onInlineFormat("inline-math"),
+    },
+  ];
+  const actions = useAppActions(
+    [
+      ...sectioningOptions.map((option, order) => ({
+        id: `block:${option.format}`,
+        label: option.label,
+        run: () => onBlockFormat(option.format),
+        enabled: actionsEnabled,
+        menu: { group: "Format" as const, section: 1, order },
+      })),
+      ...tools.map((tool, order) => ({
+        ...tool,
+        enabled: actionsEnabled,
+        shortcut:
+          tool.id === "inline:bold"
+            ? "Mod+KeyB"
+            : tool.id === "inline:italic"
+              ? "Mod+KeyI"
+              : undefined,
+        menu: { group: "Format" as const, section: 0, order },
+      })),
+    ],
+    actionTarget ? "active" : "inactive",
+  );
   return (
-    <ResponsiveFormattingTools forceCollapsed={statisticsOverflow}>
+    <ResponsiveFormattingTools
+      forceCollapsed={statisticsOverflow}
+      disabled={actionsEnabled === false}
+    >
       <div className="flex min-w-max items-center gap-0.5">
         <DropdownMenu>
           <Hint content="Sectioning command">
@@ -199,6 +306,7 @@ const FormattingControls = memo(function FormattingControls({
                 size="sm"
                 className="h-7 gap-1 px-2 text-xs"
                 aria-label="Sectioning command"
+                disabled={actionsEnabled === false}
               >
                 <HeadingIcon className="size-3.5" />
                 <ChevronDownIcon className="size-3" />
@@ -210,10 +318,11 @@ const FormattingControls = memo(function FormattingControls({
             sideOffset={6}
             onCloseAutoFocus={(event) => event.preventDefault()}
           >
-            {sectioningOptions.map((option) => (
+            {actions.slice(0, sectioningOptions.length).map((option) => (
               <DropdownMenuItem
-                key={option.format}
-                onSelect={() => onBlockFormat(option.format)}
+                key={option.id}
+                disabled={option.enabled === false}
+                onSelect={option.run}
               >
                 {option.label}
               </DropdownMenuItem>
@@ -222,54 +331,23 @@ const FormattingControls = memo(function FormattingControls({
         </DropdownMenu>
 
         <div className="mx-1 h-5 w-px bg-border" />
-
-        <ToolButton
-          label="Bold"
-          shortcut="⌘B"
-          onClick={() => onInlineFormat("bold")}
-        >
-          <BoldIcon className="size-3.5" />
-        </ToolButton>
-        <ToolButton
-          label="Italic"
-          shortcut="⌘I"
-          onClick={() => onInlineFormat("italic")}
-        >
-          <ItalicIcon className="size-3.5" />
-        </ToolButton>
-
-        <div className="mx-1 h-5 w-px bg-border" />
-
-        <ToolButton label="Quote" onClick={() => onBlockFormat("quote")}>
-          <QuoteIcon className="size-3.5" />
-        </ToolButton>
-        <ToolButton
-          label="Bulleted list"
-          onClick={() => onBlockFormat("unordered-list")}
-        >
-          <ListIcon className="size-3.5" />
-        </ToolButton>
-        <ToolButton
-          label="Numbered list"
-          onClick={() => onBlockFormat("ordered-list")}
-        >
-          <ListOrderedIcon className="size-3.5" />
-        </ToolButton>
-        <ToolButton label="Link" onClick={() => onInlineFormat("link")}>
-          <LinkIcon className="size-3.5" />
-        </ToolButton>
-        <ToolButton
-          label="Monospace text"
-          onClick={() => onInlineFormat("code")}
-        >
-          <Code2Icon className="size-3.5" />
-        </ToolButton>
-        <ToolButton
-          label="Inline math"
-          onClick={() => onInlineFormat("inline-math")}
-        >
-          <SigmaIcon className="size-3.5" />
-        </ToolButton>
+        {tools.map((tool, index) => {
+          const Icon = tool.icon;
+          const action = actions[sectioningOptions.length + index];
+          return (
+            <span key={tool.id} className="contents">
+              {index === 2 && <div className="mx-1 h-5 w-px bg-border" />}
+              <ToolButton
+                label={action.label}
+                shortcut={tool.hint}
+                disabled={action.enabled === false}
+                onClick={action.run}
+              >
+                <Icon className="size-3.5" />
+              </ToolButton>
+            </span>
+          );
+        })}
       </div>
     </ResponsiveFormattingTools>
   );

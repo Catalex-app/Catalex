@@ -1,3 +1,4 @@
+import { useAppAction } from "@/hooks/use-app-actions";
 import {
   WorkspacePanelHeader,
   useWorkspacePanelExpansion,
@@ -6,6 +7,7 @@ import { usePreviewSearch, PreviewSearchPanel } from "./preview-search-panel";
 import { useMarkdownSearch } from "./markdown-search";
 import { installContextMenus } from "@/lib/context-menu";
 import { installMouseBoundary } from "@/lib/mouse-events";
+import { canHandleEscape } from "@/lib/keyboard-events";
 import { Hint } from "@/components/ui/tooltip";
 import { MarkdownComments } from "./markdown-comments";
 import { MarkdownThemeSwatch } from "./markdown-theme-swatch";
@@ -16,6 +18,7 @@ import {
 import { markdownCommentSource } from "./markdown-comment-source";
 import {
   cancelNavigationScroll,
+  highlightNavigationTarget,
   isNavigationScrolling,
   scrollForNavigation,
 } from "@/lib/navigation-scroll";
@@ -530,12 +533,13 @@ export function MarkdownPreview({
   const onScrollSyncToEditorRef = useRef(onScrollSyncToEditor);
   const ignorePreviewScrollUntilRef = useRef(0);
   const lastPreviewScrollPositionRef = useRef<number | null>(null);
+  const lastPreviewScrollTopRef = useRef(0);
   const [frameDocument, setFrameDocument] = useState<Document | null>(null);
   const expansion = useWorkspacePanelExpansion();
   useEffect(() => {
     if (!frameDocument || !expansion?.expanded) return;
     const keydown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || event.defaultPrevented) return;
+      if (!canHandleEscape(event)) return;
       event.preventDefault();
       expansion.onExpandedChange?.(false);
     };
@@ -689,11 +693,21 @@ export function MarkdownPreview({
   const activeFile = files.find((file) => file.id === activeFileId);
   const markdownSource =
     activeFile && isMarkdownFile(activeFile) ? (activeFile.content ?? "") : "";
-  const search = usePreviewSearch(searchScope, activeFileId, frameDocument);
+  const search = usePreviewSearch(searchScope, activeFileId, {
+    frameDocument,
+    available: !editorVisible,
+    infoBarProjectKey: JSON.stringify(projectRoot),
+  });
+  const beforeSearchScroll = useCallback((scrollTop: number) => {
+    // Search can take over before the scroll poll observes the last synced jump.
+    lastPreviewScrollTopRef.current = scrollTop;
+    ignorePreviewScrollUntilRef.current = 0;
+  }, []);
   const markdownSearch = useMarkdownSearch(
     search,
     frameDocument,
     markdownSource,
+    beforeSearchScroll,
   );
   const lineStartOffsets = useMemo(() => {
     const offsets = [0];
@@ -1018,6 +1032,13 @@ export function MarkdownPreview({
       setIsExportingPdf(false);
     }
   }, [activeFile, frameDocument, isExportingPdf]);
+  const exportAction = useAppAction({
+    id: "export-pdf",
+    label: "Export PDF",
+    enabled: !!frameDocument && !isExportingPdf && !loadingMath,
+    run: handleExportPdf,
+    menu: { group: "File", section: 2, order: 1 },
+  });
 
   const navigateEditorToPreview = useCallback(() => {
     if (!frameDocument) return;
@@ -1027,13 +1048,20 @@ export function MarkdownPreview({
     const scroll = frameDocument.scrollingElement as HTMLElement | null;
     if (element && scroll) {
       const rect = element.getBoundingClientRect();
-      scrollForNavigation(scroll, {
-        top:
-          scroll.scrollTop +
-          rect.top +
-          rect.height / 2 -
-          frameDocument.documentElement.clientHeight / 2,
-      });
+      scrollForNavigation(
+        scroll,
+        {
+          top:
+            scroll.scrollTop +
+            rect.top +
+            rect.height / 2 -
+            frameDocument.documentElement.clientHeight / 2,
+        },
+        () =>
+          highlightNavigationTarget(scroll, "markdown", () =>
+            element.isConnected ? element.getBoundingClientRect() : null,
+          ),
+      );
     }
   }, [frameDocument]);
 
@@ -1049,7 +1077,7 @@ export function MarkdownPreview({
     if (!frameDocument) return;
     const position = sourcePositionAtPreviewCenter(frameDocument);
     if (position !== undefined) {
-      useDocumentStore.getState().requestJumpToPosition(position);
+      useDocumentStore.getState().requestJumpToPosition(position, true);
     }
   }, [frameDocument]);
 
@@ -1065,7 +1093,8 @@ export function MarkdownPreview({
 
   useEffect(() => {
     if (!frameDocument) return;
-    let lastScrollTop = frameDocument.scrollingElement?.scrollTop ?? 0;
+    lastPreviewScrollTopRef.current =
+      frameDocument.scrollingElement?.scrollTop ?? 0;
 
     const syncPreviewPosition = () => {
       const scrollTop = frameDocument.scrollingElement?.scrollTop ?? 0;
@@ -1074,16 +1103,16 @@ export function MarkdownPreview({
         (frameDocument.scrollingElement &&
           isNavigationScrolling(frameDocument.scrollingElement as HTMLElement))
       ) {
-        lastScrollTop = scrollTop;
+        lastPreviewScrollTopRef.current = scrollTop;
         return;
       }
       if (
         performance.now() < ignorePreviewScrollUntilRef.current ||
-        Math.abs(scrollTop - lastScrollTop) < 0.5
+        Math.abs(scrollTop - lastPreviewScrollTopRef.current) < 0.5
       ) {
         return;
       }
-      lastScrollTop = scrollTop;
+      lastPreviewScrollTopRef.current = scrollTop;
       const position = sourcePositionAtPreviewCenter(frameDocument);
       if (
         position === undefined ||
@@ -1179,7 +1208,7 @@ export function MarkdownPreview({
         return;
       }
       lastNavigation = { position: range.start, timestamp };
-      useDocumentStore.getState().requestJumpToPosition(range.start);
+      useDocumentStore.getState().requestJumpToPosition(range.start, true);
     };
     const handleSecondClick = (event: MouseEvent) => {
       if (event.detail >= 2) navigateEventTargetToEditor(event);
@@ -1497,6 +1526,8 @@ export function MarkdownPreview({
       style={previewPanelStyle}
     >
       <WorkspacePanelHeader
+        findAction={editorVisible ? undefined : search.show}
+        findOpen={search.open}
         trailingContent={<div ref={setCommentToolbar} />}
         hasTrailingContent={commentToolbarVisible}
         className="flex h-12 shrink-0 items-center border-border border-b bg-background px-2"
@@ -1719,15 +1750,17 @@ export function MarkdownPreview({
               )}
             </DialogResizeTransition>
           </DropdownMenu>
-          <Hint content={isExportingPdf ? "Exporting PDF…" : "Export PDF"}>
+          <Hint
+            content={isExportingPdf ? "Exporting PDF…" : exportAction.label}
+          >
             <Button
               type="button"
               variant="ghost"
               size="icon"
               className="size-7"
               aria-label="Export Markdown as PDF"
-              onClick={handleExportPdf}
-              disabled={!frameDocument || isExportingPdf || loadingMath}
+              onClick={exportAction.run}
+              disabled={!exportAction.enabled}
             >
               {isExportingPdf ? (
                 <LoaderIcon className="size-3.5 animate-spin" />
@@ -1740,8 +1773,8 @@ export function MarkdownPreview({
         <div data-window-drag-region className="flex-1 self-stretch" />
       </WorkspacePanelHeader>
       <div ref={setCommentPanel} className="shrink-0" />
+      <PreviewSearchPanel search={search} {...markdownSearch} />
       <div className="relative flex min-h-0 flex-1">
-        <PreviewSearchPanel search={search} {...markdownSearch} />
         <iframe
           ref={frameRef}
           data-panel-content-focus=""
@@ -1798,6 +1831,7 @@ export function MarkdownPreview({
             toolbarHost={commentToolbar}
             onToolbarVisibilityChange={setCommentToolbarVisible}
             panelHost={commentPanel}
+            closeSearch={search.open ? search.close : undefined}
             source={markdownSource}
             filePath={activeFile.relativePath}
           />

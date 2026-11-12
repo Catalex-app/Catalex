@@ -1,25 +1,31 @@
+import { DocumentBarNavigation } from "../document-bar-navigation";
 import { Hint } from "@/components/ui/tooltip";
+import { Button } from "@/components/ui/button";
 import { ButtonGroup } from "@/components/ui/button-group";
 import { useEffect, useState, useSyncExternalStore } from "react";
-import {
-  ChevronDown,
-  ChevronUp,
-  MessageSquareTextIcon,
-  XIcon,
-} from "lucide-react";
+import { MessageSquareTextIcon, XIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { InlineEditorComment } from "./inline-comments";
 import type { EditorCommentFilter } from "@/stores/settings-store";
 import { getActiveComment, subscribeActiveComment } from "./active-comment";
+import {
+  documentBarButtonClassName,
+  documentBarClassName,
+  editorBarSummaryButtonClassName,
+} from "../document-navigation-styles";
 
 export type CommentFilter = EditorCommentFilter;
 
-function AuthorBadge({ agent }: { agent: boolean }) {
+function AuthorBadge({ filter }: { filter: CommentFilter }) {
   return (
     <MessageSquareTextIcon
       className={cn(
         "size-3.5 shrink-0",
-        agent ? "text-[#7352b3]" : "text-[#d49a00]",
+        filter === "all"
+          ? "text-muted-foreground"
+          : filter === "agent"
+            ? "text-[#7352b3]"
+            : "text-[#d49a00]",
       )}
       aria-hidden="true"
     />
@@ -35,42 +41,38 @@ export function CommentAuthorFilter({
   filter: CommentFilter;
   onFilter: (filter: CommentFilter) => void;
 }) {
+  const humans = comments.filter((comment) => !comment.origin).length;
   return (
     <ButtonGroup
-      role="group"
       aria-label="Comment author"
-      className="flex h-8 shrink-0 items-center text-xs"
-    >
-      {(["all", "human", "agent"] as const).map((value) => (
-        <button
-          key={value}
-          type="button"
-          aria-label={`${value === "all" ? "All" : value === "human" ? "Human" : "Agent"} comments`}
-          aria-pressed={filter === value}
-          onClick={() => onFilter(value)}
-          className={cn(
-            "flex h-6 items-center justify-center gap-1 rounded-md px-2 font-medium tabular-nums transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-            filter === value
-              ? "bg-background text-foreground shadow-sm"
-              : "text-muted-foreground hover:bg-background/70 hover:text-foreground",
-          )}
-        >
-          {value === "all" ? (
-            <span>All</span>
-          ) : (
-            <AuthorBadge agent={value === "agent"} />
-          )}
-          <span>
-            {
-              comments.filter(
-                (comment) =>
-                  value === "all" || (value === "agent") === !!comment.origin,
-              ).length
-            }
-          </span>
-        </button>
-      ))}
-    </ButtonGroup>
+      selection={{
+        layout: "responsive",
+        compactLabel: "Filter comments",
+        value: filter,
+        onValueChange: onFilter,
+        options: [
+          {
+            value: "all",
+            label: "All comments",
+            shortLabel: "All",
+            icon: <AuthorBadge filter="all" />,
+            count: comments.length,
+          },
+          {
+            value: "human",
+            label: "Human comments",
+            icon: <AuthorBadge filter="human" />,
+            count: humans,
+          },
+          {
+            value: "agent",
+            label: "Agent comments",
+            icon: <AuthorBadge filter="agent" />,
+            count: comments.length - humans,
+          },
+        ],
+      }}
+    />
   );
 }
 
@@ -84,19 +86,22 @@ export function CommentsSummaryButton({
   const humans = comments.filter((comment) => !comment.origin).length;
   const agents = comments.length - humans;
   return (
-    <Hint content="Show comments">
+    <Hint content={`Show comments (${humans} human, ${agents} agent)`}>
       <button
         type="button"
         onClick={onOpen}
         aria-label={`Show comments: ${humans} human, ${agents} agent`}
-        className="flex h-7 shrink-0 items-center gap-2 rounded-md px-2 text-muted-foreground text-xs tabular-nums transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className={editorBarSummaryButtonClassName}
       >
-        <span className="flex items-center gap-1">
-          <AuthorBadge agent={false} />
+        <span data-summary-icon="" className="hidden">
+          <AuthorBadge filter="all" />
+        </span>
+        <span data-summary-count="" className="flex items-center gap-1">
+          <AuthorBadge filter="human" />
           {humans}
         </span>
-        <span className="flex items-center gap-1">
-          <AuthorBadge agent />
+        <span data-summary-count="" className="flex items-center gap-1">
+          <AuthorBadge filter="agent" />
           {agents}
         </span>
       </button>
@@ -160,9 +165,8 @@ export function CommentsPanel({
   return (
     <div
       data-comments-panel="true"
-      className="@container/comments flex h-12 shrink-0 items-center gap-2 border-border border-b bg-background pr-2 pl-3 text-xs"
+      className={`@container/comments ${documentBarClassName}`}
     >
-      <span className="shrink-0 font-medium text-foreground">Comments</span>
       <CommentAuthorFilter
         comments={comments}
         filter={filter}
@@ -177,7 +181,7 @@ export function CommentsPanel({
             type="button"
             onClick={() => onNavigate(current)}
             aria-label={`Go to comment ${current.origin ? "A" : "H"}-${current.number ?? current.expectedNumber ?? 1}`}
-            className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1 text-left transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden rounded-md @[320px]/comments:px-2 px-1 py-1 text-left transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <span
               className={cn(
@@ -202,38 +206,27 @@ export function CommentsPanel({
         </span>
       )}
       <div className="flex shrink-0 items-center gap-1">
-        <span
-          className="font-mono text-muted-foreground"
-          role="status"
-          aria-label={`Comment ${current ? index + 1 : 0} of ${visible.length}`}
-        >
-          {current ? index + 1 : 0}/{visible.length}
-        </span>
-        {([-1, 1] as const).map((direction) => (
-          <button
-            key={direction}
-            type="button"
-            onClick={() => navigate(direction)}
-            disabled={!current}
-            aria-label={direction < 0 ? "Previous comment" : "Next comment"}
-            className="rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-40"
-          >
-            {direction < 0 ? (
-              <ChevronUp className="size-3.5" />
-            ) : (
-              <ChevronDown className="size-3.5" />
-            )}
-          </button>
-        ))}
+        <DocumentBarNavigation
+          label="Comment navigation"
+          previousLabel="Previous comment"
+          nextLabel="Next comment"
+          itemLabel="Comment"
+          current={current ? index + 1 : 0}
+          total={visible.length}
+          onPrevious={() => navigate(-1)}
+          onNext={() => navigate(1)}
+        />
         <Hint content="Hide comments">
-          <button
+          <Button
             type="button"
+            variant="ghost"
+            size="icon-xs"
             onClick={onClose}
             aria-label="Hide comments"
-            className="ml-1 flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className={documentBarButtonClassName}
           >
             <XIcon className="size-3.5" />
-          </button>
+          </Button>
         </Hint>
       </div>
     </div>

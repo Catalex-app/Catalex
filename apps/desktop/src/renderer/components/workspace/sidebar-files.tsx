@@ -103,6 +103,21 @@ export function getFileIcon(file: SidebarFile, className?: string) {
   return <FileTextIcon className={cn("size-4 shrink-0", className)} />;
 }
 
+export function renderSidebarFileName(name: string, className?: string) {
+  const dot = name.lastIndexOf(".");
+  const hasExtension = dot > 0 && dot < name.length - 1;
+  return (
+    <span className={cn("flex min-w-0 flex-1", className)}>
+      <span className="min-w-0 truncate">
+        {hasExtension ? name.slice(0, dot) : name}
+      </span>
+      {hasExtension && (
+        <span className="max-w-full shrink-0 truncate">{name.slice(dot)}</span>
+      )}
+    </span>
+  );
+}
+
 type FileRowProps = Omit<ComponentProps<"button">, "children" | "onClick"> & {
   [key: `data-${string}`]: string | boolean | undefined;
 };
@@ -192,6 +207,7 @@ export function SidebarFileTree<TFile extends SidebarFile>({
         <SidebarRow
           data-sidebar-file-id={encodeURIComponent(file.id)}
           data-middle-click-tab={onOpenFileInBackground ? "" : undefined}
+          aria-label={node.name}
           aria-current={file.id === activeFileId ? "true" : undefined}
           {...rowProps}
           className={cn(
@@ -201,6 +217,13 @@ export function SidebarFileTree<TFile extends SidebarFile>({
               : "hover:bg-sidebar-accent/50",
             className,
           )}
+          trailing={
+            badge ? (
+              <div className="ml-auto flex shrink-0 items-center gap-1.5">
+                {badge}
+              </div>
+            ) : undefined
+          }
           depth={depth}
           onClick={() => onSelectFile(file.id)}
           onAuxClick={(event) => {
@@ -211,14 +234,7 @@ export function SidebarFileTree<TFile extends SidebarFile>({
           }}
         >
           <SidebarRowIcon>{getFileIcon(file, textClassName)}</SidebarRowIcon>
-          <span className={cn("min-w-0 flex-1 truncate", textClassName)}>
-            {node.name}
-          </span>
-          {badge ? (
-            <div className="ml-auto flex shrink-0 items-center gap-1.5">
-              {badge}
-            </div>
-          ) : null}
+          {renderSidebarFileName(node.name, textClassName)}
         </SidebarRow>
       </Hint>
     );

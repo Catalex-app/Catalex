@@ -1,3 +1,9 @@
+import {
+  collectChatMatches,
+  type ChatSearchMessage,
+  type SavedChatMatches,
+} from "../chat-message-search";
+import type { PreviewSearchQuery } from "../renderer/lib/preview-search";
 import { buildTranscriptEntries } from "../chat-transcript";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -231,6 +237,30 @@ export async function loadChatMessages(
     );
   }
   return messages;
+}
+
+export async function searchSavedChat(
+  directory: string,
+  tabId: string,
+  query: PreviewSearchQuery,
+): Promise<SavedChatMatches> {
+  const manifest = await readManifest(directory);
+  const entry = manifest?.tabs.find((tab) => tab.id === tabId);
+  if (!entry) return { matches: [], total: 0, truncated: false };
+  const stored = (await readJson(directory, entry.file)) as StoredTab;
+  const results = collectChatMatches(query);
+  for (const [index, file] of stored.chunks.entries()) {
+    const chunk = (await readJson(directory, file)) as ChatSearchMessage[];
+    for (const [offset, message] of chunk.entries()) {
+      if (!results.add(message, index * PAGE_SIZE + offset))
+        return {
+          matches: results.matches,
+          total: stored.total,
+          truncated: true,
+        };
+    }
+  }
+  return { matches: results.matches, total: stored.total, truncated: false };
 }
 
 /** Host serialization makes the transcript append and compatibility record one commit. */

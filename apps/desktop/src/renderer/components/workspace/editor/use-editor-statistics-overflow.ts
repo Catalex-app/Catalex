@@ -1,12 +1,14 @@
 import { useLayoutEffect, useRef, useState } from "react";
+import { documentBarFindControlWidth } from "../document-navigation-styles";
 import { useWorkspacePanelMotion } from "../workspace-panel";
 
 /** Keep counts inline until even the compact formatting menu needs their space. */
-export function useEditorStatisticsOverflow() {
+export function useEditorStatisticsOverflow(showFind = false) {
   const headerRef = useRef<HTMLDivElement>(null);
   const statisticsRef = useRef<HTMLDivElement>(null);
   const otherControlsRef = useRef<HTMLDivElement>(null);
   const [overflow, setOverflow] = useState(false);
+  const [findInOverflow, setFindInOverflow] = useState(false);
   const [otherControlsVisible, setOtherControlsVisible] = useState(false);
   const [actionsOpen, setActionsOpen] = useState(false);
   const animating = useWorkspacePanelMotion()?.animating ?? false;
@@ -32,19 +34,27 @@ export function useEditorStatisticsOverflow() {
           ?.offsetWidth ?? 56;
       // Measure the counts even when hidden. Reserve the menu and separator so
       // removing the counts never immediately makes them fit again.
-      const required =
+      const requiredWithFind =
         minimumFormattingWidth +
         gestureWidth +
-        statistics.offsetWidth +
         other.offsetWidth +
+        (showFind ? documentBarFindControlWidth : 0) +
         41 +
         Number.parseFloat(style.paddingLeft) +
         Number.parseFloat(style.paddingRight) +
         2 * (Number.parseFloat(style.columnGap) || 0);
+      setFindInOverflow((previous) => {
+        if (!showFind) return false;
+        if (previous && (actionsOpen || animating)) return true;
+        return header.clientWidth < requiredWithFind + (previous ? 16 : 0);
+      });
       setOtherControlsVisible(other.offsetWidth > 0);
       setOverflow((previous) => {
         if (previous && (actionsOpen || animating)) return true;
-        return header.clientWidth < required + (previous ? 16 : 0);
+        return (
+          header.clientWidth <
+          requiredWithFind + statistics.offsetWidth + (previous ? 16 : 0)
+        );
       });
     };
     measure();
@@ -59,13 +69,14 @@ export function useEditorStatisticsOverflow() {
       observer.disconnect();
       cancelAnimationFrame(frame);
     };
-  }, [actionsOpen, animating]);
+  }, [actionsOpen, animating, showFind]);
 
   return {
     headerRef,
     statisticsRef,
     otherControlsRef,
     overflow,
+    findInOverflow,
     otherControlsVisible,
     setActionsOpen,
   };

@@ -2,8 +2,13 @@
 @import "tw-animate-css";
 @import "./ui-themes.css";
 @import "./focus.css";
+@import "./project-navigation.css";
 
 @custom-variant dark (&:is(.dark *));
+
+/* Keep a menu's source visually engaged without moving focus out of the menu.
+   Direct children cover composite triggers such as sidebar folder rows. */
+@custom-variant menu-open (&[data-context-menu-open="true"], :where([data-context-menu-open="true"]) > &);
 
 @theme inline {
   --color-background: var(--background);
@@ -53,7 +58,8 @@
 :root {
   --segmented-control-outline: color-mix(in oklab, var(--border) 70%, transparent);
   --radius: 0.625rem;
-  --background: oklch(1 0 0);
+  /* Electron also uses this token for the native window background. */
+  --background: #ffffff;
   --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0);
   --card-foreground: oklch(0.145 0 0);
@@ -87,7 +93,7 @@
 }
 
 .dark {
-  --background: oklch(0.145 0 0);
+  --background: #0a0a0a;
   --foreground: oklch(0.985 0 0);
   --card: oklch(0.205 0 0);
   --card-foreground: oklch(0.985 0 0);
@@ -125,7 +131,7 @@
     @apply border-border outline-ring/50;
   }
   html {
-    @apply overscroll-y-none scroll-smooth;
+    @apply overscroll-y-none scroll-smooth bg-background;
     /* macOS overlay titlebar inset — traffic lights safe area */
     --titlebar-height: 0px;
     --traffic-light-width: 72px;
@@ -318,10 +324,10 @@ html.solar-mode body::after {
     transform: translateY(-50%);
   }
 
-  [data-chat-tab-dividers] [data-chat-tab-strip] > [data-chat-tab]:is([data-active="true"], :hover, :focus-within)::before,
-  [data-chat-tab-dividers] [data-chat-tab-strip] > [data-chat-tab]:is([data-active="true"], :hover, :focus-within) + [data-chat-tab]::before,
-  [data-chat-tab-dividers] > [data-new-chat-tab]:has([data-chat-tab]:is([data-active="true"], :hover, :focus-within))::before,
-  [data-chat-tab-dividers]:has([data-chat-tab-strip] > [data-chat-tab]:last-child:is([data-active="true"], :hover, :focus-within)) > [data-new-chat-tab]::before {
+  [data-chat-tab-dividers] [data-chat-tab-strip] > [data-chat-tab]:is([data-active="true"], :hover, :focus-within, [data-context-menu-open="true"])::before,
+  [data-chat-tab-dividers] [data-chat-tab-strip] > [data-chat-tab]:is([data-active="true"], :hover, :focus-within, [data-context-menu-open="true"]) + [data-chat-tab]::before,
+  [data-chat-tab-dividers] > [data-new-chat-tab]:has([data-chat-tab]:is([data-active="true"], :hover, :focus-within, [data-context-menu-open="true"]))::before,
+  [data-chat-tab-dividers]:has([data-chat-tab-strip] > [data-chat-tab]:last-child:is([data-active="true"], :hover, :focus-within, [data-context-menu-open="true"])) > [data-new-chat-tab]::before {
     opacity: 0;
   }
 
@@ -341,7 +347,7 @@ html.solar-mode body::after {
     button[aria-selected],
     button[aria-pressed]
   ):where(:hover, :focus-visible, [aria-selected="true"], [aria-pressed="true"], [data-active="true"]),
-  :where([data-slot="button-group"]) :where([data-button-group-item]):where(:hover, :focus-within, [data-active="true"])::after {
+  :where([data-slot="button-group"]) :where([data-button-group-item]):where(:hover, :focus-within, [data-active="true"], [data-context-menu-open="true"])::after {
     outline: 1px solid var(--border);
     outline-offset: -1px;
   }
@@ -370,6 +376,7 @@ html.solar-mode body::after {
 }
 
 .app-scrollbar {
+  --app-scrollbar-size: 6px;
   scrollbar-width: thin;
   scrollbar-color: color-mix(
       in oklch,
@@ -380,8 +387,8 @@ html.solar-mode body::after {
 }
 
 .app-scrollbar::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: var(--app-scrollbar-size);
+  height: var(--app-scrollbar-size);
   background: transparent;
 }
 
@@ -414,6 +421,32 @@ html.solar-mode body::after {
     var(--muted-foreground) 70%,
     transparent
   );
+}
+
+/* Use Chromium's styled scrollbar so the rail stays visible during overflow. */
+.app-scrollbar-rail {
+  margin-inline-end: calc(3px - var(--scrollbar-rail-extension, 0px));
+  scrollbar-width: auto;
+  scrollbar-color: auto;
+}
+
+.app-scrollbar-rail::-webkit-scrollbar-track {
+  margin-block: var(--scrollbar-rail-inset, var(--radius-xl) 8px);
+  border-radius: 999px;
+  background-color: color-mix(
+    in oklch,
+    var(--muted-foreground) 14%,
+    transparent
+  );
+}
+
+/* Fade clipped text and keep the scrollbar fully visible. */
+textarea[data-mini-text-fade] {
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 8px), transparent),
+    linear-gradient(#000, #000);
+  mask-position: left, right;
+  mask-repeat: no-repeat;
+  mask-size: 100% 100%, var(--app-scrollbar-size) 100%;
 }
 
 .scrollbar-none {
@@ -838,4 +871,12 @@ button, [role="button"], [role="tab"], .cm-gutters {
 .onboarding-title-character { animation: onboarding-title-character 1ms step-end both; }
 @media (prefers-reduced-motion: reduce) {
   .onboarding-page-enter, .onboarding-title-character { animation: none; }
+}
+
+::highlight(catalex-chat-search) {
+  background-color: rgba(250, 204, 21, 0.4);
+}
+
+::highlight(catalex-chat-search-active) {
+  background-color: rgba(249, 115, 22, 0.55);
 }

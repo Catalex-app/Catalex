@@ -1,3 +1,4 @@
+import { useProjectActions } from "@/hooks/use-project-actions";
 import { PRODUCT_NAME } from "../branding";
 import { waitForCommentsOnClose } from "@/lib/comment-close-wait";
 import { CommentCloseDialog } from "@/components/comment-close-dialog";
@@ -13,6 +14,7 @@ import {
   subscribeProjectChats,
 } from "@/lib/project-chat-lifecycle";
 import { ThemeProvider } from "next-themes";
+import { DEFAULT_APP_THEME } from "@/lib/app-theme";
 import { ErrorBoundary } from "react-error-boundary";
 import { GitCredentialRecovery } from "@/components/workspace/git-credential-recovery";
 import { Toaster } from "@/components/ui/sonner";
@@ -28,7 +30,7 @@ import {
 import { ProjectPicker } from "@/components/project-picker";
 import { HistoryWorkspace } from "@/components/workspace/history-workspace";
 import { WorkspaceLayout } from "@/components/workspace/workspace-layout";
-import { lazy, Suspense, useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useLayoutEffect, useState } from "react";
 import { getCurrentWindow } from "@/lib/desktop/window";
 import { ask } from "@/lib/desktop/dialog";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -50,7 +52,7 @@ function WorkspaceWithAgent() {
   );
   const expectedProposalProjectRoot = getProposedChangesProjectKey(projectRoot);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     useProposedChangesStore.getState().activateProject(projectRoot);
     return () => {
       if (
@@ -104,6 +106,7 @@ export function App({ onReady }: { onReady?: () => void }) {
   } | null>(null);
   const [closeBusy, setCloseBusy] = useState(false);
   const onboardingCompleted = useOnboardingStore((s) => s.completed);
+  useProjectActions(onboardingCompleted && !showDebug && !closeBusy);
 
   useEffect(() => {
     const unsubscribe = subscribeProjectChats((error) => {
@@ -211,7 +214,11 @@ export function App({ onReady }: { onReady?: () => void }) {
 
   return (
     <ErrorBoundary FallbackComponent={ErrorFallback}>
-      <ThemeProvider attribute="class" defaultTheme="light" enableSystem>
+      <ThemeProvider
+        attribute="class"
+        defaultTheme={DEFAULT_APP_THEME}
+        enableSystem
+      >
         <TooltipProvider>
           <SolarModeEffect />
           <ProjectChangedDialog />
@@ -229,10 +236,10 @@ export function App({ onReady }: { onReady?: () => void }) {
           />
           {!onboardingCompleted ? (
             <Onboarding />
-          ) : projectRoot ? (
-            <WorkspaceWithAgent />
           ) : (
-            <ProjectPicker />
+            <div className="h-full bg-background" data-project-screen>
+              {projectRoot ? <WorkspaceWithAgent /> : <ProjectPicker />}
+            </div>
           )}
           {showDebug && (
             <div className="fixed inset-0 z-[9998] flex items-end justify-center">

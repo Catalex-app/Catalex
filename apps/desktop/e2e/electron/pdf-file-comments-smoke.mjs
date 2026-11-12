@@ -26,7 +26,7 @@ await fs.mkdir(artifacts, { recursive: true });
 const vite = await createServer({
   root: desktopRoot,
   configFile: path.join(desktopRoot, "vite.config.ts"),
-  server: { host: "127.0.0.1", port: 0 },
+  server: { host: "127.0.0.1", port: 0, hmr: false },
 });
 await vite.listen();
 const env = {
@@ -65,7 +65,9 @@ async function launch() {
     await useDocumentStore.getState().openProject(project);
     useDocumentStore.getState().setActiveFile("a/paper.pdf");
   }, project);
-  await expect(page.locator(".mupdf-text-layer").first()).toBeVisible();
+  await expect(page.locator(".mupdf-text-layer").first()).toBeVisible({
+    timeout: 15_000,
+  });
   return page;
 }
 async function stored(page) {
@@ -77,12 +79,13 @@ async function stored(page) {
     });
   }, project);
 }
-async function addComment(page, text) {
+async function selectPdfText(page) {
   const line = page
     .locator(".mupdf-text-layer text")
     .filter({ hasText: "Your abstract here." })
     .first();
   await line.scrollIntoViewIfNeeded();
+  await page.getByTestId("pdf-scroll-container").focus();
   await line.evaluate((el) => {
     const range = document.createRange();
     range.selectNodeContents(el);
@@ -91,6 +94,9 @@ async function addComment(page, text) {
     selection.addRange(range);
     el.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
   });
+}
+async function addComment(page, text) {
+  await selectPdfText(page);
   await page.getByRole("button", { name: "Comment", exact: true }).click();
   const card = page.getByRole("dialog", { name: "PDF comment", exact: true });
   await card
@@ -102,14 +108,74 @@ async function addComment(page, text) {
 }
 try {
   let main = await launch();
+  await main.getByRole("button", { name: "Fit height", exact: true }).click();
   await addComment(main, "Native PDF comment");
   await expect
     .poll(async () => (await stored(main)).files["a/paper.pdf"]?.[0]?.text)
     .toBe("Native PDF comment");
-  const first = (await stored(main)).files["a/paper.pdf"][0];
+  let first = (await stored(main)).files["a/paper.pdf"][0];
   assert.match(first.pdf.fingerprint, /^[0-9a-f]{40}$/);
   assert.equal(first.pdf.text, "Your abstract here.");
   assert.equal(first.pdf.regions[0].page, 1);
+  assert.deepEqual(Object.keys(first.pdf).sort(), [
+    "fingerprint",
+    "regions",
+    "text",
+  ]);
+  const drawer = main.locator('[data-chat-drawer-panel="true"]');
+  const excerpt = drawer.locator('[data-selection-chip="true"]');
+  const commentBadge = drawer.locator('[data-comment-chip="true"]');
+  const scroller = main.getByTestId("pdf-scroll-container");
+  const startHandle = main.getByRole("button", {
+    name: "Resize comment start",
+  });
+  await expect(startHandle).toBeVisible();
+  await startHandle.hover();
+  const handleBox = await startHandle.boundingBox();
+  const destination = await main
+    .locator(".mupdf-text-layer text")
+    .filter({ hasText: "Your abstract here." })
+    .first()
+    .evaluate((text) => {
+      const x = text.getStartPositionOfChar(5).x;
+      const glyph = text.getExtentOfChar(5);
+      const point = new DOMPoint(x, glyph.y + glyph.height / 2).matrixTransform(
+        text.getScreenCTM(),
+      );
+      return { x: point.x, y: point.y };
+    });
+  await main.mouse.move(
+    handleBox.x + handleBox.width / 2,
+    handleBox.y + handleBox.height / 2,
+  );
+  await main.mouse.down();
+  await main.mouse.move(destination.x, destination.y, { steps: 8 });
+  await expect
+    .poll(async () => (await startHandle.boundingBox()).x)
+    .toBeGreaterThan(handleBox.x + 2);
+  await main.mouse.up();
+  const readFirst = async () => (await stored(main)).files["a/paper.pdf"][0];
+  await expect
+    .poll(async () => (await readFirst()).pdf.text)
+    .toBe("abstract here.");
+  const resized = await readFirst();
+  assert.equal(resized.id, first.id);
+  assert.equal(resized.text, first.text);
+  await scroller.press("ControlOrMeta+z");
+  await expect.poll(async () => (await readFirst()).pdf).toEqual(first.pdf);
+  await scroller.press("ControlOrMeta+Shift+z");
+  await expect.poll(async () => (await readFirst()).pdf).toEqual(resized.pdf);
+  first = resized;
+  await scroller.click({ position: { x: 10, y: 10 } });
+  await selectPdfText(main);
+  await expect(excerpt).toContainText("a/paper.pdf");
+  await expect(commentBadge).toContainText("a/paper.pdf");
+  await main.screenshot({
+    path: path.join(artifacts, "native-pdf-selection-badges.png"),
+  });
+  await scroller.press("Escape");
+  await expect(excerpt).toHaveCount(0);
+  await expect(commentBadge).toHaveCount(0);
   const opened = app.waitForEvent("window");
   await main.evaluate(async () => {
     const { openPanelWindow } = await import(
@@ -165,6 +231,9 @@ try {
   await expect(
     main.getByText("Native PDF comment", { exact: true }),
   ).toHaveCount(0);
+  await selectPdfText(main);
+  await expect(excerpt).toContainText("b/paper.pdf");
+  await expect(commentBadge).toHaveCount(0);
   await addComment(main, "Other same-named PDF");
   await expect
     .poll(async () => (await stored(main)).files["b/paper.pdf"]?.[0]?.text)
@@ -215,7 +284,7 @@ try {
   ).toHaveCount(0);
   assert.deepEqual(errors, []);
   console.log(
-    "Native PDF comments, same-name isolation, immutable files, pop-out sharing, restart persistence and replacement disconnection passed.",
+    "Native PDF comments, resize undo/redo, selection badges, same-name isolation, immutable files, pop-out sharing, restart persistence and replacement disconnection passed.",
   );
 } catch (error) {
   if (app)

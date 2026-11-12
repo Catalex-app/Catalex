@@ -44,7 +44,7 @@ async function baseHeight(page: Page) {
       '[aria-label="Toggle drawer"]',
     )!.parentElement!;
     return (
-      parseFloat((panel as HTMLElement).style.height) -
+      parseFloat(getComputedStyle(panel).height) -
       (parseFloat(handle.style.height) - 16)
     );
   });
@@ -65,6 +65,238 @@ async function dragHalf(page: Page, amount: number, release = true) {
   return { x, y: y + amount };
 }
 
+test("Mini moves the controls below a draft that would wrap", async ({
+  page,
+}) => {
+  const narrow = { width: 900, height: 760 };
+  await page.setViewportSize(narrow);
+  await page.goto("/?debug=comment-workspace");
+  const drawer = page.locator("[data-chat-drawer-panel]");
+  const input = drawer.locator("[data-chat-composer-input]");
+  const controlsBelow = () =>
+    input.evaluate((element) => {
+      const send = element.parentElement!.querySelector(
+        "[data-composer-submit]",
+      )!;
+      return (
+        send.getBoundingClientRect().top >=
+        element.getBoundingClientRect().bottom
+      );
+    });
+  await expect(input).toHaveValue("");
+  await expect.poll(controlsBelow).toBe(false);
+  const inlineWidth = (await input.boundingBox())!.width;
+
+  const draft = "Review the opening paragraph, please.";
+  await input.fill(draft);
+  await expect.poll(controlsBelow).toBe(true);
+  expect((await input.boundingBox())!.width).toBeGreaterThan(inlineWidth);
+  await expect(input).toBeFocused();
+
+  await page.setViewportSize({ width: 1450, height: 900 });
+  await expect.poll(controlsBelow).toBe(false);
+  await page.setViewportSize(narrow);
+  await expect.poll(controlsBelow).toBe(true);
+  await expect(input).toHaveValue(draft);
+
+  await input.fill("Review");
+  await expect.poll(controlsBelow).toBe(false);
+  await input.fill("Review\n");
+  await expect.poll(controlsBelow).toBe(true);
+  await input.clear();
+  await expect.poll(controlsBelow).toBe(false);
+});
+
+test("a short draft reflows as Half and Full change width", async ({
+  page,
+}) => {
+  const narrow = { width: 800, height: 760 };
+  const wide = { width: 1450, height: 900 };
+  await page.setViewportSize(narrow);
+  const drawer = await openDrawer(page);
+  const halfInput = drawer.locator("[data-chat-composer-input]");
+  await expect(halfInput).not.toBeFocused();
+  const height = (input: typeof halfInput) =>
+    input.evaluate((element) => element.getBoundingClientRect().height);
+  const emptyHeight = await height(halfInput);
+  const draft = "Please check the wording in the introduction.";
+  await halfInput.fill(draft);
+  await expect.poll(() => height(halfInput)).toBeGreaterThan(emptyHeight);
+
+  await page.setViewportSize(wide);
+  await expect.poll(() => height(halfInput)).toBe(emptyHeight);
+  await page.setViewportSize(narrow);
+  await expect.poll(() => height(halfInput)).toBeGreaterThan(emptyHeight);
+
+  await drawer
+    .getByRole("button", { name: "Toggle drawer" })
+    .locator("..")
+    .hover();
+  await drawer.getByRole("button", { name: "Full", exact: true }).click();
+  const fullInput = page.locator(
+    "[data-workspace-chat-pane] [data-chat-composer-input]",
+  );
+  await expect(fullInput).toHaveValue(draft);
+  await expect.poll(() => height(fullInput)).toBeLessThan(80);
+  await page.setViewportSize(wide);
+  await expect.poll(() => height(fullInput)).toBe(emptyHeight);
+  await expect(fullInput).toHaveValue(draft);
+});
+
+test("a long draft and context badges scroll in Mini, Half, and Full", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 900, height: 640 });
+  await page.goto("/?debug=comment-workspace");
+  const drawer = page.locator("[data-chat-drawer-panel]");
+  await drawer.getByRole("button", { name: "Toggle drawer" }).click();
+  const input = drawer.locator("[data-chat-composer-input]");
+  await input.fill("@review");
+  await page
+    .locator('[data-ui-surface="popover"]')
+    .getByRole("button", { name: /review-notes\.md/ })
+    .click();
+  await page
+    .locator('.cm-inlineCommentCard[data-inline-comment-id="A-7"]')
+    .getByRole("button", { name: "Add comment A-7 to chat" })
+    .click();
+  const chosen = await baseHeight(page);
+  await page.evaluate(async () => {
+    const path = "/src/renderer/stores/agent-chat-store.ts";
+    const { useAgentChatStore } = await import(path);
+    useAgentChatStore.setState({
+      pendingAttachments: Array.from({ length: 6 }, (_, index) => {
+        const filePath = `long-file-name-to-force-a-new-badge-row-${index}.md`;
+        return {
+          label: filePath,
+          filePath,
+          selectedText: "",
+          selectionKey: `file:${filePath}`,
+          attachment: true,
+        };
+      }),
+    });
+  });
+  const draft = "A long draft that needs to scroll. ".repeat(100);
+  await input.fill(draft);
+
+  const checkComposer = async (pane: typeof drawer, mini = false) => {
+    const surface = pane.locator("[data-chat-composer-surface]");
+    await expect(surface.locator("[data-context-entry]")).toHaveCount(8);
+    await expect(surface.locator("textarea")).toHaveValue(draft);
+    await expect
+      .poll(() =>
+        surface.evaluate((element, mini) => {
+          const toolbar = element.querySelector("[data-chat-composer-toolbar]");
+          const input = element.querySelector("textarea")!;
+          const badges = element.querySelector("[data-context-row-shell]")!;
+          const bounds = element.getBoundingClientRect();
+          const controls = toolbar?.getBoundingClientRect();
+          const { borderRightWidth, borderTopRightRadius } =
+            getComputedStyle(element);
+          const railRight =
+            bounds.right - Number.parseFloat(borderRightWidth) - 3;
+          return (
+            (mini
+              ? input.getBoundingClientRect().bottom <= bounds.bottom
+              : controls &&
+                controls.bottom <= bounds.bottom + 1 &&
+                input.getBoundingClientRect().bottom <= controls.top + 1) &&
+            input.scrollHeight > input.clientHeight &&
+            badges.scrollHeight > badges.clientHeight &&
+            [input, badges].every((area) => {
+              if (Math.abs(area.getBoundingClientRect().right - railRight) >= 1)
+                return false;
+              const track = getComputedStyle(area, "::-webkit-scrollbar-track");
+              if (mini && area === input) {
+                return (
+                  track.marginBlockStart === "4px" &&
+                  track.marginBlockEnd === "4px"
+                );
+              }
+              return track.marginBlockStart === borderTopRightRadius;
+            })
+          );
+        }, mini),
+      )
+      .toBe(true);
+  };
+  await checkComposer(drawer);
+  expect(await baseHeight(page)).toBe(chosen);
+  await page.setViewportSize({ width: 900, height: 1000 });
+  await expect.poll(() => baseHeight(page)).toBeGreaterThan(chosen);
+  const badges = drawer.locator("[data-context-row-shell]");
+  const visibleBadgeRows = (list = badges) =>
+    list.evaluate((shell) => {
+      const { top, bottom } = shell.getBoundingClientRect();
+      return new Set(
+        Array.from(shell.querySelectorAll("[data-context-entry]"))
+          .map((badge) => badge.getBoundingClientRect())
+          .filter((badge) => badge.top >= top - 1 && badge.bottom <= bottom + 1)
+          .map((badge) => badge.top),
+      ).size;
+    });
+  await expect.poll(visibleBadgeRows).toBe(2);
+  await badges.evaluate((shell) => {
+    shell.scrollTop = shell.scrollHeight;
+  });
+  await expect
+    .poll(() => badges.evaluate((shell) => shell.scrollTop))
+    .toBeGreaterThan(0);
+  await page.screenshot({
+    path: test.info().outputPath("half-scrolled-badges.png"),
+  });
+  const beforeDrag = await baseHeight(page);
+  const messages = drawer.locator("[data-chat-messages]");
+  const fittedHeight = beforeDrag - (await messages.boundingBox())!.height;
+  const pointer = await dragHalf(page, 64, false);
+  await expect(drawer.locator("[data-chat-messages]")).toHaveCount(1);
+  await expect
+    .poll(async () => Math.abs((await baseHeight(page)) - fittedHeight))
+    .toBeLessThan(1);
+  await checkComposer(drawer);
+  await page.mouse.move(pointer.x, pointer.y - 88, { steps: 5 });
+  await page.mouse.up();
+  await checkComposer(drawer);
+  await drawer
+    .getByRole("button", { name: "Toggle drawer" })
+    .locator("..")
+    .hover();
+  await drawer.getByRole("button", { name: "Full", exact: true }).click();
+  const fullPane = page.locator("[data-workspace-chat-pane]");
+  await expect
+    .poll(() => visibleBadgeRows(fullPane.locator("[data-context-row-shell]")))
+    .toBe(3);
+  await page.setViewportSize({ width: 900, height: 475 });
+  await checkComposer(fullPane);
+
+  await page.setViewportSize({ width: 900, height: 960 });
+  await page.getByRole("button", { name: "Mini", exact: true }).click();
+  await expect(drawer.locator("[data-chat-messages]")).toHaveCount(0);
+  await badges.evaluate((shell) => {
+    shell.scrollTop = 0;
+  });
+  await expect.poll(visibleBadgeRows).toBe(2);
+  await page.setViewportSize({ width: 900, height: 760 });
+  await checkComposer(drawer, true);
+  const send = drawer.getByRole("button", { name: "Send", exact: true });
+  await expect(send).toBeVisible();
+  await expect
+    .poll(() =>
+      input.evaluate((element) => {
+        const send = element.parentElement!.querySelector(
+          "[data-composer-submit]",
+        )!;
+        return (
+          send.getBoundingClientRect().top -
+          element.getBoundingClientRect().bottom
+        );
+      }),
+    )
+    .toBeGreaterThan(0);
+  await drawer.screenshot({ path: test.info().outputPath("mini-rails.png") });
+});
+
 test("Half collapses only after releasing the drag", async ({ page }) => {
   const drawer = await openDrawer(page);
   await dragHalf(page, 260, false);
@@ -83,6 +315,7 @@ test("Half collapses only after releasing the drag", async ({ page }) => {
 test("Half follows the pointer into the Mini snap zone and preserves its saved height", async ({
   page,
 }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
   const drawer = await openDrawer(page);
   await page.evaluate(async () => {
     const path = "/src/renderer/stores/agent-chat-store.ts";
@@ -104,13 +337,11 @@ test("Half follows the pointer into the Mini snap zone and preserves its saved h
   const preferred = await baseHeight(page);
   await revealDisplay(page);
   const panelBox = (await drawer.boundingBox())!;
-  const contentHeight = await drawer.evaluate((panel) => {
-    const chrome = panel.firstElementChild as HTMLElement;
-    const composer = panel.querySelector<HTMLElement>(
-      "[data-chat-composer-shell]",
-    )!;
-    return chrome.getBoundingClientRect().height + composer.scrollHeight + 2;
-  });
+  const messages = drawer.locator("[data-chat-messages]");
+  const minimumHeight =
+    panelBox.height - (await messages.boundingBox())!.height;
+  const composer = drawer.locator("[data-chat-composer-surface]");
+  const composerHeight = (await composer.boundingBox())!.height;
   const buttonBox = (await page
     .getByRole("button", { name: "Half", exact: true })
     .boundingBox())!;
@@ -126,7 +357,7 @@ test("Half follows the pointer into the Mini snap zone and preserves its saved h
     (button) => getComputedStyle(button).backgroundColor,
   );
   for (const remaining of [36, 16, 8]) {
-    await page.mouse.move(x, y + panelBox.height - contentHeight - remaining, {
+    await page.mouse.move(x, y + panelBox.height - minimumHeight - remaining, {
       steps: 5,
     });
     heights.push((await drawer.boundingBox())!.height);
@@ -155,18 +386,23 @@ test("Half follows the pointer into the Mini snap zone and preserves its saved h
   expect(opacities[0]).toBeGreaterThan(opacities[1]);
   expect(opacities[1]).toBeGreaterThan(opacities[2]);
   // The preview follows the pending outcome, including reversing the gesture.
-  await page.mouse.move(x, y + panelBox.height - contentHeight - 40, {
+  await page.mouse.move(x, y + panelBox.height - minimumHeight - 40, {
     steps: 5,
   });
   await expect(preview).toHaveCount(0);
   await expect(mini).toHaveCSS("background-color", idleColor);
-  await page.mouse.move(x, y + panelBox.height - contentHeight - 8, {
+  await page.mouse.move(x, y + panelBox.height - minimumHeight - 8, {
     steps: 5,
   });
   await expect(preview).toHaveCount(1);
   await expect(
     drawer.locator('[data-chat-display="Expanded"]'),
   ).toHaveAttribute("aria-pressed", "true");
+  await page.mouse.move(x, y + panelBox.height - minimumHeight + 20, {
+    steps: 5,
+  });
+  expect((await drawer.boundingBox())!.height).toBeCloseTo(minimumHeight, 0);
+  expect((await composer.boundingBox())!.height).toBeCloseTo(composerHeight, 0);
   await page.mouse.up();
   await expect(preview).toHaveCount(0);
   await expect(drawer.locator("[data-chat-messages]")).toHaveCount(0);
@@ -232,6 +468,7 @@ test("dragging Half upward from Mini opens and sizes the drawer", async ({
 test("Full and Mini round trips retain the chosen Half height", async ({
   page,
 }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
   await openDrawer(page);
   await dragHalf(page, 80);
   const chosen = await baseHeight(page);
@@ -257,6 +494,7 @@ test("Full and Mini round trips retain the chosen Half height", async ({
 test("agent updates during a drag cannot replace the chosen height", async ({
   page,
 }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
   const drawer = await openDrawer(page);
   await page.evaluate(async () => {
     const path = "/src/renderer/stores/agent-chat-store.ts";
@@ -291,7 +529,7 @@ test("temporary viewport limits do not overwrite the preferred Half height", asy
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await openDrawer(page);
-  await dragHalf(page, -25);
+  await dragHalf(page, -150);
   const chosen = await baseHeight(page);
   await page.setViewportSize({ width: 1440, height: 550 });
   await expect.poll(() => baseHeight(page)).toBeLessThan(chosen - 50);
@@ -299,25 +537,92 @@ test("temporary viewport limits do not overwrite the preferred Half height", asy
   await expect.poll(() => baseHeight(page)).toBeCloseTo(chosen, 0);
 });
 
+test("Half fits the composer up to the workspace cap and returns to the chosen height", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1100, height: 900 });
+  await page.goto("/?debug=comment-workspace&question");
+  const drawer = page.locator("[data-chat-drawer-panel]");
+  const closeQuestion = page.getByRole("button", { name: "Close question" });
+  await closeQuestion.click();
+  await revealDisplay(page);
+  await page.getByRole("button", { name: "Half", exact: true }).click();
+  await dragHalf(page, 120);
+  const chosen = await baseHeight(page);
+
+  await page.getByRole("button", { name: "Open question" }).click();
+  await expect.poll(() => baseHeight(page)).toBeGreaterThan(chosen + 20);
+  const questionHeight = await baseHeight(page);
+  await dragHalf(page, 45, false);
+  await expect(drawer.locator('[data-drag-snap-target="mini"]')).toHaveCount(1);
+  await expect(drawer.locator("[data-chat-messages]")).toHaveCount(1);
+  expect(await baseHeight(page)).toBeCloseTo(questionHeight, 0);
+  await page.mouse.up();
+  await expect(drawer.locator("[data-chat-messages]")).toHaveCount(0);
+  await expect(
+    drawer.getByRole("region", { name: "Agent question" }),
+  ).toBeVisible();
+  await revealDisplay(page);
+  await page.getByRole("button", { name: "Half", exact: true }).click();
+  await expect.poll(() => baseHeight(page)).toBeCloseTo(questionHeight, 0);
+  await page.setViewportSize({ width: 1100, height: 640 });
+  await expect
+    .poll(() =>
+      drawer.evaluate((panel) => {
+        const host = panel.closest("[data-chat-drawer-clip]")!;
+        return Math.abs(
+          panel.getBoundingClientRect().height - (host.clientHeight * 0.6 + 24),
+        );
+      }),
+    )
+    .toBeLessThan(1);
+  const options = drawer.getByTestId("agent-question-options");
+  await expect
+    .poll(() =>
+      options.evaluate(
+        (element) =>
+          element.clientHeight > 0 &&
+          element.scrollHeight > element.clientHeight,
+      ),
+    )
+    .toBe(true);
+  await closeQuestion.click();
+  await page.setViewportSize({ width: 1100, height: 900 });
+  await expect.poll(() => baseHeight(page)).toBeCloseTo(chosen, 0);
+
+  const input = drawer.locator("[data-chat-composer-input]");
+  await input.fill("A long draft that needs to scroll. ".repeat(100));
+  await expect.poll(() => baseHeight(page)).toBeGreaterThan(chosen + 20);
+  await expect
+    .poll(() =>
+      input.evaluate((element) => element.scrollHeight > element.clientHeight),
+    )
+    .toBe(true);
+  await input.fill("");
+  await expect.poll(() => baseHeight(page)).toBeCloseTo(chosen, 0);
+});
+
 test("resizing an expanded drawer down keeps it open until dragged below its minimum", async ({
   page,
 }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
   const drawer = await openDrawer(page);
   const before = await baseHeight(page);
-  await resize(page, 75);
-  await expect(drawer.locator("[data-chat-messages]")).toBeVisible();
+  await dragHalf(page, 75);
+  await expect(drawer.locator("[data-chat-messages]")).toHaveCount(1);
   expect(await baseHeight(page)).toBeCloseTo(before - 75, 0);
   await page.screenshot({
     path: test.info().outputPath("resized-drawer.png"),
     animations: "disabled",
   });
-  await resize(page, 300);
+  await dragHalf(page, 300);
   await expect(drawer.locator("[data-chat-messages]")).toHaveCount(0);
 });
 
 test("switching between history and New Chat does not accumulate drawer height", async ({
   page,
 }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
   const drawer = await openDrawer(page);
   await resize(page, 40);
   await resize(page, 40);
@@ -394,33 +699,50 @@ test("rewind scaling cannot leave the drawer with scaled layout coordinates", as
   });
 });
 
-for (const viewport of [
-  { width: 1024, height: 640 },
-  { width: 1440, height: 900 },
+for (const { viewport, draft, fixture = "input-transfer" } of [
+  { viewport: { width: 1024, height: 640 }, draft: "" },
+  { viewport: { width: 1440, height: 900 }, draft: "Hello" },
+  {
+    viewport: { width: 900, height: 760 },
+    draft: "test line ".repeat(3),
+    fixture: "comment-workspace",
+  },
 ]) {
   test(`drawer animates both height directions at ${viewport.width}x${viewport.height}`, async ({
     page,
   }) => {
     await page.setViewportSize(viewport);
-    await page.goto("/?debug=input-transfer");
+    await page.goto(`/?debug=${fixture}`);
     const drawer = page.locator('[data-chat-drawer-panel="true"]');
     await expect(drawer.locator("textarea:visible")).toBeVisible();
-    await drawer.locator("textarea:visible").fill("Hello");
+    await drawer.locator("textarea:visible").fill(draft);
     await page.waitForTimeout(500);
     const collapsedHeight = (await drawer.boundingBox())!.height;
     for (const opening of [true, false]) {
       const frames = await drawer.evaluate(async (element) => {
-        const samples: { height: number; bottom: number }[] = [];
+        const surface = element.querySelector("[data-chat-composer-surface]")!;
+        const samples: {
+          height: number;
+          bottom: number;
+          draftHasScrollbar: boolean;
+        }[] = [];
         const sample = () => {
           const rect = element.getBoundingClientRect();
-          samples.push({ height: rect.height, bottom: rect.bottom });
+          const input = surface.querySelector("textarea")!;
+          samples.push({
+            height: rect.height,
+            bottom: rect.bottom,
+            draftHasScrollbar:
+              getComputedStyle(input).overflowY === "auto" &&
+              input.scrollHeight > input.clientHeight,
+          });
         };
         sample();
         element
           .querySelector<HTMLButtonElement>('[aria-label="Toggle drawer"]')!
           .click();
         const start = performance.now();
-        while (performance.now() - start < 350) {
+        while (performance.now() - start < 500) {
           await new Promise(requestAnimationFrame);
           sample();
         }
@@ -428,16 +750,14 @@ for (const viewport of [
       });
       const first = frames[0];
       const last = frames[frames.length - 1];
+      if (!draft) {
+        expect(frames.some((frame) => frame.draftHasScrollbar)).toBe(false);
+      }
       expect(
         opening ? last.height - first.height : first.height - last.height,
       ).toBeGreaterThan(40);
-      const lower = Math.min(first.height, last.height);
-      const upper = Math.max(first.height, last.height);
-      expect(
-        frames.filter(
-          (frame) => frame.height > lower + 2 && frame.height < upper - 2,
-        ).length,
-      ).toBeGreaterThanOrEqual(3);
+      const heights = new Set(frames.map((frame) => Math.round(frame.height)));
+      expect(heights.size).toBeGreaterThanOrEqual(4);
       expect(
         Math.max(
           ...frames.map((frame) => Math.abs(frame.bottom - last.bottom)),
@@ -455,20 +775,31 @@ test("sending a file adds context without expanding the drawer", async ({
   const drawer = page.locator('[data-chat-drawer-panel="true"]');
   await expect(drawer.locator("textarea:visible")).toBeVisible();
   await expect(drawer.locator("[data-chat-messages]")).toHaveCount(0);
-  await page.evaluate(async () => {
+  const sent = await page.evaluate(async () => {
     const modulePath =
       "/src/renderer/components/workspace/sidebar-file-context-actions.tsx";
+    const chatStorePath = "/src/renderer/stores/agent-chat-store.ts";
+    const documentStorePath = "/src/renderer/stores/document-store.ts";
+    const { useAgentChatStore } = await import(chatStorePath);
+    const { useDocumentStore } = await import(documentStorePath);
     const { sendSidebarFileToChat } = await import(modulePath);
-    sendSidebarFileToChat({
-      id: "notes.md",
-      name: "notes.md",
-      relativePath: "notes.md",
-      absolutePath: "/tmp/notes.md",
-      type: "other",
-      content: "Notes",
-      isDirty: false,
-    });
+    const { projectRoot } = useDocumentStore.getState();
+    useAgentChatStore.setState({ chatProjectRoot: projectRoot });
+    return sendSidebarFileToChat(
+      {
+        id: "notes.md",
+        name: "notes.md",
+        relativePath: "notes.md",
+        absolutePath: `${projectRoot}/notes.md`,
+        type: "other",
+        content: "Notes",
+        isDirty: false,
+      },
+      useAgentChatStore.getState().activeTabId,
+      projectRoot,
+    );
   });
+  expect(sent).toBe(true);
   await expect(
     drawer
       .locator('[data-context-label="true"]')

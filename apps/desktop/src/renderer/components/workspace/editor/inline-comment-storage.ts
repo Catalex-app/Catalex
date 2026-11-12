@@ -94,14 +94,15 @@ export function commentPatches(
       const oldComment = previous.get(id);
       const newComment = next.get(id);
       if (oldComment === newComment) continue;
-      // History tracks message/status actions, not per-keystroke anchor moves.
+      // History tracks deliberate PDF anchor changes and message/status actions.
       // Check these cheap fields before allocating or serializing full records.
       if (
         contentOnly &&
         oldComment &&
         newComment &&
         oldComment.text === newComment.text &&
-        Boolean(oldComment.resolved) === Boolean(newComment.resolved)
+        Boolean(oldComment.resolved) === Boolean(newComment.resolved) &&
+        equal(oldComment.pdf, newComment.pdf)
       )
         continue;
       const oldValue = oldComment ? stored(oldComment) : null;
@@ -162,12 +163,14 @@ export function applyCommentPatch(
   if (
     current.from === patch.before.from &&
     current.to === patch.before.to &&
-    current.line === patch.before.line
+    current.line === patch.before.line &&
+    equal(current.pdf, patch.before.pdf)
   ) {
     Object.assign(merged, {
       from: patch.after.from,
       to: patch.after.to,
       line: patch.after.line,
+      pdf: patch.after.pdf,
       anchorRevision: patch.after.anchorRevision,
       positionReset: patch.after.positionReset,
       removedAnchor: patch.after.removedAnchor,
@@ -491,7 +494,7 @@ function rebaseComment(
     }
     if (
       !patch.before ||
-      ["from", "to", "line", "positionReset", "removedAnchor"].some(
+      ["from", "to", "line", "pdf", "positionReset", "removedAnchor"].some(
         (key) =>
           !equal(
             patch.before![key as keyof InlineEditorComment],
@@ -503,6 +506,7 @@ function rebaseComment(
         "from",
         "to",
         "line",
+        "pdf",
         "anchorRevision",
         "positionReset",
         "removedAnchor",

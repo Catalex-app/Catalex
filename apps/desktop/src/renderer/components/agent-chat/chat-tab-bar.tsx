@@ -1,10 +1,18 @@
+import {
+  ContextMenu,
+  ContextMenuTrigger,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuConfirmItem,
+} from "@/components/ui/context-menu";
+import { openPanelWindow } from "@/lib/panel-windows";
+import { browserHarness } from "@/lib/desktop/bridge";
 import { useLibraryPromptsExpanded } from "@/hooks/use-library-prompts-expanded";
 import { useSettingsStore } from "@/stores/settings-store";
 import { PromptSuggestions } from "./prompt-suggestions";
 import { isChatArchiveEligible } from "@/lib/chat-archive-eligibility";
 import { useAgentReviewQueueStore } from "@/stores/agent-review-queue-store";
 import { RoundElapsedTime } from "./round-elapsed-time";
-import { Button } from "@/components/ui/button";
 import {
   Hint,
   Tooltip,
@@ -32,14 +40,13 @@ import {
 } from "react";
 import {
   ArchiveIcon,
-  CheckIcon,
+  AppWindowIcon,
   AlertCircleIcon,
   CheckCircle2Icon,
   CircleIcon,
   LoaderCircleIcon,
   PlusIcon,
   MessagesSquareIcon,
-  XIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -260,8 +267,7 @@ export function ChatTabBar({
   }, [requestNewChat]);
 
   const handleClose = useCallback(
-    (e: React.MouseEvent, tabId: string) => {
-      e.stopPropagation();
+    (tabId: string) => {
       void archiveTab(tabId).catch((error) => toast.error(String(error)));
     },
     [archiveTab],
@@ -447,7 +453,7 @@ export function ChatTabBar({
                   isStreaming={tab.isStreaming}
                   chrome={chrome}
                   onClick={() => setActiveTab(tab.id)}
-                  onClose={(e) => handleClose(e, tab.id)}
+                  onClose={() => handleClose(tab.id)}
                 />
               ))}
             </div>
@@ -501,7 +507,7 @@ function TabButton({
   isStreaming: boolean;
   chrome: "panel" | "header" | "handoff";
   onClick: () => void;
-  onClose: (e: React.MouseEvent) => void;
+  onClose: () => void;
 }) {
   const getStatus = useSessionStatus();
   const status = getStatus(tab);
@@ -518,24 +524,6 @@ function TabButton({
       },
     ) &&
     (!status || tab.pauseState === "paused");
-  const [confirmArchive, setConfirmArchive] = useState(false);
-  const tabRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    setConfirmArchive(false);
-  }, [isActive, canClose]);
-
-  useEffect(() => {
-    if (!confirmArchive) return;
-    // Short tabs expand for confirmation. Reveal that tab without changing focus.
-    tabRef.current?.scrollIntoView({
-      behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
-        ? "auto"
-        : "smooth",
-      block: "nearest",
-      inline: "nearest",
-    });
-  }, [confirmArchive]);
-
   const tabIcon = status ? (
     <SessionStatusIndicator status={status} />
   ) : (
@@ -596,97 +584,58 @@ function TabButton({
   }
 
   return (
-    <div
-      ref={tabRef}
-      data-chat-tab={tab.id}
-      data-button-group-item=""
-      data-active={confirmArchive || isActive}
-      onKeyDown={(event) => {
-        if (event.key === "Escape") setConfirmArchive(false);
-      }}
-      className={cn(
-        "group relative w-max max-w-[180px] shrink-0 overflow-hidden rounded-md text-xs transition-colors",
-        confirmArchive && "min-w-[132px]",
-        isActive
-          ? cn(
-              "text-foreground",
-              chrome === "panel" ? "bg-muted/50" : "bg-background shadow-sm",
-            )
-          : cn(
-              "text-muted-foreground hover:text-foreground",
-              chrome === "panel" ? "bg-transparent" : "hover:bg-background/70",
-            ),
-      )}
-    >
-      <button
-        type="button"
-        data-tab-id={tab.id}
-        onClick={onClick}
-        tabIndex={confirmArchive ? -1 : 0}
-        className="flex w-full items-center gap-1.5 px-3 py-1.5 text-left transition-transform duration-200 motion-reduce:transition-none"
-        style={{ transform: confirmArchive ? "translateX(-100px)" : undefined }}
-      >
-        <SessionStatusIndicator status={status} />
-        <span className="min-w-0 flex-1 truncate">{tab.title}</span>
-      </button>
-      {canClose && (
-        <>
-          <Hint content="Archive chat">
-            <button
-              type="button"
-              aria-label="Archive chat"
-              onClick={() => setConfirmArchive(true)}
-              tabIndex={confirmArchive ? -1 : 0}
-              className={cn(
-                "absolute top-1/2 right-1 flex size-6 -translate-y-1/2 items-center justify-center rounded-md bg-background/80 text-muted-foreground transition-opacity hover:bg-muted hover:text-foreground focus-visible:opacity-100",
-                confirmArchive
-                  ? "pointer-events-none opacity-0"
-                  : "opacity-0 group-hover:opacity-100",
-              )}
-            >
-              <ArchiveIcon className="size-3.5" />
-            </button>
-          </Hint>
-          <div
-            inert={!confirmArchive}
-            aria-hidden={!confirmArchive}
-            className="absolute inset-y-0 right-0 flex w-[132px] items-center justify-end gap-2.5 border-l bg-background pr-0.5 pl-2 transition-transform duration-200 motion-reduce:transition-none"
-            style={{
-              transform: confirmArchive ? "translateX(0)" : "translateX(100%)",
-            }}
+    <ContextMenu>
+      <ContextMenuTrigger asChild disabled={isNewChatTab(tab)}>
+        <div
+          data-chat-tab={tab.id}
+          data-button-group-item=""
+          data-active={isActive}
+          className={cn(
+            "group relative w-max max-w-[180px] shrink-0 overflow-hidden rounded-md text-xs transition-colors",
+            isActive
+              ? cn(
+                  "text-foreground",
+                  chrome === "panel"
+                    ? "bg-muted/50"
+                    : "bg-background shadow-sm",
+                )
+              : cn(
+                  "menu-open:text-foreground text-muted-foreground hover:text-foreground",
+                  chrome === "panel"
+                    ? "bg-transparent"
+                    : "menu-open:bg-background/70 hover:bg-background/70",
+                ),
+          )}
+        >
+          <button
+            type="button"
+            data-tab-id={tab.id}
+            onClick={onClick}
+            className="flex w-full items-center gap-1.5 px-3 py-1.5 text-left transition-transform duration-200 motion-reduce:transition-none"
           >
-            <span className="font-medium text-muted-foreground text-xs">
-              Archive?
-            </span>
-            <div className="flex items-center gap-0.5">
-              <Hint content="Confirm archive">
-                <Button
-                  size="sm"
-                  className="h-6 w-6 rounded-sm p-0"
-                  aria-label="Confirm archive"
-                  onClick={(event) => {
-                    onClose(event);
-                    setConfirmArchive(false);
-                  }}
-                >
-                  <CheckIcon className="size-3.5" />
-                </Button>
-              </Hint>
-              <Hint content="Cancel archive">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="h-6 w-6 rounded-sm p-0"
-                  aria-label="Cancel archive"
-                  onClick={() => setConfirmArchive(false)}
-                >
-                  <XIcon className="size-3.5" />
-                </Button>
-              </Hint>
-            </div>
-          </div>
-        </>
-      )}
-    </div>
+            <SessionStatusIndicator status={status} />
+            <span className="min-w-0 flex-1 truncate">{tab.title}</span>
+          </button>
+        </div>
+      </ContextMenuTrigger>
+      <ContextMenuContent aria-label="Chat session actions">
+        <ContextMenuItem
+          disabled={
+            !(window.catalex || (import.meta.env.DEV && browserHarness()))
+          }
+          onSelect={() => openPanelWindow("chat", "duet", { chatId: tab.id })}
+        >
+          <AppWindowIcon className="mr-2 size-4" />
+          Open in pop-out
+        </ContextMenuItem>
+        <ContextMenuConfirmItem
+          label="Archive chat"
+          icon={ArchiveIcon}
+          tone="neutral"
+          disabled={!canClose}
+          onConfirm={onClose}
+        />
+      </ContextMenuContent>
+    </ContextMenu>
   );
 }

@@ -1,5 +1,147 @@
 import { expect, test } from "@playwright/test";
 
+test("a selected excerpt goes with custom answers only", async ({ page }) => {
+  await page.setViewportSize({ width: 800, height: 900 });
+  await page.goto("/?debug=comment-workspace&pdf");
+  const editor = page.locator(".cm-content").first();
+  await expect(editor).toBeVisible();
+  await expect(page.locator(".mupdf-text-layer").first()).toBeVisible();
+
+  const ask = (requestId: string) =>
+    page.evaluate(async (requestId) => {
+      const load = (name: string) =>
+        import(/* @vite-ignore */ `/src/renderer/stores/${name}.ts`);
+      const { useAgentChatStore } = await load("agent-chat-store");
+      const { useAgentQuestionStore } = await load("agent-question-store");
+      const { useDocumentStore } = await load("document-store");
+      const { activeTabId, tabs } = useAgentChatStore.getState();
+      const tab = tabs.find((item: { id: string }) => item.id === activeTabId);
+      useAgentChatStore.setState({
+        isStreaming: true,
+        tabs: [{ ...tab, isStreaming: true }],
+      });
+
+      const host = window as typeof window & {
+        __TAURI_INTERNALS__: {
+          invoke: (command: string, args?: unknown) => Promise<unknown>;
+        };
+        lastQuestionAnswer?: string;
+      };
+      const original = host.__TAURI_INTERNALS__.invoke.bind(
+        host.__TAURI_INTERNALS__,
+      );
+      host.__TAURI_INTERNALS__.invoke = async (command, args) => {
+        if (command === "answer_agent_question") {
+          host.lastQuestionAnswer = (args as { answer: string }).answer;
+          return;
+        }
+        return original(command, args);
+      };
+      useAgentQuestionStore.getState().receive({
+        requestId,
+        tabId: tab.id,
+        sessionId: tab.runtimeSessionKey,
+        projectRoot: useDocumentStore.getState().projectRoot,
+        question: "Which outline should I use?",
+        options: [
+          { label: "Use the existing outline" },
+          { label: "Draft a new outline" },
+        ],
+      });
+    }, requestId);
+
+  const drawer = page.locator('[data-chat-drawer-panel="true"]');
+  const question = drawer.getByRole("region", { name: "Agent question" });
+  const draftSelection = drawer.locator(
+    "[data-chat-composer-surface] > [data-context-row-shell] [data-selection-chip]",
+  );
+  const preset = question.getByRole("button", {
+    name: "Use the existing outline",
+  });
+  const custom = question.getByRole("textbox", { name: "Custom answer" });
+  const customSelection = question.locator("form [data-selection-chip]");
+  const readAnswer = () =>
+    page.evaluate(
+      () =>
+        (window as typeof window & { lastQuestionAnswer?: string })
+          .lastQuestionAnswer,
+    );
+
+  await ask("selection-preset");
+  await expect(preset).toBeVisible();
+  const second = question.getByRole("button", { name: "Draft a new outline" });
+  await preset.focus();
+  await page.keyboard.press("ArrowDown");
+  await expect(second).toBeFocused();
+  await expect(second).toHaveCSS("outline-style", "none");
+  await expect(second.locator("..")).toHaveCSS("outline-offset", "-3px");
+  await page.keyboard.press("ArrowUp");
+  await expect(preset).toBeFocused();
+  await expect(preset).toHaveCSS("outline-style", "none");
+  await expect(preset.locator("..")).toHaveCSS("outline-offset", "-3px");
+  await question.screenshot({
+    path: test.info().outputPath("question-keyboard-focus.png"),
+  });
+  const form = question.locator("form");
+  const formHeight = async () => (await form.boundingBox())!.height;
+  const emptyHeight = await formHeight();
+  expect(emptyHeight).toBe(52);
+  await editor.focus();
+  await page.keyboard.press("ControlOrMeta+Home");
+  await page.keyboard.press("Shift+End");
+  await expect(customSelection).toBeVisible();
+  await expect(draftSelection).toHaveCount(0);
+  await expect.poll(formHeight).toBe(64);
+  const selectionHeight = await formHeight();
+  const chipBox = (await customSelection.boundingBox())!;
+  expect(chipBox.y + chipBox.height).toBeLessThan(
+    (await custom.boundingBox())!.y,
+  );
+  await customSelection.getByRole("button", { name: "Pin selection" }).click();
+  await expect(customSelection).toHaveAttribute(
+    "data-selection-pinned",
+    "true",
+  );
+  await page.screenshot({
+    path: test.info().outputPath("question-with-selection.png"),
+  });
+  await preset.click();
+  await expect(question).toHaveCount(0);
+  expect(await readAnswer()).toBe("Use the existing outline");
+  await expect(draftSelection).toBeVisible();
+
+  await ask("selection-custom");
+  const addComment = page.getByRole("button", {
+    name: "Add comment H-8 to chat",
+    exact: true,
+  });
+  const customComment = question.locator("form [data-comment-chip]");
+  await addComment.click();
+  await expect(customComment).toBeVisible();
+  await expect.poll(formHeight).toBeGreaterThan(selectionHeight);
+  await customComment.getByRole("button", { name: "Remove context" }).click();
+  await expect(customComment).toHaveCount(0);
+  await expect.poll(formHeight).toBe(selectionHeight);
+  await expect(question).toBeVisible();
+  await addComment.click();
+  await expect(customComment).toBeVisible();
+  await custom.fill("Use this as a reference.");
+  await custom.press("Enter");
+  await expect(question).toHaveCount(0);
+  const answer = await readAnswer();
+  expect(answer).toContain("[Selected text]");
+  expect(answer).toContain("Text:\n\\documentclass[12pt]");
+  expect(answer).toContain("[Attached comment — snapshot]");
+  expect(answer).toContain("Describe the problem and main finding.");
+  expect(answer).toContain("[User request]\nUse this as a reference.");
+
+  await ask("selection-skip");
+  await expect(customSelection).toBeVisible();
+  await question.getByRole("button", { name: "Skip", exact: true }).click();
+  await expect(question).toHaveCount(0);
+  expect(await readAnswer()).toBe("Skip this question (no option selected).");
+});
+
 test("Duet workspace editor cards select, switch, and clear comment focus", async ({
   page,
 }) => {

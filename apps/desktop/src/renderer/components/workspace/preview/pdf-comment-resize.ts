@@ -42,3 +42,28 @@ export function pdfOffsetAtPoint(line: StructuredTextLine, x: number) {
   }
   return offset;
 }
+
+/** Use PDF coordinates to snap to the nearest line and character boundary. */
+export function pdfPageOffsetAtPoint(
+  lines: StructuredTextLine[],
+  x: number,
+  y: number,
+): number | null {
+  let offset = 0;
+  let best:
+    | { line: StructuredTextLine; offset: number; dx: number; dy: number }
+    | undefined;
+  for (const line of lines) {
+    if (line.chars?.length) {
+      const { x: left, y: top, w, h } = line.bbox;
+      const dx = Math.max(left - x, x - left - w, 0);
+      const dy = Math.max(top - y, y - top - h, 0);
+      if (!best || dy < best.dy || (dy === best.dy && dx < best.dx))
+        best = { line, offset, dx, dy };
+    }
+    offset += line.text.length + 1;
+  }
+  if (!best) return null;
+  const local = pdfOffsetAtPoint(best.line, x);
+  return local === null ? null : best.offset + local;
+}

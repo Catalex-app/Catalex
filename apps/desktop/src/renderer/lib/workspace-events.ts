@@ -29,3 +29,9 @@ export const OPEN_COMMENT_MANAGER_EVENT = "catalex:open-comment-manager";
 export const ARTISAN_MODE_REQUEST_EVENT = "catalex:artisan-mode-request";
 
 export const COMMENT_SEARCH_NAVIGATE_EVENT = "catalex:comment-search-navigate";
+export interface CommentSearchNavigation {
+  pane: HTMLElement;
+  filePath: string;
+  commentId: string;
+  dismiss?: boolean;
+}

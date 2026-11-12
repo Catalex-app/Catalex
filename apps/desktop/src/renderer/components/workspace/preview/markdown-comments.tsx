@@ -1,9 +1,10 @@
+import { useAppAction } from "@/hooks/use-app-actions";
+import { useActionTarget } from "@/hooks/use-action-target";
 import { canHandleEscape, consumeKey } from "@/lib/keyboard-events";
 import { getActiveComment, setActiveComment } from "../editor/active-comment";
 import type { CommentRange } from "../editor/comment-range";
 import { attachCommentToChat } from "@/lib/comment-chat-context";
 import { isReferencePanelWindow } from "@/lib/panel-window-runtime";
-import { registerSelectionContextActions } from "@/lib/context-menu";
 import { createPortal } from "react-dom";
 import { CommentsPanel, CommentsSummaryButton } from "../editor/comments-panel";
 import { ProblemsMotion } from "../editor/problems-motion";
@@ -50,6 +51,7 @@ export function MarkdownComments({
   layoutAnimating,
   toolbarHost,
   panelHost,
+  closeSearch,
   onToolbarVisibilityChange,
 }: {
   frameDocument: Document;
@@ -59,6 +61,7 @@ export function MarkdownComments({
   layoutAnimating: boolean;
   toolbarHost: HTMLDivElement | null;
   panelHost: HTMLDivElement | null;
+  closeSearch?: () => void;
   onToolbarVisibilityChange?: (visible: boolean) => void;
 }) {
   const projectRoot = useDocumentStore((s) => s.projectRoot);
@@ -101,7 +104,7 @@ export function MarkdownComments({
   const filter = useSettingsStore(
     (s) => s.editorCommentFilterByProject[panelsProjectKey] ?? "all",
   );
-  const savePanelOpen = useSettingsStore((s) => s.setEditorCommentsPanelOpen);
+  const setEditorInfoBar = useSettingsStore((s) => s.setEditorInfoBar);
   const saveFilter = useSettingsStore((s) => s.setEditorCommentFilter);
   const activeComments = (files[filePath] ?? []).filter(
     (comment) => !comment.resolved,
@@ -489,24 +492,22 @@ export function MarkdownComments({
     frameDocument.getSelection()?.removeAllRanges();
     setSelection(null);
   };
-  useEffect(
-    () =>
-      registerSelectionContextActions(frameDocument.body, () => {
-        if (!context) return [];
-        const selected = frameDocument.getSelection();
-        const sourceRange = selected
-          ? markdownSelectionRange(selected, source)
-          : null;
-        return [
-          {
-            label: "Add Comment",
-            disabled: !sourceRange || !commentsLoaded,
-            run: () => addComment(sourceRange),
-          },
-        ];
-      }),
-    [frameDocument, context, source, filePath, setFiles, commentsLoaded],
+  const commentTarget = useActionTarget(
+    () => frameDocument.body,
+    filePath,
+    frameDocument,
   );
+  const addCommentAction = useAppAction(
+    {
+      id: "add-comment",
+      label: "Comment",
+      enabled: !!context && commentsLoaded && !!selection?.sourceRange,
+      run: () => addComment(selection?.sourceRange ?? null),
+      menu: { group: "Edit", section: 0, order: 0, submenu: "Comments" },
+    },
+    commentTarget ? "active" : "inactive",
+  );
+
   if (!context) return null;
   return (
     <>
@@ -523,7 +524,10 @@ export function MarkdownComments({
               />
               <CommentsSummaryButton
                 comments={activeComments}
-                onOpen={() => savePanelOpen(panelsProjectKey, true)}
+                onOpen={() => {
+                  closeSearch?.();
+                  setEditorInfoBar(panelsProjectKey, "comments");
+                }}
               />
             </div>
           </ProblemsMotion>,
@@ -536,7 +540,7 @@ export function MarkdownComments({
               comments={activeComments}
               filter={filter}
               onFilter={(value) => saveFilter(panelsProjectKey, value)}
-              onClose={() => savePanelOpen(panelsProjectKey, false)}
+              onClose={() => setEditorInfoBar(panelsProjectKey, null)}
               onNavigate={(comment) => {
                 if (!comment.isEditing)
                   attachCommentToChat(projectRoot, filePath, comment);
@@ -623,16 +627,16 @@ export function MarkdownComments({
             {
               id: "comment",
               isAI: false,
-              label: "Comment",
+              label: addCommentAction.label,
               icon: <MessageSquareTextIcon className="size-4" />,
-              disabled: !selection.sourceRange || !commentsLoaded,
+              disabled: !addCommentAction.enabled,
               description: selection.sourceRange
                 ? "Add comment"
                 : "Couldn’t locate the source. Select more surrounding text.",
             },
           ]}
           onDismiss={dismiss}
-          onAction={() => addComment(selection.sourceRange)}
+          onAction={addCommentAction.run}
         />
       )}
     </>

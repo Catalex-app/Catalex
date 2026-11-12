@@ -26,7 +26,9 @@ The model produces embeddings.
 );
 const env = { ...process.env, CATALEX_USER_DATA_DIR: profile };
 delete env.ELECTRON_RUN_AS_NODE;
-delete env.CATALEX_DEV_URL;
+const devUrl = process.env.CATALEX_SMOKE_DEV_URL;
+if (devUrl) env.CATALEX_DEV_URL = devUrl;
+else delete env.CATALEX_DEV_URL;
 const launch = process.env.CATALEX_SMOKE_EXECUTABLE
   ? { executablePath: process.env.CATALEX_SMOKE_EXECUTABLE, args: [] }
   : { args: [desktopRoot] };
@@ -34,8 +36,14 @@ let app;
 const errors = [];
 async function start() {
   app = await electron.launch({ ...launch, env, timeout: 30000 });
-  // The engine and dictionaries must work using packaged assets alone.
-  await app.context().route(/^https?:/, (route) => route.abort());
+  // Allow the local renderer in development and keep external requests blocked.
+  await app
+    .context()
+    .route(/^https?:/, (route) =>
+      devUrl && new URL(route.request().url()).origin === new URL(devUrl).origin
+        ? route.continue()
+        : route.abort(),
+    );
   const page = await app.firstWindow();
   page.on("pageerror", (error) => errors.push(error.message));
   page.on("console", (message) => {
@@ -54,6 +62,10 @@ async function openSettings(page) {
   return settings;
 }
 const spelling = (page) => page.locator(".cm-spelling-error");
+const spellCheckSettings = (settings) =>
+  settings.getByRole("region", { name: "Spell Check settings" });
+const openSpellCheck = (settings) =>
+  settings.getByRole("button", { name: "Spell Check", exact: true }).click();
 try {
   let page = await start();
   await page.evaluate(() => {
@@ -64,7 +76,11 @@ try {
     const settings = JSON.parse(
       localStorage.getItem("catalex-settings") ?? "{}",
     );
-    settings.state = { ...settings.state, defaultAutoCompile: false };
+    settings.state = {
+      ...settings.state,
+      defaultAutoCompile: false,
+      spellingWords: ["This"],
+    };
     localStorage.setItem("catalex-settings", JSON.stringify(settings));
   });
   await page.reload();
@@ -97,6 +113,11 @@ try {
     process.platform === "darwin" ? "Meta+z" : "Control+z",
   );
   await expect(page.locator(".cm-content")).toContainText("a speling mistake");
+  let settings = await openSettings(page);
+  await openSpellCheck(settings);
+  await expect(
+    spellCheckSettings(settings).getByRole("button", { name: "Remove This" }),
+  ).toBeVisible();
   await spelling(page)
     .filter({ hasText: /^sentnce$/ })
     .click({ button: "right" });
@@ -104,7 +125,14 @@ try {
     .getByRole("menuitem", { name: "Add to Dictionary", exact: true })
     .click();
   await expect(spelling(page).filter({ hasText: /^sentnce$/ })).toHaveCount(0);
-  let settings = await openSettings(page);
+  await expect(
+    spellCheckSettings(settings).getByRole("button", {
+      name: "Remove sentnce",
+    }),
+  ).toBeVisible();
+  await settings.screenshot({
+    path: path.join(artifacts, "dictionary-populated.png"),
+  });
   const toggle = settings.getByRole("switch", {
     name: "Spell Check",
     exact: true,
@@ -128,16 +156,39 @@ try {
   await expect(page.locator(".cm-content")).toBeVisible();
   await expect(spelling(page)).toHaveCount(0);
   settings = await openSettings(page);
+  await openSpellCheck(settings);
   await settings
     .getByRole("switch", { name: "Spell Check", exact: true })
     .click();
   await expect(spelling(page).filter({ hasText: /^color$/ })).toBeVisible();
   await expect(spelling(page).filter({ hasText: /^Colour$/ })).toHaveCount(0);
   await expect(spelling(page).filter({ hasText: /^sentnce$/ })).toHaveCount(0);
+  for (const word of ["This", "sentnce"]) {
+    await spellCheckSettings(settings)
+      .getByRole("button", { name: `Remove ${word}` })
+      .click();
+  }
+  await expect(
+    spellCheckSettings(settings).getByText("No added words"),
+  ).toBeVisible();
+  await expect(spelling(page).filter({ hasText: /^sentnce$/ })).toBeVisible();
+  await expect(spelling(page).filter({ hasText: /^This$/ })).toHaveCount(0);
+  await settings.screenshot({
+    path: path.join(artifacts, "dictionary-empty.png"),
+  });
+  await app.close();
+  page = await start();
+  await page.getByText("Spelling project", { exact: true }).first().click();
+  await expect(spelling(page).filter({ hasText: /^sentnce$/ })).toBeVisible();
+  settings = await openSettings(page);
+  await openSpellCheck(settings);
+  await expect(
+    spellCheckSettings(settings).getByText("No added words"),
+  ).toBeVisible();
   await page.screenshot({ path: path.join(artifacts, "restored.png") });
   assert.deepEqual(errors, []);
   console.log(
-    "Offline packaged Hunspell, suggestions/undo, cross-window settings, and full-restart persistence passed (macOS).",
+    `Hunspell (${devUrl ? "development renderer" : "offline built assets"}), suggestions/undo, cross-window dictionary and settings, and full-restart persistence passed (${process.platform}).`,
   );
 } catch (error) {
   await app

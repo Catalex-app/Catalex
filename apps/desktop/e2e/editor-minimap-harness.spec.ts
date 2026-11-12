@@ -1,6 +1,202 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Locator } from "@playwright/test";
 
 test.use({ viewport: { width: 1180, height: 800 } });
+
+test("comment and problem bars keep their controls accessible at minimum pane width", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 800, height: 900 });
+  await page.goto("/?debug=comment-workspace&markers");
+  const comments = page.locator("[data-comments-panel]:visible");
+  const problems = page.locator("[data-problems-panel]:visible");
+  const commentsFilter = comments.getByRole("button", {
+    name: /^Filter comments:/,
+  });
+  const problemsFilter = problems.getByRole("button", {
+    name: /^Filter problems:/,
+  });
+
+  const expectControlsFit = async (bar: Locator) => {
+    await expect(bar).toHaveCSS("width", "278px");
+    await expect
+      .poll(() =>
+        bar.evaluate((element) => {
+          const bounds = element.getBoundingClientRect();
+          const controls = Array.from(
+            element.querySelectorAll('button, [role="button"]'),
+          )
+            .filter(
+              (control) => getComputedStyle(control).visibility === "visible",
+            )
+            .map((control) => control.getBoundingClientRect())
+            .filter((control) => control.width > 0);
+          return controls.every(
+            (control, index) =>
+              control.left >= bounds.left &&
+              control.right <= bounds.right &&
+              (index === 0 || controls[index - 1].right <= control.left),
+          );
+        }),
+      )
+      .toBe(true);
+  };
+
+  await expectControlsFit(comments);
+  await expect(
+    comments
+      .getByRole("button", { name: /^Go to comment/ })
+      .locator(".truncate"),
+  ).toBeVisible();
+  await commentsFilter.press("Enter");
+  await page.getByRole("menuitemradio", { name: /^Agent comments/ }).click();
+  await expect(commentsFilter).toHaveAccessibleName(/Agent comments/);
+  await comments.getByRole("button", { name: "Next comment" }).click();
+  await expect(
+    comments.getByRole("status", { name: "Comment 2 of 2" }),
+  ).toBeVisible();
+
+  await comments.getByRole("button", { name: "Hide comments" }).click();
+  const showProblems = page.getByRole("button", { name: /^Show problems:/ });
+  await expect(showProblems.or(problems).first()).toBeVisible();
+  if (await showProblems.isVisible()) await showProblems.click();
+  await expectControlsFit(problems);
+  await expect(
+    problems.getByRole("button", { name: /^Demo:/ }).locator(".truncate"),
+  ).toBeVisible();
+  await problemsFilter.click();
+  await page.getByRole("menuitemradio", { name: /^Warnings/ }).click();
+  await expect(problemsFilter).toHaveAccessibleName(/Warnings/);
+  await expect(
+    problems.getByRole("button", { name: "Fix with Chat" }),
+  ).toBeVisible();
+
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await expect(problemsFilter).toBeHidden();
+  await expect(
+    problems.getByRole("button", { name: "Warnings" }),
+  ).toHaveAttribute("aria-pressed", "true");
+});
+
+test("folded Problems and Comments stay accessible when the split editor is resized", async ({
+  page,
+}, info) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/?debug=comment-workspace&markers");
+  await page
+    .locator("[data-comments-panel]:visible")
+    .getByRole("button", { name: "Hide comments", exact: true })
+    .click();
+  const header = page
+    .getByTestId("latex-editor-toolbar")
+    .or(page.getByTestId("markdown-editor-toolbar"));
+  const problems = header.getByRole("button", { name: /^Show problems:/ });
+  const comments = header.getByRole("button", { name: /^Show comments:/ });
+  const find = header.getByRole("button", { name: "Find", exact: true });
+  const actions = header.getByRole("button", {
+    name: "More Editor view actions",
+    exact: true,
+  });
+  const seam = page.locator("[data-workspace-resize-seam]");
+  const dragSeam = async (offset: number) => {
+    await expect(seam).toBeVisible();
+    const bounds = (await seam.boundingBox())!;
+    const x = bounds.x + bounds.width / 2;
+    const y = bounds.y + bounds.height / 4;
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    await page.mouse.move(x + offset, y, { steps: 8 });
+    await page.mouse.up();
+  };
+  const expectHeaderControlsFit = async () => {
+    await expect
+      .poll(() =>
+        header.evaluate((element) => {
+          const bounds = element.getBoundingClientRect();
+          return [...element.querySelectorAll("button")]
+            .filter((button) => !button.closest("[inert]"))
+            .map((button) => button.getBoundingClientRect())
+            .filter((button) => button.width > 0)
+            .every(
+              (button, index, buttons) =>
+                button.left >= bounds.left &&
+                button.right <= bounds.right &&
+                (index === 0 || buttons[index - 1].right <= button.left),
+            );
+        }),
+      )
+      .toBe(true);
+  };
+
+  await expect(problems.getByText("2", { exact: true }).first()).toBeVisible();
+  await expect(comments.getByText("2", { exact: true }).first()).toBeVisible();
+  await expect(find).toBeVisible();
+  await dragSeam(-400);
+  await expect(header).toHaveCSS("width", "278px");
+  await expect(problems).toHaveAccessibleName(
+    "Show problems: 2 errors, 2 warnings",
+  );
+  await expect(comments).toHaveAccessibleName(
+    "Show comments: 2 human, 2 agent",
+  );
+  await expect(problems).toHaveCSS("width", "28px");
+  await expect(comments).toHaveCSS("width", "28px");
+  await expect(actions).toBeVisible();
+  await expectHeaderControlsFit();
+  await page.screenshot({
+    path: info.outputPath("editor-header-minimum.png"),
+    animations: "disabled",
+  });
+
+  await problems.focus();
+  await page.keyboard.press("Tab");
+  await expect(comments).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(page.locator("[data-comments-panel]:visible")).toBeVisible();
+  await problems.click();
+  const problemsPanel = page.locator("[data-problems-panel]:visible");
+  await expect(problemsPanel).toBeVisible();
+  await problemsPanel.getByRole("button", { name: "Hide problems" }).click();
+
+  await actions.click();
+  await page.getByRole("menuitem", { name: "Find…", exact: true }).click();
+  const search = page.getByTestId("editor-search-panel");
+  await expect(search.getByRole("textbox", { name: "Search" })).toBeFocused();
+  await search.getByRole("button", { name: "Close", exact: true }).click();
+
+  await dragSeam(300);
+  await expect(problems.getByText("2", { exact: true }).first()).toBeVisible();
+  await expect(comments.getByText("2", { exact: true }).first()).toBeVisible();
+  await expect(find).toBeVisible();
+  await expectHeaderControlsFit();
+  await page.screenshot({
+    path: info.outputPath("editor-header-restored.png"),
+    animations: "disabled",
+  });
+
+  await dragSeam(-400);
+  await expect(header).toHaveCSS("width", "278px");
+  await page.evaluate(async () => {
+    const { useSettingsStore } = await import(
+      "/src/renderer/stores/settings-store.ts"
+    );
+    useSettingsStore.getState().setDisplayComments(false);
+  });
+  await expect(comments).toHaveCount(0);
+  await expect(problems).toBeVisible();
+  await expectHeaderControlsFit();
+  await page.evaluate(async () => {
+    const { useSettingsStore } = await import(
+      "/src/renderer/stores/settings-store.ts"
+    );
+    useSettingsStore.getState().setDisplayComments(true);
+  });
+  await page.locator('[data-sidebar-file-id="manuscript.md"]').click();
+  await expect(page.getByTestId("markdown-editor-toolbar")).toBeVisible();
+  await expect(header).toHaveCSS("width", "278px");
+  await expect(problems).toHaveCount(0);
+  await expect(comments).toBeVisible();
+  await expectHeaderControlsFit();
+});
 
 test("navigates long-file changes, deletions and comments and tracks the viewport", async ({
   page,

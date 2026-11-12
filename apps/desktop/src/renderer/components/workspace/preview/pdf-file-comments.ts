@@ -37,20 +37,41 @@ export function pdfFileCommentTargets(
 export function pdfFileCommentRegions(
   targets: PdfCommentTarget[],
   page: number,
+  preview?: { id: string; anchor: PdfCommentAnchor } | null,
 ): PreviewCommentRegion[] {
-  return targets.flatMap((target) =>
-    (target.comment.pdf?.regions ?? [])
-      .filter((region) => region.page === page)
-      .map((region) => ({
-        bounds: { x: region.x, y: region.y, w: region.width, h: region.height },
-        ranges: [{ target, x: region.x, width: region.width }],
-      })),
-  );
+  return targets.flatMap((target) => {
+    const regions =
+      (preview?.id === target.comment.id ? preview.anchor : target.comment.pdf)
+        ?.regions ?? [];
+    return regions.flatMap((region, index) =>
+      region.page === page
+        ? [
+            {
+              bounds: {
+                x: region.x,
+                y: region.y,
+                w: region.width,
+                h: region.height,
+              },
+              ranges: [
+                {
+                  target,
+                  x: region.x,
+                  width: region.width,
+                  start: index === 0,
+                  end: index === regions.length - 1,
+                },
+              ],
+            },
+          ]
+        : [],
+    );
+  });
 }
 
 export function validPdfCommentRegions(
   regions: PdfCommentAnchor["regions"] | undefined,
-) {
+): regions is PdfCommentAnchor["regions"] {
   return (
     !!regions?.length &&
     regions.length <= 2000 &&

@@ -720,7 +720,7 @@ function SnapshotRow({
         <button
           className={cn(
             "group flex w-full items-start rounded-sm px-2 py-1.5 text-left outline-hidden transition-colors focus-visible:bg-accent",
-            isSelected ? "bg-accent" : "hover:bg-accent",
+            isSelected ? "bg-accent" : "menu-open:bg-accent hover:bg-accent",
           )}
           onClick={onClick}
         >

@@ -1,3 +1,6 @@
+import { Worker } from "node:worker_threads";
+import { isApplicationMenuState } from "../application-menu";
+import { installApplicationMenu } from "./application-menu";
 import {
   PRODUCT_NAME,
   APP_NAMESPACE,
@@ -12,7 +15,7 @@ import {
   clipboard,
   dialog,
   ipcMain,
-  Menu,
+  nativeTheme,
   net,
   powerMonitor,
   protocol,
@@ -102,6 +105,7 @@ const pdfSnapshots = new PdfSnapshots(
   path.join(app.getPath("userData"), "pdf-snapshots"),
 );
 const windows = new Map<string, BrowserWindow>();
+let applicationMenu: ReturnType<typeof installApplicationMenu> | undefined;
 // Dependent views share the owner's native project context, never another lease.
 const panelOwners = new Map<number, string>();
 const projectOwnership = new ProjectOwnership(() => {
@@ -122,6 +126,37 @@ function cleanupWindowProjects(id: string) {
   });
 }
 const chatCheckpointWrites = new Map<string, Promise<unknown>>();
+const chatSearchRequests = new Map<string, AbortController>();
+
+function searchChatCheckpoint(
+  directory: string,
+  tabId: string,
+  query: unknown,
+  signal: AbortSignal,
+) {
+  signal.throwIfAborted();
+  // Regex and Markdown parsing run off the Electron event loop.
+  return new Promise((resolve, reject) => {
+    const worker = new Worker(path.join(__dirname, "chat-search-worker.cjs"), {
+      workerData: { directory, tabId, query },
+    });
+    const stop = () => {
+      void worker.terminate();
+    };
+    const timeout = setTimeout(stop, 10_000);
+    signal.addEventListener("abort", stop, { once: true });
+    worker.once("message", (result) => {
+      if ("error" in result) reject(new Error(result.error));
+      else resolve(result);
+    });
+    worker.once("error", reject);
+    worker.once("exit", () => {
+      clearTimeout(timeout);
+      signal.removeEventListener("abort", stop);
+      reject(new Error("Chat search stopped."));
+    });
+  });
+}
 const closeHandlers = new Set<number>();
 const approvedClose = new Set<number>();
 const files = new FileAccess();
@@ -138,6 +173,7 @@ function send(win: BrowserWindow, event: string, payload?: unknown) {
 const updateService = new UpdateService(
   () => releaseUpdates.check(true),
   (state) => {
+    applicationMenu?.setUpdateChecking(state.checking);
     for (const win of windows.values())
       send(win, "desktop:updater:changed", state);
   },
@@ -198,7 +234,7 @@ function configureWindowOpening(win: BrowserWindow, ownerId: string) {
           minWidth: 480,
           minHeight: 360,
           show: false,
-          backgroundColor: "#ffffff",
+          backgroundColor: win.getBackgroundColor(),
           ...(process.platform === "darwin"
             ? {
                 titleBarStyle: "hidden" as const,
@@ -248,6 +284,7 @@ function configureWindowOpening(win: BrowserWindow, ownerId: string) {
     });
     child.on("closed", () => {
       windows.delete(id);
+      applicationMenu?.remove(child);
       panelOwners.delete(child.id);
       closeHandlers.delete(child.id);
       approvedClose.delete(child.id);
@@ -278,10 +315,12 @@ async function createWindow(id: string, query = "") {
     width: settings ? 720 : debug ? 560 : 1400,
     height: settings ? 520 : debug ? 700 : 900,
     minWidth: settings ? 720 : debug ? 400 : 800,
-    minHeight: settings ? 420 : debug ? 400 : 600,
+    minHeight: settings ? 420 : debug ? 400 : 700,
     ...(settings ? { maxWidth: 720, maxHeight: 900 } : {}),
     show: false,
-    backgroundColor: "#ffffff",
+    backgroundColor: settings
+      ? windows.get("main")?.getBackgroundColor()
+      : undefined,
     ...(process.platform === "darwin"
       ? {
           titleBarStyle: "hidden" as const,
@@ -324,6 +363,7 @@ async function createWindow(id: string, query = "") {
   });
   win.on("closed", () => {
     windows.delete(id);
+    applicationMenu?.remove(win);
     closeHandlers.delete(win.id);
     approvedClose.delete(win.id);
     cleanupWindowProjects(id);
@@ -376,6 +416,16 @@ async function hostCommand(
   if (command.startsWith("desktop:fs:"))
     return { result: await filesystemCommand(files, command.slice(11), args) };
   switch (command) {
+    case "desktop:menu:update": {
+      const state = args.state;
+      if (!isApplicationMenuState(state))
+        throw new Error("Invalid menu state.");
+      applicationMenu?.update(win, state);
+      win.webContents.setIgnoreMenuShortcuts(
+        state.recordingShortcut || !!state.contextMenuOpen,
+      );
+      return { result: null };
+    }
     case "desktop:pdf:open":
       return {
         result: await pdfSnapshots.copy(
@@ -454,6 +504,7 @@ async function hostCommand(
     case "desktop:chat:sync-shared":
     case "desktop:chat:append-review":
     case "desktop:chat:messages":
+    case "desktop:chat:search":
     case "desktop:chat:checkpoint-load":
     case "desktop:chat:checkpoint-save": {
       const projectRoot = await files.check(
@@ -477,6 +528,15 @@ async function hostCommand(
         "sessions",
         "checkpoints",
       );
+      const searchKey =
+        command === "desktop:chat:search"
+          ? JSON.stringify([win.id, directory, args.tabId])
+          : null;
+      const searchRequest = searchKey === null ? null : new AbortController();
+      if (searchKey !== null && searchRequest) {
+        chatSearchRequests.get(searchKey)?.abort();
+        chatSearchRequests.set(searchKey, searchRequest);
+      }
       const previous = chatCheckpointWrites.get(directory) ?? Promise.resolve();
       const operation = previous
         .catch(() => {})
@@ -539,6 +599,13 @@ async function hostCommand(
               args.runtimeSessionKey,
               args.message,
             );
+          if (searchRequest)
+            return searchChatCheckpoint(
+              directory,
+              args.tabId,
+              args.query,
+              searchRequest.signal,
+            );
           return command === "desktop:chat:checkpoint-save"
             ? saveChatCheckpoint(directory, args.snapshot)
             : command === "desktop:chat:messages"
@@ -551,6 +618,11 @@ async function hostCommand(
       } finally {
         if (chatCheckpointWrites.get(directory) === operation)
           chatCheckpointWrites.delete(directory);
+        if (
+          searchKey !== null &&
+          chatSearchRequests.get(searchKey) === searchRequest
+        )
+          chatSearchRequests.delete(searchKey);
       }
     }
     case "desktop:chat:attachment": {
@@ -708,6 +780,13 @@ async function hostCommand(
       return { result: null };
     case "desktop:app:getVersion":
       return { result: app.getVersion() };
+    case "desktop:appearance:setThemeSource": {
+      const { theme } = args;
+      if (theme !== "light" && theme !== "dark" && theme !== "system")
+        throw new Error("Invalid appearance preference.");
+      nativeTheme.themeSource = theme;
+      return { result: null };
+    }
     case "desktop:webview:setZoom":
       if (
         typeof args.scaleFactor !== "number" ||
@@ -726,6 +805,14 @@ async function hostCommand(
       return { result: null };
     case "desktop:window:show":
       win.show();
+      return { result: null };
+    case "desktop:window:setBackgroundColor":
+      if (
+        typeof args.color !== "string" ||
+        !/^#[\da-f]{3}(?:[\da-f]{3})?$/i.test(args.color)
+      )
+        throw new Error("Invalid window background color.");
+      win.setBackgroundColor(args.color);
       return { result: null };
     case "desktop:window:focusOwner": {
       const owner = panelOwners.get(win.id);
@@ -903,6 +990,12 @@ async function hostCommand(
 }
 
 async function start() {
+  app.setAboutPanelOptions({
+    applicationName: PRODUCT_NAME,
+    applicationVersion: `${app.getVersion()}${app.isPackaged ? "" : " (Development)"}`,
+    // Do not inherit Electron's bundle build number in unpackaged runs.
+    version: "",
+  });
   if (terminationRequested) return;
   session.defaultSession.setPermissionRequestHandler(
     (contents, permission, callback) => {
@@ -1095,35 +1188,20 @@ async function start() {
       console.error(error);
     }
   });
-  const menu: Electron.MenuItemConstructorOptions[] = [
-    ...(process.platform === "darwin"
-      ? [
-          {
-            label: PRODUCT_NAME,
-            submenu: [
-              { role: "about" as const },
-              {
-                label: "Preferences…",
-                accelerator: "CmdOrCtrl+,",
-                click: () => void createWindow("settings", "?settings=1"),
-              },
-              { type: "separator" as const },
-              { role: "services" as const },
-              { role: "hide" as const },
-              { role: "hideOthers" as const },
-              { role: "unhide" as const },
-              { type: "separator" as const },
-              { role: "quit" as const },
-            ],
-          },
-        ]
-      : []),
-    { role: "fileMenu" },
-    { role: "editMenu" },
-    { label: "View", submenu: [{ role: "togglefullscreen" }] },
-    { role: "windowMenu" },
-  ];
-  Menu.setApplicationMenu(Menu.buildFromTemplate(menu));
+  applicationMenu = installApplicationMenu((win, action) => {
+    if (action.command === "new-window") {
+      void createWindow(`window-${crypto.randomUUID()}`).catch(console.error);
+    } else if (action.command === "open-settings") {
+      void createWindow("settings", "?settings=1").catch(console.error);
+    } else if (action.command === "check-for-updates") {
+      void updateService.check();
+      void createWindow("settings", "?settings=1&section=about")
+        .then((settings) => send(settings, "settings-navigate", "about"))
+        .catch(console.error);
+    } else if (win) {
+      send(win, "application-menu", action);
+    }
+  });
   powerMonitor.on("resume", () => {
     void updateService.checkIfDue();
     for (const win of windows.values()) send(win, "window-focus-restored");

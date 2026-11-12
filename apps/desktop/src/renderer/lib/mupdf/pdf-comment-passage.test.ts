@@ -2,7 +2,10 @@ import { readFileSync } from "node:fs";
 import * as mupdf from "mupdf";
 import { describe, expect, it } from "vitest";
 import { extractStructuredText } from "./structured-text";
-import { locatePdfCommentPassage } from "./pdf-comment-passage";
+import {
+  locatePdfCommentPassage,
+  recoverPdfCommentRanges,
+} from "./pdf-comment-passage";
 import type { StructuredTextData } from "./types";
 
 function fixture(...texts: string[]): StructuredTextData {
@@ -72,6 +75,12 @@ describe("PDF comment passage matching", () => {
       "fine\n result",
     );
     expect(regions).toHaveLength(2);
+    expect(
+      recoverPdfCommentRanges(
+        { fingerprint: "a".repeat(40), text: "fine result", regions },
+        new Map([[4, fixture("🙂 A ﬁne", "result here")]]),
+      ),
+    ).toEqual([{ page: 4, from: 5, to: 15 }]);
     expect(regions[0]).toMatchObject({
       page: 4,
       x: 42,
@@ -100,5 +109,42 @@ describe("PDF comment passage matching", () => {
     expect(() => locatePdfCommentPassage({ blocks: [] }, 1, "scan")).toThrow(
       "missing_passage",
     );
+  });
+
+  it("recovers the occurrence identified by the old highlight and skips ambiguous quotes", () => {
+    const pages = new Map([[1, fixture("same same")]]);
+    const anchor = {
+      fingerprint: "a".repeat(40),
+      text: "same",
+      regions: [{ page: 1, x: 50, y: 0, width: 32, height: 12 }],
+    };
+    expect(recoverPdfCommentRanges(anchor, pages)).toEqual([
+      { page: 1, from: 5, to: 9 },
+    ]);
+    expect(
+      recoverPdfCommentRanges(
+        { ...anchor, regions: [{ ...anchor.regions[0], x: 10, width: 72 }] },
+        pages,
+      ),
+    ).toEqual([]);
+  });
+
+  it("recovers a legacy quote across pages, including missing SVG separators", () => {
+    const pages = new Map([
+      [1, fixture("First page end")],
+      [2, fixture("Next page")],
+    ]);
+    const anchor = {
+      fingerprint: "a".repeat(40),
+      text: "endNext",
+      regions: [
+        { page: 1, x: 98, y: 0, width: 24, height: 12 },
+        { page: 2, x: 10, y: 0, width: 32, height: 12 },
+      ],
+    };
+    expect(recoverPdfCommentRanges(anchor, pages)).toEqual([
+      { page: 1, from: 11, to: 14 },
+      { page: 2, from: 0, to: 4 },
+    ]);
   });
 });

@@ -49,19 +49,25 @@
   }
 }
 
-/* File activation belongs to the visible tab, not its text-sized child.
-   The separate close action retains its own rounded keyboard target. */
-:root .editor-file-tab .editor-file-tab-activate:focus-visible {
+/* Draw focus on the full file tab or answer row. Separate controls keep
+   their own keyboard outline. */
+:root :is(.editor-file-tab .editor-file-tab-activate, [data-question-option]):focus-visible {
   outline: none;
 }
 
-:root:not([data-input-modality="pointer"]) .editor-file-tab:has(.editor-file-tab-activate:focus-visible) {
+:root:not([data-input-modality="pointer"]) :is(
+  .editor-file-tab:has(.editor-file-tab-activate:focus-visible),
+  [data-question-option-row]:has(> [data-question-option]:focus-visible)
+) {
   outline: 1.5px solid currentColor;
   outline-offset: -3px;
 }
 
 @media (forced-colors: active) {
-  :root .editor-file-tab:has(.editor-file-tab-activate:focus-visible) {
+  :root:not([data-input-modality="pointer"]) :is(
+    .editor-file-tab:has(.editor-file-tab-activate:focus-visible),
+    [data-question-option-row]:has(> [data-question-option]:focus-visible)
+  ) {
     outline-color: Highlight;
   }
 }

@@ -7,15 +7,24 @@ async function openExpandAction(page: Page, label: string) {
   return page.getByRole("menuitem", { name: `Expand ${label}`, exact: true });
 }
 
-async function expectBalancedSeparator(toolbar: Locator, previous: Locator) {
+async function expectBalancedSeparator(
+  toolbar: Locator,
+  previous: Locator,
+  beforeFind = false,
+) {
   await expect(async () => {
     const before = (await previous.boundingBox())!;
     const divider = (await toolbar
-      .locator("[data-panel-control-separator]")
+      .locator(
+        beforeFind
+          ? "[data-panel-find-separator]"
+          : "[data-panel-control-separator]",
+      )
       .boundingBox())!;
-    const controls = (await toolbar
-      .getByRole("group", { name: /view actions/ })
-      .boundingBox())!;
+    const next = beforeFind
+      ? toolbar.getByRole("button", { name: "Find", exact: true })
+      : toolbar.getByRole("group", { name: /view actions/ });
+    const controls = (await next.boundingBox())!;
     expect(divider.x - (before.x + before.width)).toBeCloseTo(8, 1);
     expect(controls.x - (divider.x + divider.width)).toBeCloseTo(8, 1);
   }).toPass();
@@ -51,7 +60,12 @@ test("window-control separators follow visible right-aligned header content", as
     name: /Show comments:/,
   });
   await expect(editorSummary).toBeVisible();
-  await expectBalancedSeparator(editorToolbar, editorSummary);
+  const editorFind = editorToolbar.getByRole("button", {
+    name: "Find",
+    exact: true,
+  });
+  await expectBalancedSeparator(editorToolbar, editorSummary, true);
+  await expectBalancedSeparator(editorToolbar, editorFind);
   await page.screenshot({
     path: test.info().outputPath("balanced-header-gaps.png"),
   });
@@ -59,6 +73,7 @@ test("window-control separators follow visible right-aligned header content", as
   await expectBalancedSeparator(
     editorToolbar,
     page.getByTestId("latex-editor-statistics"),
+    true,
   );
   await page.addInitScript(() => {
     localStorage.setItem(
@@ -102,15 +117,20 @@ test("window-control separators follow visible right-aligned header content", as
   });
   if (await hideComments.isVisible()) await hideComments.click();
   const summary = toolbar.getByRole("button", { name: /Show comments:/ });
+  const previewFind = toolbar.getByRole("button", {
+    name: "Find",
+    exact: true,
+  });
   await expect(summary).toBeVisible();
-  await expectBalancedSeparator(toolbar, summary);
+  await expectBalancedSeparator(toolbar, summary, true);
+  await expectBalancedSeparator(toolbar, previewFind);
   await expect(separator).toBeVisible();
   await toolbar.screenshot({
     path: test.info().outputPath("preview-comment-separator.png"),
   });
   await summary.click();
   await expect(hideComments).toBeVisible();
-  await expect(separator).not.toBeVisible();
+  await expectBalancedSeparator(toolbar, previewFind);
   await hideComments.click();
   await expect(separator).toBeVisible();
 });
@@ -383,7 +403,7 @@ test("header separators keep 8px spacing across toolbar widths", async ({
   const statistics = page.getByTestId("latex-editor-statistics");
   for (const width of [2200, 1200, 2200]) {
     await page.setViewportSize({ width, height: 900 });
-    await expectBalancedSeparator(toolbar, statistics);
+    await expectBalancedSeparator(toolbar, statistics, true);
     await expect(formatting).toHaveAttribute(
       "data-formatting-collapsed",
       width === 1200 ? "true" : "false",

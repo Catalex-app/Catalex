@@ -1028,7 +1028,9 @@ fn replay_patch_on(root: &Path, storage: &Path, db: &store::Connection, patch: C
     // Deliberate range changes must replay their saved endpoints. Text/comment
     // edits still preserve anchors moved by subsequent source edits.
     let range_change = match (&patch.before, &patch.after) {
-        (Some(before), Some(after)) => before.from != after.from || before.to != after.to,
+        (Some(before), Some(after)) => {
+            before.from != after.from || before.to != after.to || before.pdf != after.pdf
+        }
         _ => false,
     };
     // First-save acknowledgements may arrive after the undo entry was recorded.
@@ -2197,6 +2199,31 @@ mod tests {
         let edit = CommentPatch { before: Some(saved), after: Some(changed.clone()), ..creation.clone() };
         apply_patch(root.path(), storage.path(), &edit, false).unwrap();
         assert_eq!(read_author_comments(root.path(), storage.path(), false).unwrap()["paper.pdf"][0].text, "Updated comment");
+        let mut resized = changed.clone();
+        resized.line = 1;
+        let anchor = resized.pdf.as_mut().unwrap();
+        anchor.text = "Resized passage".into();
+        anchor.regions[0].page = 1;
+        let resize = CommentPatch {
+            before: Some(changed.clone()),
+            after: Some(resized.clone()),
+            ..creation.clone()
+        };
+        apply_patch(root.path(), storage.path(), &resize, false).unwrap();
+        let undo_resize = CommentPatch {
+            before: Some(resized.clone()),
+            after: Some(changed.clone()),
+            ..creation.clone()
+        };
+        assert_eq!(
+            replay_patch(root.path(), storage.path(), undo_resize.clone()).unwrap().after,
+            Some(changed)
+        );
+        assert_eq!(
+            replay_patch(root.path(), storage.path(), resize).unwrap().after,
+            Some(resized)
+        );
+        replay_patch(root.path(), storage.path(), undo_resize).unwrap();
         fs::write(root.path().join("paper.pdf"), b"%PDF-1.7\nreplacement").unwrap();
         let snapshot = identity::load_for_write(root.path(), storage.path(), [("paper.pdf".into(), None)]).unwrap();
         assert!(!snapshot[0].files.contains_key("paper.pdf"));

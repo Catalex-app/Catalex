@@ -1,3 +1,5 @@
+import { useApplicationMenu } from "./hooks/use-application-menu";
+import { installContextMenuKeyboardBoundary } from "./lib/context-menu-coordinator";
 import { installImeKeyBoundary } from "./lib/keyboard-events";
 import { installMouseBoundary } from "./lib/mouse-events";
 import { AppContextMenu } from "./components/ui/app-context-menu";
@@ -10,6 +12,7 @@ import { isDesktop } from "@/lib/desktop/bridge";
 import { getCurrentWindow } from "@/lib/desktop/window";
 import { listen } from "@/lib/desktop/event";
 import { ThemeProvider } from "next-themes";
+import { DEFAULT_APP_THEME, syncNativeTheme } from "./lib/app-theme";
 import { initializeAppZoom } from "./lib/app-zoom";
 import { createLogger } from "./lib/debug/logger";
 import { APP_VISIBILITY_RESTORED } from "./lib/debug/log-store";
@@ -21,6 +24,9 @@ import "./styles/globals.css";
 
 const removeImeKeyBoundary = installImeKeyBoundary();
 if (import.meta.hot) import.meta.hot.dispose(removeImeKeyBoundary);
+
+const removeContextMenuKeyboardBoundary = installContextMenuKeyboardBoundary();
+if (import.meta.hot) import.meta.hot.dispose(removeContextMenuKeyboardBoundary);
 
 const removeMouseBoundary = installMouseBoundary();
 if (import.meta.hot) import.meta.hot.dispose(removeMouseBoundary);
@@ -37,6 +43,29 @@ const debugMode = urlParams.get("debug");
 
 const log = createLogger("app");
 const isDesktopRuntime = isDesktop();
+
+if (window.catalex) {
+  const html = document.documentElement;
+  let lastColor: string | undefined;
+  const syncWindowBackground = () => {
+    if (!html.matches(".light, .dark")) return;
+    const color = getComputedStyle(html)
+      .getPropertyValue("--background")
+      .trim();
+    if (!color || color === lastColor) return;
+    lastColor = color;
+    // Match the native surface that can be exposed before Chromium repaints.
+    void invoke("desktop:window:setBackgroundColor", { color }).catch((error) =>
+      log.error("Failed to update the window background", {
+        error: String(error),
+      }),
+    );
+  };
+  const observer = new MutationObserver(syncWindowBackground);
+  observer.observe(html, { attributeFilter: ["class", "data-ui-theme"] });
+  syncWindowBackground();
+  if (import.meta.hot) import.meta.hot.dispose(() => observer.disconnect());
+}
 
 function reportFrontendHealth(source: string) {
   if (!isDesktopRuntime) return;
@@ -115,10 +144,16 @@ const rootEl = document.getElementById("root");
 if (!rootEl) throw new Error("Root element #root not found");
 const rootContainer: HTMLElement = rootEl;
 const reactRoot = ReactDOM.createRoot(rootContainer);
+function ApplicationMenuBridge() {
+  useApplicationMenu();
+  return null;
+}
+
 const root = {
   render: (children: React.ReactNode) =>
     reactRoot.render(
       <>
+        <ApplicationMenuBridge />
         <AppContextMenu />
         {children}
       </>,
@@ -192,6 +227,14 @@ function hideLoadingScreen() {
 
 async function bootstrap() {
   let announceRecovery = () => {};
+  if (window.catalex?.windowId === "main") {
+    const theme = localStorage.getItem("theme");
+    syncNativeTheme(
+      theme === "light" || theme === "dark" || theme === "system"
+        ? theme
+        : DEFAULT_APP_THEME,
+    );
+  }
   if (window.catalex && !urlParams.has("panel-window")) {
     const { migrateBrowserWorkspaceState, showWorkspaceMigrationNotice } =
       await import("./lib/workspace-state-storage");
@@ -271,7 +314,11 @@ async function bootstrap() {
     );
     root.render(
       <React.StrictMode>
-        <ThemeProvider attribute="class" defaultTheme="light" enableSystem>
+        <ThemeProvider
+          attribute="class"
+          defaultTheme={DEFAULT_APP_THEME}
+          enableSystem
+        >
           <SolarModeEffect />
           <SettingsWindow />
         </ThemeProvider>
