@@ -69,7 +69,14 @@ test("Mini fits a draft beside separate model and permission controls", async ({
   });
   const wideHeight = await inputHeight();
   await page.setViewportSize({ width: 800, height: 600 });
-  await expect.poll(inputHeight).toBeGreaterThan(wideHeight);
+  await expect
+    .poll(async () => {
+      const inputBounds = (await input.boundingBox())!;
+      const sendBounds = (await send.boundingBox())!;
+      return sendBounds.y >= inputBounds.y + inputBounds.height;
+    })
+    .toBe(true);
+  await expect.poll(inputHeight).toBe(wideHeight);
   await expect(effort).toBeHidden();
   await expect.poll(sendGaps).toMatchObject({ bottom: 8, right: 8 });
   await input.clear();
@@ -89,7 +96,13 @@ test("Mini fits a draft beside separate model and permission controls", async ({
   for (const box of [inputBox, permissionTriggerBox, modelBox]) {
     expect(box.y + box.height / 2).toBe(sendBox.y + sendBox.height / 2);
   }
-  expect(inputBox.width).toBeGreaterThan(120);
+  expect(
+    await input.evaluate(
+      (element) =>
+        element.scrollWidth <= element.clientWidth &&
+        element.scrollHeight <= element.clientHeight,
+    ),
+  ).toBe(true);
   expect(inputBox.x + inputBox.width).toBeLessThanOrEqual(
     permissionTriggerBox.x,
   );

@@ -529,7 +529,7 @@ test("temporary viewport limits do not overwrite the preferred Half height", asy
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await openDrawer(page);
-  await dragHalf(page, -25);
+  await dragHalf(page, -150);
   const chosen = await baseHeight(page);
   await page.setViewportSize({ width: 1440, height: 550 });
   await expect.poll(() => baseHeight(page)).toBeLessThan(chosen - 50);

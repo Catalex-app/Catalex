@@ -34,7 +34,9 @@ await fs.copyFile(
   ),
   path.join(project, "reference.pdf"),
 );
-let app = await electron.launch({ ...launch, env, timeout: 30_000 });
+// Exercise the real OS appearance instead of Playwright's default light emulation.
+const launchOptions = { ...launch, env, timeout: 30_000, colorScheme: null };
+let app = await electron.launch(launchOptions);
 app.process().stderr.on("data", (chunk) => process.stderr.write(chunk));
 
 function readBackgroundToken(page) {
@@ -301,7 +303,7 @@ try {
     project,
   );
   await app.close();
-  app = await electron.launch({ ...launch, env, timeout: 30_000 });
+  app = await electron.launch(launchOptions);
   const restored = await app.firstWindow();
   await restored.locator("#loading-screen").waitFor({ state: "hidden" });
   assert.equal(new URL(restored.url()).protocol, "catalex:");

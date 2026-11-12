@@ -65,6 +65,14 @@ try {
     window.focus();
   });
   await page.locator("#loading-screen").waitFor({ state: "hidden" });
+  await page.evaluate(() =>
+    localStorage.setItem(
+      "catalex-onboarding",
+      JSON.stringify({ state: { completed: true, step: 3 }, version: 0 }),
+    ),
+  );
+  await page.reload();
+  await page.locator("#loading-screen").waitFor({ state: "hidden" });
   await app.evaluate(({ dialog }, projectPath) => {
     dialog.showOpenDialog = async () => ({
       canceled: false,
