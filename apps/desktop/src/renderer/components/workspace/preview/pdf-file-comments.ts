@@ -50,7 +50,7 @@ export function pdfFileCommentRegions(
 
 export function validPdfCommentRegions(
   regions: PdfCommentAnchor["regions"] | undefined,
-) {
+): regions is PdfCommentAnchor["regions"] {
   return (
     !!regions?.length &&
     regions.length <= 2000 &&

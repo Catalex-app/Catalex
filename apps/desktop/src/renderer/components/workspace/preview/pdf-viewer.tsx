@@ -18,6 +18,7 @@ import { PdfSelectionHighlight } from "./pdf-selection-highlight";
 import {
   measurePdfSelection,
   pdfSelectionFragments,
+  pdfSelectionTextRanges,
 } from "./pdf-selection-geometry";
 import {
   useCallback,
@@ -46,7 +47,7 @@ import { PdfCanvasCache } from "./pdf-canvas-cache";
 import { MupdfPage } from "./mupdf-page";
 import { createLogger } from "@/lib/debug/logger";
 import { APP_VISIBILITY_RESTORED } from "@/lib/debug/log-store";
-import type { PageSize } from "@/lib/mupdf/types";
+import type { PageSize, PdfTextRange } from "@/lib/mupdf/types";
 import {
   pdfPageObserverRootMargin,
   pdfPageRenderKey,
@@ -67,6 +68,7 @@ export interface PdfTextSelection {
   text: string;
   source?: PdfSource;
   regions?: import("../editor/inline-comments").PdfCommentAnchor["regions"];
+  ranges?: PdfTextRange[];
   context?: { before: string; after: string };
   pageNumber: number;
   position: { top: number; left: number };
@@ -906,6 +908,10 @@ export function PdfViewer({
           text,
           source:
             dataSource.kind === "standalone" ? dataSource.data : undefined,
+          ranges:
+            dataSource.kind === "standalone"
+              ? pdfSelectionTextRanges(range, container)
+              : undefined,
           regions: pdfSelectionFragments(range, container).map((fragment) => ({
             page: Number(
               fragment.element

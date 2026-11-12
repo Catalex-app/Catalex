@@ -1,3 +1,32 @@
+import type { PdfTextRange } from "@/lib/mupdf/types";
+
+export function pdfSelectionTextRanges(range: Range, viewport: HTMLElement) {
+  const ranges: PdfTextRange[] = [];
+  for (const page of viewport.querySelectorAll<HTMLElement>(".mupdf-page")) {
+    if (!range.intersectsNode(page)) continue;
+    const pageNumber = Number(page.dataset.pageNumber);
+    let offset = 0;
+    let selected: PdfTextRange | undefined;
+    for (const line of page.querySelectorAll(".mupdf-text-layer text")) {
+      const node = line.firstChild;
+      const length = node?.textContent?.length ?? 0;
+      if (node && range.intersectsNode(node)) {
+        const from =
+          offset + (range.startContainer === node ? range.startOffset : 0);
+        const to =
+          offset + (range.endContainer === node ? range.endOffset : length);
+        if (from < to) {
+          if (selected) selected.to = to;
+          else selected = { page: pageNumber, from, to };
+        }
+      }
+      offset += length + 1;
+    }
+    if (selected) ranges.push(selected);
+  }
+  return ranges;
+}
+
 /** Measure glyphs once in SVG coordinates, then follow scroll/zoom transforms.
  * WebKit's Range rectangles for SVG text can omit the text's x/y offset.
  */

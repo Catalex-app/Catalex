@@ -7,7 +7,7 @@ import { connectPanelDocumentView } from "@/lib/panel-document-view";
 import { getPanelWindowSession } from "@/lib/panel-window-runtime";
 import type { PdfSource } from "@/lib/mupdf/pdf-source";
 import { normalizeDocumentText, encodeDocumentText } from "@/lib/document-text";
-import type { ChatContextBadge } from "@/lib/chat-context";
+import type { ChatContextBadge, PdfSelectionAnchor } from "@/lib/chat-context";
 import type { PromptDiagnosticSnapshot } from "@/lib/prompt-library";
 import type { CompileDiagnostic } from "@/lib/latex-compiler";
 import { create } from "zustand";
@@ -162,8 +162,10 @@ export interface DocumentState {
   commentSelectionContext: ChatContextBadge | null;
   setCommentSelectionContext: (context: ChatContextBadge | null) => void;
   pdfSelectionContext: ChatContextBadge | null;
+  pdfSelectionAnchor: PdfSelectionAnchor | null;
   setPdfSelectionContext: (
     context: DocumentState["pdfSelectionContext"],
+    anchor?: PdfSelectionAnchor,
   ) => void;
   selectionPreviewRange: {
     fileId: string;
@@ -933,6 +935,7 @@ export const useDocumentStore = create<DocumentState>()((set, get) => ({
   selectionRange: null,
   promptDiagnostics: null,
   pdfSelectionContext: null,
+  pdfSelectionAnchor: null,
   commentSelectionContext: null,
   selectionPreviewRange: null,
   jumpToPosition: null,
@@ -1016,6 +1019,7 @@ export const useDocumentStore = create<DocumentState>()((set, get) => ({
             outlineScrollPosition: null,
             selectionRange: null,
             pdfSelectionContext: null,
+            pdfSelectionAnchor: null,
             commentSelectionContext: null,
             selectionPreviewRange: null,
             jumpToPosition: null,
@@ -1093,6 +1097,7 @@ export const useDocumentStore = create<DocumentState>()((set, get) => ({
           outlineScrollPosition: null,
           selectionRange: null,
           pdfSelectionContext: null,
+          pdfSelectionAnchor: null,
           commentSelectionContext: null,
           selectionPreviewRange: null,
           jumpToPosition: null,
@@ -1138,6 +1143,7 @@ export const useDocumentStore = create<DocumentState>()((set, get) => ({
         : [...s.openFileIds, id],
       selectionRange: null,
       pdfSelectionContext: null,
+      pdfSelectionAnchor: null,
       commentSelectionContext: null,
       selectionPreviewRange: null,
       ...(pdfRootChanged ? { pdfRevision: s.pdfRevision + 1 } : {}),
@@ -1195,11 +1201,13 @@ export const useDocumentStore = create<DocumentState>()((set, get) => ({
     set({
       selectionRange: range,
       pdfSelectionContext: null,
+      pdfSelectionAnchor: null,
       commentSelectionContext: null,
     }),
-  setPdfSelectionContext: (pdfSelectionContext) =>
+  setPdfSelectionContext: (pdfSelectionContext, anchor) =>
     set({
       pdfSelectionContext,
+      pdfSelectionAnchor: pdfSelectionContext ? (anchor ?? null) : null,
       ...(pdfSelectionContext ? { commentSelectionContext: null } : {}),
     }),
   setCommentSelectionContext: (commentSelectionContext) =>
@@ -1207,6 +1215,7 @@ export const useDocumentStore = create<DocumentState>()((set, get) => ({
       commentSelectionContext,
       selectionRange: null,
       pdfSelectionContext: null,
+      pdfSelectionAnchor: null,
     }),
 
   setSelectionPreviewRange: (range) => set({ selectionPreviewRange: range }),

@@ -1,5 +1,59 @@
 import type { PdfCommentAnchor } from "@/components/workspace/editor/inline-comments";
-import type { StructuredTextData } from "./types";
+import type {
+  PdfTextRange,
+  StructuredTextData,
+  StructuredTextLine,
+} from "./types";
+
+interface PdfGlyph extends PdfTextRange {
+  char: string;
+  quad?: number[];
+  line: StructuredTextLine;
+}
+
+function pageGlyphs(data: StructuredTextData, page: number): PdfGlyph[] {
+  let offset = 0;
+  return data.blocks.flatMap((block) =>
+    block.lines.flatMap((line) => {
+      const glyphs = Array.from(line.text, (char, index) => {
+        const from = offset;
+        offset += char.length;
+        return {
+          page,
+          from,
+          to: offset,
+          char,
+          quad: line.chars?.[index]?.quad,
+          line,
+        };
+      });
+      const end = offset++;
+      return [
+        ...glyphs,
+        { page, from: end, to: offset, char: "\n", quad: undefined, line },
+      ];
+    }),
+  );
+}
+
+function normalizeGlyphText(text: string, compact: boolean): string {
+  return Array.from(text, (char) => char.normalize("NFKC"))
+    .join("")
+    .replace(/\s+/gu, compact ? "" : " ");
+}
+
+function indexGlyphs(glyphs: PdfGlyph[], compact = false) {
+  const units: string[] = [];
+  const positions: PdfGlyph[] = [];
+  for (const glyph of glyphs) {
+    for (const unit of normalizeGlyphText(glyph.char, compact).split("")) {
+      if (unit === " " && units[units.length - 1] === " ") continue;
+      units.push(unit);
+      positions.push(glyph);
+    }
+  }
+  return { text: units.join(""), positions };
+}
 
 /** Exact, case-sensitive text matching after whitespace/ligature normalization. */
 export function locatePdfCommentPassage(
@@ -7,31 +61,8 @@ export function locatePdfCommentPassage(
   page: number,
   passage: string,
 ): PdfCommentAnchor["regions"] {
-  const chars = data.blocks.flatMap((block) =>
-    block.lines.flatMap((line) => [
-      ...(line.chars ?? []).map((char) => ({
-        char: char.c,
-        quad: char.quad,
-        line,
-      })),
-      { char: "\n", quad: [] as number[], line },
-    ]),
-  );
-  const normalized: string[] = [];
-  const indices: number[] = [];
-  chars.forEach((glyph, index) => {
-    for (const char of glyph.char.normalize("NFKC")) {
-      const value = /\s/u.test(char) ? " " : char;
-      if (value === " " && normalized[normalized.length - 1] === " ") continue;
-      // String offsets are UTF-16; retain one mapping entry per code unit.
-      for (const unit of value.split("")) {
-        normalized.push(unit);
-        indices.push(index);
-      }
-    }
-  });
-  const text = normalized.join("");
-  const needle = passage.normalize("NFKC").replace(/\s+/gu, " ").trim();
+  const { text, positions } = indexGlyphs(pageGlyphs(data, page));
+  const needle = normalizeGlyphText(passage, false).trim();
   const start = needle ? text.indexOf(needle) : -1;
   if (start < 0)
     throw new Error(
@@ -41,14 +72,13 @@ export function locatePdfCommentPassage(
     throw new Error(
       "ambiguous_passage: quote more surrounding text on this page",
     );
-  const selected = chars
-    .slice(indices[start], indices[start + needle.length - 1] + 1)
-    .filter((glyph) => glyph.quad.length === 8);
-  const groups = new Map<object, number[][]>();
-  for (const glyph of selected) {
-    const group = groups.get(glyph.line) ?? [];
-    group.push(glyph.quad);
-    groups.set(glyph.line, group);
+  const end = start + needle.length - 1;
+  const groups = new Map<StructuredTextLine, number[][]>();
+  for (const { line, quad } of new Set(positions.slice(start, end + 1))) {
+    if (quad?.length !== 8) continue;
+    const group = groups.get(line) ?? [];
+    group.push(quad);
+    groups.set(line, group);
   }
   const regions = [...groups.values()].map((quads) => {
     const xs = quads.flatMap((q) => [q[0], q[2], q[4], q[6]]);
@@ -68,4 +98,77 @@ export function locatePdfCommentPassage(
       "missing_text_geometry: this page has no selectable text geometry",
     );
   return regions;
+}
+
+function coversGlyphCenter(
+  regions: PdfCommentAnchor["regions"],
+  glyph: PdfGlyph,
+) {
+  const q = glyph.quad;
+  if (q?.length !== 8) return false;
+  const x = (q[0] + q[2] + q[4] + q[6]) / 4;
+  const y = (q[1] + q[3] + q[5] + q[7]) / 4;
+  return regions.some(
+    (r) =>
+      r.page === glyph.page &&
+      x >= r.x &&
+      x <= r.x + r.width &&
+      y >= r.y &&
+      y <= r.y + r.height,
+  );
+}
+
+/** Resolve saved highlights against the immutable PDF's text in page order. */
+export function recoverPdfCommentRanges(
+  anchor: PdfCommentAnchor,
+  pages: ReadonlyMap<number, StructuredTextData>,
+): PdfTextRange[] {
+  const pageNumbers = [...new Set(anchor.regions.map((r) => r.page))].sort(
+    (a, b) => a - b,
+  );
+  const glyphs = pageNumbers.flatMap((page) => {
+    const data = pages.get(page);
+    return data ? pageGlyphs(data, page) : [];
+  });
+
+  function findMatch(compact: boolean) {
+    const { text, positions } = indexGlyphs(glyphs, compact);
+    const needle = normalizeGlyphText(anchor.text, compact).trim();
+    if (!needle) return null;
+    const candidates: Array<{ first: PdfGlyph; last: PdfGlyph }> = [];
+    for (
+      let offset = text.indexOf(needle);
+      offset >= 0;
+      offset = text.indexOf(needle, offset + 1)
+    ) {
+      const first = positions[offset];
+      const last = positions[offset + needle.length - 1];
+      if (
+        first.page === pageNumbers[0] &&
+        last.page === pageNumbers[pageNumbers.length - 1]
+      )
+        candidates.push({ first, last });
+    }
+    if (!compact && candidates.length === 1) return candidates[0];
+    const located = candidates.filter(
+      ({ first, last }) =>
+        coversGlyphCenter(anchor.regions, first) &&
+        coversGlyphCenter(anchor.regions, last),
+    );
+    return located.length === 1 ? located[0] : null;
+  }
+
+  // Some older browser selections omitted the separator between SVG text lines.
+  const match = findMatch(false) ?? findMatch(true);
+  if (!match) return [];
+  const ranges = new Map<number, PdfTextRange>();
+  for (const { page, from, to, char } of glyphs) {
+    if (char === "\n") continue;
+    if (page === match.first.page && from < match.first.from) continue;
+    if (page === match.last.page && to > match.last.to) continue;
+    const current = ranges.get(page);
+    if (current) current.to = to;
+    else ranges.set(page, { page, from, to });
+  }
+  return [...ranges.values()];
 }

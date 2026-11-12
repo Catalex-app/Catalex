@@ -33,20 +33,36 @@ async function openStandalonePdf(page: Page) {
   await page.waitForTimeout(700);
 }
 
-async function addComment(page: Page, text: string) {
+async function selectPdfText(
+  page: Page,
+  passage: string,
+  selectedText?: string,
+) {
   const line = page
     .locator(".mupdf-text-layer text")
-    .filter({ hasText: "Your abstract here." })
+    .filter({ hasText: passage })
     .first();
   await line.scrollIntoViewIfNeeded();
-  await line.evaluate((el) => {
+  await page.getByTestId("pdf-scroll-container").focus();
+  await line.evaluate((el, text) => {
     const range = document.createRange();
-    range.selectNodeContents(el);
+    if (text) {
+      const node = el.firstChild!;
+      const start = node.textContent!.indexOf(text);
+      range.setStart(node, start);
+      range.setEnd(node, start + text.length);
+    } else {
+      range.selectNodeContents(el);
+    }
     const selection = window.getSelection()!;
     selection.removeAllRanges();
     selection.addRange(range);
     el.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
-  });
+  }, selectedText ?? null);
+}
+
+async function addComment(page: Page, text: string) {
+  await selectPdfText(page, "Your abstract here.");
   await page.getByRole("button", { name: "Comment", exact: true }).click();
   const card = page.getByRole("dialog", { name: "PDF comment", exact: true });
   await card
@@ -56,6 +72,123 @@ async function addComment(page: Page, text: string) {
   await expect(card.getByText(text, { exact: true })).toBeVisible();
   return card;
 }
+
+test("standalone PDF text selection shows overlapping comment badges and preserves pins", async ({
+  page,
+}, info) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await openStandalonePdf(page);
+  await addComment(page, "Clarify this PDF passage");
+  const scroller = page.getByTestId("pdf-scroll-container");
+  const clearSelection = () => scroller.press("Escape");
+  const drawer = page.locator('[data-chat-drawer-panel="true"]');
+  const excerpt = drawer.locator('[data-selection-chip="true"]');
+  const comment = drawer.locator('[data-comment-chip="true"]');
+
+  await expect(excerpt).toHaveCount(0);
+  await expect(comment).toHaveCount(0);
+  await scroller.click({ position: { x: 10, y: 10 } });
+  await selectPdfText(page, "Introduction");
+  await expect(excerpt).toHaveCount(1);
+  await expect(comment).toHaveCount(0);
+
+  await selectPdfText(page, "Your abstract here.", "abstract");
+  await expect(excerpt).toHaveCount(1);
+  await expect(comment).toHaveCount(1);
+  await expect(comment).toContainText(/H-\d+ · paper\.pdf/);
+  await page.screenshot({
+    path: info.outputPath("pdf-selection-with-comment-badge.png"),
+    animations: "disabled",
+  });
+  const outline = page.getByTestId("pdf-comment-focus-box");
+  const originalOutline = await outline.elementHandle();
+  await selectPdfText(page, "Your abstract here.", "Your abstract");
+  await expect(excerpt).toContainText("Your abstract");
+  await expect(comment).toHaveCount(1);
+  expect(
+    await outline.evaluate(
+      (element, original) => element === original,
+      originalOutline,
+    ),
+  ).toBe(true);
+
+  await clearSelection();
+  await expect(excerpt).toHaveCount(0);
+  await expect(comment).toHaveCount(0);
+
+  await selectPdfText(page, "Your abstract here.");
+  await comment
+    .getByRole("button", { name: "Pin comment", exact: true })
+    .click();
+  await clearSelection();
+  await expect(excerpt).toHaveCount(0);
+  await expect(comment).toHaveAttribute("data-selection-pinned", "true");
+  await selectPdfText(page, "Your abstract here.");
+  await expect(excerpt).toHaveCount(1);
+  await expect(comment).toHaveCount(1);
+});
+
+test("a saved PDF highlight with overlapping rectangles requires shared text", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await openStandalonePdf(page);
+  await addComment(page, "Saved PDF comment");
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        for (const [key, value] of Object.entries(localStorage)) {
+          if (!key.startsWith("catalex-harness-comments:")) continue;
+          const snapshot = JSON.parse(value);
+          const comment = snapshot["paper.pdf"]?.find(
+            (item: { text: string }) => item.text === "Saved PDF comment",
+          );
+          if (!comment?.pdf?.regions?.length) continue;
+          // Reproduce a highlight whose stored box reaches into later text.
+          comment.pdf.text = "Your abstract";
+          localStorage.setItem(key, JSON.stringify(snapshot));
+          return true;
+        }
+        return false;
+      }),
+    )
+    .toBe(true);
+  await page.evaluate(async () => {
+    const { useDocumentStore } = await import(
+      /* @vite-ignore */ "/src/renderer/stores/document-store.ts"
+    );
+    const { PROJECT_COMMENTS_REFRESH_EVENT } = await import(
+      /* @vite-ignore */ "/src/renderer/lib/workspace-events.ts"
+    );
+    window.dispatchEvent(
+      new CustomEvent(PROJECT_COMMENTS_REFRESH_EVENT, {
+        detail: { projectRoot: useDocumentStore.getState().projectRoot },
+      }),
+    );
+  });
+  const drawer = page.locator('[data-chat-drawer-panel="true"]');
+  const excerpt = drawer.locator('[data-selection-chip="true"]');
+  const comment = drawer.locator('[data-comment-chip="true"]');
+  await selectPdfText(page, "Your abstract here.", "abstract");
+  await expect(comment).toHaveCount(1);
+  await expect
+    .poll(() =>
+      page.evaluate(async () => {
+        const { useAgentChatStore } = await import(
+          /* @vite-ignore */ "/src/renderer/stores/agent-chat-store.ts"
+        );
+        const state = useAgentChatStore.getState();
+        return state.tabs
+          .find((tab) => tab.id === state.activeTabId)
+          ?.draft.pinnedContexts.find((context) => context.comment)
+          ?.selectedText;
+      }),
+    )
+    .toBe("Your abstract");
+  await selectPdfText(page, "Your abstract here.", "here.");
+  await expect(excerpt).toHaveCount(1);
+  await expect(comment).toHaveCount(0);
+});
 
 test("standalone PDF comments share saved geometry and edits across main and pop-out views", async ({
   page,

@@ -20,6 +20,7 @@ export function connectPanelDocumentView(
     "jumpToSelectionRange",
     "commentSelectionContext",
     "pdfSelectionContext",
+    "pdfSelectionAnchor",
   ] as const;
   const pinnedActions = {
     setActiveFile: () => {},
@@ -80,6 +81,7 @@ export function connectPanelDocumentView(
                     selectionPreviewRange: null,
                     commentSelectionContext: null,
                     pdfSelectionContext: null,
+                    pdfSelectionAnchor: null,
                   }
                 : {}),
               activeFileId: session.fileId,

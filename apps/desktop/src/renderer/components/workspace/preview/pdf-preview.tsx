@@ -1068,23 +1068,46 @@ export function PdfPreview({
           kind: pdfDocumentKind,
           page: selection.pageNumber,
         } as const;
-        useDocumentStore.getState().setPdfSelectionContext({
-          selectionKey: pdfSelectionKey(
+        const anchor =
+          !agentWorkspaceRoot &&
+          pdfFingerprint &&
+          selection.source &&
+          selection.source === standalonePdfData &&
+          selection.ranges?.length
+            ? {
+                fingerprint: pdfFingerprint,
+                ranges: selection.ranges,
+                regions: selection.regions,
+                source: selection.source,
+              }
+            : undefined;
+        useDocumentStore.getState().setPdfSelectionContext(
+          {
+            selectionKey: pdfSelectionKey(
+              pdf,
+              selection.pdfX,
+              selection.pdfY,
+              selection.text,
+            ),
             pdf,
-            selection.pdfX,
-            selection.pdfY,
-            selection.text,
-          ),
-          pdf,
-          label: pdfSelectionFallbackLabel(selection, pdfDocumentPath),
-          filePath: pdfDocumentPath,
-          selectedText: selection.text,
-        });
+            label: pdfSelectionFallbackLabel(selection, pdfDocumentPath),
+            filePath: pdfDocumentPath,
+            selectedText: selection.text,
+          },
+          anchor,
+        );
       } else {
         useDocumentStore.getState().setPdfSelectionContext(null);
       }
     },
-    [isolatedSnapshot, pdfDocumentPath, pdfDocumentKind],
+    [
+      isolatedSnapshot,
+      pdfDocumentPath,
+      pdfDocumentKind,
+      agentWorkspaceRoot,
+      pdfFingerprint,
+      standalonePdfData,
+    ],
   );
 
   const canMapPdfComment = Boolean(pdfComments && projectRoot);
@@ -1350,6 +1373,7 @@ export function PdfPreview({
       const sel = pdfSelection;
       setPdfSelection(null);
       sel.clear();
+      if (fileComment) document.setPdfSelectionContext(null);
     },
     [
       pdfSelection,

@@ -77,12 +77,13 @@ async function stored(page) {
     });
   }, project);
 }
-async function addComment(page, text) {
+async function selectPdfText(page) {
   const line = page
     .locator(".mupdf-text-layer text")
     .filter({ hasText: "Your abstract here." })
     .first();
   await line.scrollIntoViewIfNeeded();
+  await page.getByTestId("pdf-scroll-container").focus();
   await line.evaluate((el) => {
     const range = document.createRange();
     range.selectNodeContents(el);
@@ -91,6 +92,9 @@ async function addComment(page, text) {
     selection.addRange(range);
     el.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
   });
+}
+async function addComment(page, text) {
+  await selectPdfText(page);
   await page.getByRole("button", { name: "Comment", exact: true }).click();
   const card = page.getByRole("dialog", { name: "PDF comment", exact: true });
   await card
@@ -110,6 +114,25 @@ try {
   assert.match(first.pdf.fingerprint, /^[0-9a-f]{40}$/);
   assert.equal(first.pdf.text, "Your abstract here.");
   assert.equal(first.pdf.regions[0].page, 1);
+  assert.deepEqual(Object.keys(first.pdf).sort(), [
+    "fingerprint",
+    "regions",
+    "text",
+  ]);
+  const drawer = main.locator('[data-chat-drawer-panel="true"]');
+  const excerpt = drawer.locator('[data-selection-chip="true"]');
+  const commentBadge = drawer.locator('[data-comment-chip="true"]');
+  const scroller = main.getByTestId("pdf-scroll-container");
+  await scroller.click({ position: { x: 10, y: 10 } });
+  await selectPdfText(main);
+  await expect(excerpt).toContainText("a/paper.pdf");
+  await expect(commentBadge).toContainText("a/paper.pdf");
+  await main.screenshot({
+    path: path.join(artifacts, "native-pdf-selection-badges.png"),
+  });
+  await scroller.press("Escape");
+  await expect(excerpt).toHaveCount(0);
+  await expect(commentBadge).toHaveCount(0);
   const opened = app.waitForEvent("window");
   await main.evaluate(async () => {
     const { openPanelWindow } = await import(
@@ -165,6 +188,9 @@ try {
   await expect(
     main.getByText("Native PDF comment", { exact: true }),
   ).toHaveCount(0);
+  await selectPdfText(main);
+  await expect(excerpt).toContainText("b/paper.pdf");
+  await expect(commentBadge).toHaveCount(0);
   await addComment(main, "Other same-named PDF");
   await expect
     .poll(async () => (await stored(main)).files["b/paper.pdf"]?.[0]?.text)
@@ -215,7 +241,7 @@ try {
   ).toHaveCount(0);
   assert.deepEqual(errors, []);
   console.log(
-    "Native PDF comments, same-name isolation, immutable files, pop-out sharing, restart persistence and replacement disconnection passed.",
+    "Native PDF comments and selection badges, same-name isolation, immutable files, pop-out sharing, restart persistence and replacement disconnection passed.",
   );
 } catch (error) {
   if (app)

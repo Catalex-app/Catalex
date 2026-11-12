@@ -48,10 +48,15 @@ import {
   isEarlierDraftContext,
   isSelectionRangeContextLabel,
   isSameSelectionContext,
+  type PdfSelectionAnchor,
 } from "@/lib/chat-context";
 export { isSelectionRangeContextLabel } from "@/lib/chat-context";
 import { useProjectComments } from "@/components/workspace/editor/use-project-comments";
-import { commentsInSelection } from "@/lib/comment-chat-context";
+import {
+  commentsInPdfSelection,
+  commentsInSelection,
+  recoverPdfSelectionCommentRanges,
+} from "@/lib/comment-chat-context";
 import { ContextBadgeList, type ChatContextBadge } from "./context-badge-list";
 import { Hint } from "@/components/ui/tooltip";
 import { SettingsSwitch } from "@/components/settings/settings-switch";
@@ -985,6 +990,7 @@ export const ChatComposer: FC<{
   // Watch the live document selection independently of explicitly pinned excerpts
   const selectionRange = useDocumentStore((s) => s.selectionRange);
   const pdfSelectionContext = useDocumentStore((s) => s.pdfSelectionContext);
+  const pdfSelectionAnchor = useDocumentStore((s) => s.pdfSelectionAnchor);
   const commentSelectionContext = useDocumentStore(
     (s) => s.commentSelectionContext,
   );
@@ -1018,6 +1024,36 @@ export const ChatComposer: FC<{
   const [commentsByFile, , , commentsLoaded] = useProjectComments(
     needsComments ? projectRoot : null,
   );
+  const pdfComments = pdfSelectionContext
+    ? commentsByFile[pdfSelectionContext.filePath]
+    : undefined;
+  const [recoveredPdfComments, setRecoveredPdfComments] = useState<{
+    source: PdfSelectionAnchor["source"];
+    ranges: Awaited<ReturnType<typeof recoverPdfSelectionCommentRanges>>;
+  } | null>(null);
+  useEffect(() => {
+    if (
+      !acceptPendingAttachments ||
+      !pdfSelectionAnchor ||
+      !pdfComments?.length
+    ) {
+      setRecoveredPdfComments(null);
+      return;
+    }
+    let cancelled = false;
+    void recoverPdfSelectionCommentRanges(pdfComments, pdfSelectionAnchor).then(
+      (ranges) => {
+        if (!cancelled)
+          setRecoveredPdfComments({
+            source: pdfSelectionAnchor.source,
+            ranges,
+          });
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [acceptPendingAttachments, pdfComments, pdfSelectionAnchor]);
 
   // Consume pending attachments from external sources (e.g. PDF capture)
   const pendingAttachments = useAgentChatStore((s) => s.pendingAttachments);
@@ -1587,7 +1623,20 @@ export const ChatComposer: FC<{
             target.start,
             target.end,
           )
-        : [];
+        : liveContext &&
+            liveContext === pdfSelectionContext &&
+            pdfSelectionAnchor
+          ? commentsInPdfSelection(
+              liveContext.filePath,
+              pdfComments ?? [],
+              pdfSelectionAnchor,
+              // A recovered range belongs to the saved highlight and can be
+              // compared with the new selection while other ranges load.
+              recoveredPdfComments?.source === pdfSelectionAnchor.source
+                ? recoveredPdfComments.ranges
+                : undefined,
+            )
+          : [];
       const next = [
         ...retained,
         ...(liveContext && keepContext(liveContext) && !alreadyPinned
@@ -1604,6 +1653,10 @@ export const ChatComposer: FC<{
     });
   }, [
     liveTextSelection,
+    pdfSelectionContext,
+    pdfSelectionAnchor,
+    pdfComments,
+    recoveredPdfComments,
     commentSelectionContext,
     files,
     commentsByFile,
