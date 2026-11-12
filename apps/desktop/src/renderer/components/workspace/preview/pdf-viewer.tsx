@@ -15,6 +15,7 @@ import { usePdfPinchZoom } from "./pdf-pinch-zoom";
 import { SELECTION_OWNER_EVENT } from "@/lib/workspace-events";
 import { usePdfSelectionDrag } from "./pdf-selection-drag";
 import { PdfSelectionHighlight } from "./pdf-selection-highlight";
+import { usePdfCommentResizePage } from "./pdf-comments";
 import {
   measurePdfSelection,
   pdfSelectionFragments,
@@ -154,6 +155,7 @@ export function PdfViewer({
   scrollToPageRef,
   readingAnchorRef,
 }: PdfViewerProps) {
+  const resizePage = usePdfCommentResizePage();
   const showMinimap = useSettingsStore((state) => state.showEditorMinimap);
   const [canvasCache] = useState(() => new PdfCanvasCache());
   const searchScope = useRef<HTMLDivElement>(null);
@@ -1191,6 +1193,7 @@ export function PdfViewer({
                 isVisible={visiblePages.has(i + 1)}
                 retainText={
                   selectAllPages ||
+                  resizePage === i + 1 ||
                   Boolean(
                     selectionPages &&
                       i + 1 >= selectionPages[0] &&

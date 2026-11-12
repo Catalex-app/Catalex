@@ -12,6 +12,7 @@ export function CommentRangeHandle({
   x,
   y,
   height,
+  onStart,
   onMove,
   onFinish,
 }: {
@@ -21,18 +22,20 @@ export function CommentRangeHandle({
   x: number;
   y: number;
   height: number;
+  onStart?: () => void;
   onMove: (x: number, y: number) => void;
   onFinish: (commit: boolean) => void;
 }) {
   const ref = useRef<HTMLButtonElement>(null);
-  const callbacks = useRef({ onMove, onFinish });
-  callbacks.current = { onMove, onFinish };
+  const callbacks = useRef({ onStart, onMove, onFinish });
+  callbacks.current = { onStart, onMove, onFinish };
   useEffect(() => {
     const handle = ref.current!;
     styleCommentRangeHandle(handle, edge, agent);
     let cancel: (() => void) | undefined;
     handle.onpointerdown = (event) => {
       if (event.button !== 0) return;
+      callbacks.current.onStart?.();
       cancel = startCommentRangeDrag(
         event,
         handle,

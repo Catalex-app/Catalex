@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@/lib/mupdf/mupdf-client", () => ({
   getMupdfClient: () => mocks.client,
+  getMupdfClientRevision: () => 0,
 }));
 
 (

@@ -541,7 +541,9 @@ export function ensureDesktopBrowserMocks() {
           patch.before &&
           patch.after &&
           (patch.before.from !== patch.after.from ||
-            patch.before.to !== patch.after.to);
+            patch.before.to !== patch.after.to ||
+            JSON.stringify(patch.before.pdf) !==
+              JSON.stringify(patch.after.pdf));
         if (current && !rangeChange)
           for (const value of [patch.before, patch.after]) {
             if (value)

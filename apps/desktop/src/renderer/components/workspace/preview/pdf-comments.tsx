@@ -10,7 +10,17 @@ import {
   subscribeActiveComment,
 } from "../editor/active-comment";
 import { CommentRangeHandle } from "./comment-range-handle";
-import { pdfCommentEndpoint, pdfOffsetAtPoint } from "./pdf-comment-resize";
+import {
+  pdfCommentEndpoint,
+  pdfOffsetAtPoint,
+  pdfPageOffsetAtPoint,
+} from "./pdf-comment-resize";
+import type { PdfSource } from "@/lib/mupdf/pdf-source";
+import type { PdfTextPoint } from "@/lib/mupdf/pdf-comment-passage";
+import {
+  usePdfFileCommentResize,
+  type ResizePdfComment,
+} from "./use-pdf-file-comment-resize";
 import {
   resizeCommentRange,
   type CommentRange,
@@ -277,7 +287,7 @@ type PointMapper = (
   target: PdfCommentTarget,
   x: number,
   y: number,
-) => number | null;
+) => PdfTextPoint | null;
 const FocusContext = createContext<{
   preview: RangePreview;
   setPreview: (preview: RangePreview) => void;
@@ -288,7 +298,14 @@ const FocusContext = createContext<{
   isSelected?: (target: PdfCommentTarget) => boolean;
   select: (target: PdfCommentTarget, anchor: HTMLElement) => void;
   resize?: (target: PdfCommentTarget, range: CommentRange) => void;
+  fileResize: ReturnType<typeof usePdfFileCommentResize>;
 } | null>(null);
+
+const PdfCommentResizePageContext = createContext<number | null>(null);
+
+export function usePdfCommentResizePage() {
+  return useContext(PdfCommentResizePageContext);
+}
 
 export function useRevealPdfComment() {
   return useContext(FocusContext)?.reveal;
@@ -305,6 +322,8 @@ export function PdfCommentInteraction({
   onSearchNavigate,
   searchActive = true,
   actionsFor,
+  pdfSource = null,
+  onResizePdf,
   fullWidth = false,
   onToggleFullWidth,
   children,
@@ -319,6 +338,8 @@ export function PdfCommentInteraction({
   onSearchNavigate?: (commentId: string | null, filePath: string) => void;
   searchActive?: boolean;
   actionsFor: (target: PdfCommentTarget) => InlineCommentActions;
+  pdfSource?: PdfSource | null;
+  onResizePdf?: ResizePdfComment;
   fullWidth?: boolean;
   onToggleFullWidth?: () => void;
   children: ReactNode;
@@ -469,6 +490,7 @@ export function PdfCommentInteraction({
   const selected =
     context?.targets.find((target) => target.comment.id === activeCommentId) ??
     null;
+  const fileResize = usePdfFileCommentResize(pdfSource, selected, onResizePdf);
   useEffect(() => {
     if (!selected) {
       setFocus(null);
@@ -659,21 +681,23 @@ export function PdfCommentInteraction({
     if (!focus || showInEditor || !host) return;
     let frame = 0;
     const measure = () => {
-      const block = surface.current?.querySelector<HTMLElement>(
-        `[data-pdf-comment-page="${focus.page}"] [data-testid="pdf-comment-focus-box"]`,
+      const id = focus.target.comment.id;
+      const layer = surface.current?.querySelector<HTMLElement>(
+        `[data-pdf-comment-page="${focus.page}"]`,
       );
+      const block = Array.from(
+        layer?.querySelectorAll<HTMLElement>(
+          '[data-testid="pdf-comment-focus-box"]',
+        ) ?? [],
+      ).find((element) => element.dataset.commentId === id);
+      const findHighlight = (root: HTMLElement | null | undefined) =>
+        Array.from(
+          root?.querySelectorAll<HTMLElement>("[data-pdf-comment-id]") ?? [],
+        ).find((element) => element.dataset.pdfCommentId === id);
       const anchor =
         block ??
-        [
-          ...(surface.current?.querySelectorAll<HTMLElement>(
-            "[data-pdf-comment-id]",
-          ) ?? []),
-        ].find(
-          (element) =>
-            element.dataset.pdfCommentId === focus.target.comment.id &&
-            element.closest<HTMLElement>("[data-pdf-comment-page]")?.dataset
-              .pdfCommentPage === focus.page,
-        ) ??
+        findHighlight(layer) ??
+        (focus.target.comment.pdf ? findHighlight(surface.current) : null) ??
         focus.anchor;
       const page = anchor.closest<HTMLElement>("[data-page-number]");
       const viewport = surface.current?.querySelector<HTMLElement>(
@@ -743,6 +767,7 @@ export function PdfCommentInteraction({
           mapPoint,
           resize: (target, range) =>
             actionsFor(target).onResize?.(target.comment.id, range),
+          fileResize,
           isSelected: context?.selectionEnabled
             ? (target) =>
                 Boolean(
@@ -772,7 +797,7 @@ export function PdfCommentInteraction({
           onClick={(event) => {
             if (
               (event.target as Element).closest(
-                '[data-testid="preview-search-panel"]',
+                '[data-testid="preview-search-panel"], [data-comment-range-handle]',
               )
             )
               return;
@@ -783,7 +808,9 @@ export function PdfCommentInteraction({
           }}
           data-pdf-comment-surface="true"
         >
-          {children}
+          <PdfCommentResizePageContext.Provider value={fileResize.dragPage}>
+            {children}
+          </PdfCommentResizePageContext.Provider>
         </div>
         {host &&
           createPortal(
@@ -867,6 +894,7 @@ export function PdfCommentLayer({
   const context = useContext(PdfCommentsContext);
   const interaction = useContext(FocusContext);
   const preview = interaction?.preview;
+  const filePreview = interaction?.fileResize.preview;
   const lines = useMemo(
     () => textData.blocks.flatMap((block) => block.lines),
     [textData],
@@ -895,7 +923,7 @@ export function PdfCommentLayer({
     )
       return [];
     if (context.targets.some((target) => target.comment.pdf))
-      return pdfFileCommentRegions(context.targets, pageNumber);
+      return pdfFileCommentRegions(context.targets, pageNumber, filePreview);
     const displayTargets = context.targets.map((target) => {
       if (
         !preview ||
@@ -970,6 +998,7 @@ export function PdfCommentLayer({
     textData,
     lines,
     preview,
+    filePreview,
     pageNumber,
   ]);
   if (
@@ -989,9 +1018,11 @@ export function PdfCommentLayer({
       links={links}
       offsetAtPoint={(target, clientX, clientY) => {
         const page = pageElement.current?.getBoundingClientRect();
-        if (!page || !target.sourceContent) return null;
+        if (!page) return null;
         const x = ((clientX - page.left) * pageWidth) / page.width;
         const y = ((clientY - page.top) * pageHeight) / page.height;
+        if (target.comment.pdf) return pdfPageOffsetAtPoint(lines, x, y);
+        if (!target.sourceContent) return null;
         const line = lines.find(
           (line) =>
             y >= line.bbox.y - 2 &&
@@ -1072,7 +1103,8 @@ export function PreviewCommentLayer({
         y > bounds.bottom
       )
         return null;
-      return offsetAtPoint(target, x, y);
+      const offset = offsetAtPoint(target, x, y);
+      return offset === null ? null : { page: pageNumber, offset };
     });
   }, [registerMapper, pageNumber, pageElement, offsetAtPoint]);
   const draggingEdge = useRef<CommentRangeEdge | null>(null);
@@ -1095,9 +1127,13 @@ export function PreviewCommentLayer({
     x: number,
     y: number,
   ) => {
+    const point = focus?.mapPoint(target, x, y);
+    if (target.comment.pdf) {
+      if (point) focus?.fileResize.move(point);
+      return;
+    }
     const source = target.sourceContent;
-    const offset =
-      focus?.mapPoint(target, x, y) ?? offsetAtPoint?.(target, x, y);
+    const offset = point?.offset ?? offsetAtPoint?.(target, x, y);
     const range =
       source && offset != null
         ? resizeCommentRange(source, target.comment, edge, offset)
@@ -1209,6 +1245,7 @@ export function PreviewCommentLayer({
               target.filePath === focus.selected.filePath,
           );
           if (!target) return null;
+          if (target.comment.pdf && !focus.fileResize.ready) return null;
           const matches = regions.flatMap(({ bounds, ranges }) =>
             ranges
               .filter((range) => range.target.comment.id === target.comment.id)
@@ -1238,8 +1275,21 @@ export function PreviewCommentLayer({
                 }
                 y={(match.bounds.y / pageHeight) * 100}
                 height={(match.bounds.h / pageHeight) * 100}
+                onStart={
+                  target.comment.pdf
+                    ? () => {
+                        draggingEdge.current = edge;
+                        focus.fileResize.start(target, edge, pageNumber);
+                      }
+                    : undefined
+                }
                 onMove={(x, y) => move(target, edge, x, y)}
-                onFinish={finish}
+                onFinish={(commit) => {
+                  if (target.comment.pdf) {
+                    draggingEdge.current = null;
+                    focus.fileResize.finish(commit);
+                  } else finish(commit);
+                }}
               />
             );
           });

@@ -221,15 +221,16 @@ export const MupdfPage = memo(function MupdfPage({
     setLinks([]);
   }, [docId, pageIndex]);
 
+  const needsText = isVisible || retainText;
   useEffect(() => {
-    if (isVisible || retainText) return;
+    if (needsText) return;
     setTextData(null);
     setLinks([]);
-  }, [isVisible, retainText]);
+  }, [needsText]);
 
   // Initial render and re-render on dependency changes
   useEffect(() => {
-    if ((!isVisible && !retainText) || docId <= 0) return;
+    if (!needsText || docId <= 0) return;
 
     const client = getMupdfClient();
     let cancelled = false;
@@ -258,7 +259,7 @@ export const MupdfPage = memo(function MupdfPage({
       cancelled = true;
       clearTimeout(overlayTimer);
     };
-  }, [docId, pageIndex, isVisible, retainText]);
+  }, [docId, pageIndex, needsText]);
 
   // Re-render canvas when returning from background if content was lost
   useEffect(() => {

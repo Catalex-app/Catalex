@@ -63,6 +63,10 @@ async function selectPdfText(
 
 async function addComment(page: Page, text: string) {
   await selectPdfText(page, "Your abstract here.");
+  return saveSelectedPdfComment(page, text);
+}
+
+async function saveSelectedPdfComment(page: Page, text: string) {
   await page.getByRole("button", { name: "Comment", exact: true }).click();
   const card = page.getByRole("dialog", { name: "PDF comment", exact: true });
   await card
@@ -72,6 +76,149 @@ async function addComment(page: Page, text: string) {
   await expect(card.getByText(text, { exact: true })).toBeVisible();
   return card;
 }
+
+test("standalone PDF handles resize a multiline highlight and keep its comment", async ({
+  page,
+}, info) => {
+  test.setTimeout(60_000);
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await openStandalonePdf(page);
+  const first = page
+    .locator(".mupdf-text-layer text")
+    .filter({ hasText: "Your abstract here." })
+    .first();
+  const second = page
+    .locator(".mupdf-text-layer text")
+    .filter({ hasText: "can compare learning methods" })
+    .first();
+  await first.scrollIntoViewIfNeeded();
+  await page.getByTestId("pdf-scroll-container").focus();
+  await first.evaluate((element) => {
+    const selection = window.getSelection()!;
+    selection.setBaseAndExtent(
+      element.firstChild!,
+      5,
+      element.nextElementSibling!.firstChild!,
+      24,
+    );
+    element.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+  });
+  await saveSelectedPdfComment(page, "Resize this passage");
+  const start = page.getByRole("button", { name: "Resize comment start" });
+  const end = page.getByRole("button", { name: "Resize comment end" });
+  await expect(start).toBeVisible();
+  await expect(end).toBeVisible();
+
+  const read = () =>
+    page.evaluate(() =>
+      Object.entries(localStorage)
+        .filter(([key]) => key.startsWith("catalex-harness-comments:"))
+        .flatMap(([, value]) => JSON.parse(value)["paper.pdf"] ?? []),
+    );
+  await expect.poll(async () => (await read()).length).toBe(1);
+  const [original] = await read();
+  expect(original.pdf.regions).toHaveLength(2);
+  const grab = async (handle: typeof start) => {
+    const box = (await handle.boundingBox())!;
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down();
+    return box;
+  };
+  const dragTo = async (line: typeof first, index: number) => {
+    const point = await line.evaluate((element, i) => {
+      const text = element as SVGTextElement;
+      const x = text.getStartPositionOfChar(i).x;
+      const glyph = text.getExtentOfChar(i);
+      const point = new DOMPoint(x, glyph.y + glyph.height / 2).matrixTransform(
+        text.getScreenCTM()!,
+      );
+      return { x: point.x, y: point.y };
+    }, index);
+    await page.mouse.move(point.x, point.y, { steps: 8 });
+  };
+  const initialStart = await grab(start);
+  await dragTo(first, 0);
+  await expect
+    .poll(async () => (await start.boundingBox())!.x)
+    .toBeLessThan(initialStart.x - 2);
+  expect((await read())[0].pdf).toEqual(original.pdf);
+  await page.screenshot({
+    path: info.outputPath("standalone-pdf-resize-preview.png"),
+    animations: "disabled",
+  });
+  await page.mouse.up();
+  await expect
+    .poll(async () => (await read())[0].pdf.text)
+    .toMatch(/^Your abstract/);
+  await expect(end).toBeVisible();
+
+  const initialEnd = await grab(end);
+  await dragTo(second, 11);
+  await expect
+    .poll(async () => (await end.boundingBox())!.x)
+    .toBeLessThan(initialEnd.x - 2);
+  await page.mouse.up();
+  await expect
+    .poll(async () => (await read())[0].pdf.text)
+    .toMatch(/\ncan compare$/);
+  const [resized] = await read();
+  expect(resized).toMatchObject({
+    id: original.id,
+    text: original.text,
+    number: original.number,
+  });
+  expect(resized.pdf.regions).toHaveLength(2);
+  expect(resized.pdf.fingerprint).toBe(original.pdf.fingerprint);
+
+  await expect(end).toBeVisible();
+  await grab(end);
+  await dragTo(second, 20);
+  await page.keyboard.press("Escape");
+  await page.mouse.up();
+  expect((await read())[0].pdf).toEqual(resized.pdf);
+
+  await page.evaluate(async () => {
+    const { useDocumentStore } = await import(
+      /* @vite-ignore */ "/src/renderer/stores/document-store.ts"
+    );
+    useDocumentStore.getState().setActiveFile("sample.tex");
+  });
+  await page
+    .getByRole("button", { name: "paper.pdf", exact: true })
+    .first()
+    .click();
+  const highlights = page.locator(
+    `[data-pdf-comment-highlight][data-pdf-comment-id="${original.id}"]`,
+  );
+  await expect(highlights).toHaveCount(2);
+  await highlights
+    .first()
+    .evaluate((element) => (element as HTMLElement).click());
+  await expect(start).toBeVisible();
+  await expect(end).toBeVisible();
+  expect(await read()).toEqual([resized]);
+
+  await grab(end);
+  const nextPage = page.locator('.mupdf-page[data-page-number="2"]');
+  await nextPage.evaluate((element) =>
+    element.scrollIntoView({ block: "start" }),
+  );
+  const nextLine = nextPage
+    .locator(".mupdf-text-layer text")
+    .filter({ hasText: "Small-data learning" })
+    .first();
+  await expect(nextLine).toBeVisible();
+  await dragTo(nextLine, 10);
+  await expect(
+    nextPage.getByRole("button", { name: "Resize comment end" }),
+  ).toBeVisible();
+  expect(await read()).toEqual([resized]);
+  await page.mouse.up();
+  await expect
+    .poll(async () => (await read())[0].pdf.regions.at(-1).page)
+    .toBe(2);
+  expect((await read())[0].id).toBe(original.id);
+});
 
 test("standalone PDF text selection shows overlapping comment badges and preserves pins", async ({
   page,

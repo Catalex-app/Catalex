@@ -27,7 +27,11 @@ import {
   documentStepButtonClassName,
 } from "../document-navigation-styles";
 import { setCommentDraft } from "../editor/comment-draft-history";
-import { attachCommentToChat } from "@/lib/comment-chat-context";
+import {
+  attachCommentToChat,
+  commentChatContext,
+} from "@/lib/comment-chat-context";
+import type { ResizePdfComment } from "./use-pdf-file-comment-resize";
 import { isReferencePanelWindow } from "@/lib/panel-window-runtime";
 import { Hint } from "@/components/ui/tooltip";
 import {
@@ -519,6 +523,49 @@ export function PdfPreview({
   const selectedChatComments = useMemo<Array<{ filePath: string; id: string }>>(
     () => JSON.parse(selectedChatCommentsJson),
     [selectedChatCommentsJson],
+  );
+  const resizePdfComment = useCallback<ResizePdfComment>(
+    (target, anchor) => {
+      const document = useDocumentStore.getState();
+      if (
+        !projectRoot ||
+        document.projectRoot !== projectRoot ||
+        document.agentWorkspaceRoot ||
+        target.filePath !== pdfDocumentPath ||
+        anchor.fingerprint !== pdfFingerprint
+      )
+        return;
+      const signature = (pdf: typeof target.comment.pdf) =>
+        pdf && JSON.stringify([pdf.fingerprint, pdf.text, pdf.regions]);
+      const original = signature(target.comment.pdf);
+      if (signature(anchor) === original) return;
+      let resized: PdfCommentTarget["comment"] | undefined;
+      setProjectComments((current) => {
+        const comments = current[target.filePath]?.map((comment) => {
+          if (
+            comment.id !== target.comment.id ||
+            comment.resolved ||
+            signature(comment.pdf) !== original
+          )
+            return comment;
+          resized = { ...comment, pdf: anchor, line: anchor.regions[0].page };
+          return resized;
+        });
+        return resized && comments
+          ? { ...current, [target.filePath]: comments }
+          : current;
+      }, true);
+      const live = useDocumentStore.getState().commentSelectionContext;
+      if (
+        resized &&
+        live?.filePath === target.filePath &&
+        live.comment?.id === target.comment.id
+      )
+        document.setCommentSelectionContext(
+          commentChatContext(target.filePath, resized),
+        );
+    },
+    [projectRoot, pdfDocumentPath, pdfFingerprint, setProjectComments],
   );
   const commentActions = useCallback(
     (target: PdfCommentTarget) => {
@@ -2504,6 +2551,10 @@ export function PdfPreview({
                   editorVisible={editorVisible}
                   layoutAnimating={layoutAnimating}
                   actionsFor={commentActions}
+                  pdfSource={
+                    isActive && !isolatedSnapshot ? standalonePdfData : null
+                  }
+                  onResizePdf={resizePdfComment}
                   requestedCommentId={newCommentId}
                   requestRevision={commentRequestRevision}
                   centerRequested={centerRequestedComment}

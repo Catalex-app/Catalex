@@ -72,32 +72,70 @@ export function locatePdfCommentPassage(
     throw new Error(
       "ambiguous_passage: quote more surrounding text on this page",
     );
-  const end = start + needle.length - 1;
+  const regions = glyphRegions(positions.slice(start, start + needle.length));
+  if (!regions.length)
+    throw new Error(
+      "missing_text_geometry: this page has no selectable text geometry",
+    );
+  return regions;
+}
+
+function glyphRegions(glyphs: PdfGlyph[]): PdfCommentAnchor["regions"] {
   const groups = new Map<StructuredTextLine, number[][]>();
-  for (const { line, quad } of new Set(positions.slice(start, end + 1))) {
+  for (const { line, quad } of new Set(glyphs)) {
     if (quad?.length !== 8) continue;
     const group = groups.get(line) ?? [];
     group.push(quad);
     groups.set(line, group);
   }
-  const regions = [...groups.values()].map((quads) => {
+  return [...groups.values()].map((quads) => {
     const xs = quads.flatMap((q) => [q[0], q[2], q[4], q[6]]);
     const ys = quads.flatMap((q) => [q[1], q[3], q[5], q[7]]);
     const x = xs.reduce((a, b) => Math.min(a, b), Infinity),
       y = ys.reduce((a, b) => Math.min(a, b), Infinity);
     return {
-      page,
+      page: glyphs[0].page,
       x,
       y,
       width: xs.reduce((a, b) => Math.max(a, b), -Infinity) - x,
       height: ys.reduce((a, b) => Math.max(a, b), -Infinity) - y,
     };
   });
-  if (!regions.length)
-    throw new Error(
-      "missing_text_geometry: this page has no selectable text geometry",
+}
+
+export type PdfTextPoint = { page: number; offset: number };
+
+/** Rebuild a quote and its per-line rectangles from two PDF text positions. */
+export function pdfCommentPassageBetween(
+  pages: ReadonlyMap<number, StructuredTextData>,
+  start: PdfTextPoint,
+  end: PdfTextPoint,
+): Pick<PdfCommentAnchor, "text" | "regions"> | null {
+  if (
+    start.page > end.page ||
+    (start.page === end.page && start.offset >= end.offset)
+  )
+    return null;
+  const regions: PdfCommentAnchor["regions"] = [];
+  const textParts: string[] = [];
+  for (let page = start.page; page <= end.page; page++) {
+    const data = pages.get(page);
+    if (!data) return null;
+    const from = page === start.page ? start.offset : 0;
+    const to = page === end.page ? end.offset : Infinity;
+    const glyphs = pageGlyphs(data, page).filter(
+      (glyph) => glyph.from >= from && glyph.to <= to,
     );
-  return regions;
+    textParts.push(
+      glyphs
+        .map(({ char }) => char)
+        .join("")
+        .trim(),
+    );
+    regions.push(...glyphRegions(glyphs));
+  }
+  const text = textParts.filter(Boolean).join("\n");
+  return text && regions.length ? { text, regions } : null;
 }
 
 function coversGlyphCenter(
