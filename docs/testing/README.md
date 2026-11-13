@@ -51,6 +51,15 @@ pnpm -C apps/desktop exec playwright test -c playwright.config.ts e2e/sidebar-an
 
 Inspect rendered behavior and visual fit for UI changes; code checks alone are insufficient.
 
+The `recent-file-selection` browser suite checks stable recent-file rows,
+least-recently-used eviction, alphabetical remaining files, keyboard selection,
+missing files, reload persistence, and light/dark/narrow layouts. Run
+`node apps/desktop/e2e/electron/recent-file-selection-smoke.mjs` after building
+desktop resources to verify real file selections, cross-window synchronization,
+project reopening in another window, and both persisted orders after a full
+application restart. It uses temporary project/profile directories and saves
+screenshots under `output/playwright/electron/recent-files/`.
+
 Formatting regressions are covered by `agent-file-review.spec.ts` (editable review,
 applying, and recovery) and `text-editor-header.spec.ts` (background work, panel
 focus, and compact toolbars). The review test pauses the mocked backend response

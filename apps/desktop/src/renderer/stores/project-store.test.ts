@@ -6,9 +6,46 @@ describe("useProjectStore", () => {
     // Reset the store between tests
     useProjectStore.setState({
       recentProjects: [],
+      recentFilesByProject: {},
       sidebarWidthsByProject: {},
       lastProjectFolder: null,
     });
+  });
+
+  it("keeps five stable recent-file rows and evicts by usage rather than row position", () => {
+    const select = useProjectStore.getState().recordRecentFileSelection;
+    const files = ["A", "B", "C", "D", "E", "F", "G"];
+    for (const id of ["A", "B", "C", "D", "E", "A", "C", "F"])
+      select("/a", id, files);
+    expect(useProjectStore.getState().recentFilesByProject["/a"]).toEqual({
+      recent: ["F", "C", "A", "E", "D"],
+      order: ["A", "C", "D", "E", "F"],
+    });
+    select("/a", "C", files);
+    expect(useProjectStore.getState().recentFilesByProject["/a"].order).toEqual(
+      ["A", "C", "D", "E", "F"],
+    );
+    select("/a", "G", files);
+    expect(useProjectStore.getState().recentFilesByProject["/a"].order).toEqual(
+      ["A", "C", "E", "F", "G"],
+    );
+  });
+
+  it("isolates project histories, drops missing files, and rehydrates both orders", async () => {
+    const select = useProjectStore.getState().recordRecentFileSelection;
+    for (const id of ["A", "B", "C", "D", "E"])
+      select("/a", id, ["A", "B", "C", "D", "E"]);
+    select("/b", "A", ["A"]);
+    select("/a", "F", ["A", "B", "C", "D", "F"]);
+    select("/a", "missing", ["A", "B", "C", "D", "F"]);
+    const histories = useProjectStore.getState().recentFilesByProject;
+    expect(histories["/a"].order).toEqual(["A", "B", "C", "D", "F"]);
+    expect(histories["/b"].order).toEqual(["A"]);
+    const saved = localStorage.getItem("catalex-projects")!;
+    useProjectStore.setState({ recentFilesByProject: {} });
+    localStorage.setItem("catalex-projects", saved);
+    await useProjectStore.persist.rehydrate();
+    expect(useProjectStore.getState().recentFilesByProject).toEqual(histories);
   });
 
   it("persists sidebar widths per project and resets only the requested project", async () => {

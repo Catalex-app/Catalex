@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- File selection: Keep five recent files in stable rows above the remaining alphabetical list, with project-specific history preserved across windows and restarts.
+
 ## [0.3.0]
 
 ### TL;DR

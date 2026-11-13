@@ -30,6 +30,7 @@ import {
 import {
   MAX_PROJECT_SIDEBAR_WIDTH,
   MIN_PROJECT_SIDEBAR_WIDTH,
+  useProjectStore,
 } from "@/stores/project-store";
 import { useWorkspaceTheme } from "@/hooks/use-workspace-theme";
 import { PdfFileIcon } from "@/components/ui/pdf-file-icon";
@@ -88,7 +89,9 @@ import { Button } from "@/components/ui/button";
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectSeparator,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
@@ -335,6 +338,26 @@ function ProjectWorkspaceLayout() {
   const activeFileRelativePath = useDocumentStore(
     (s) => s.files.find((f) => f.id === s.activeFileId)?.relativePath ?? null,
   );
+  const recentFiles = useProjectStore((s) =>
+    projectRoot ? s.recentFilesByProject[projectRoot] : undefined,
+  );
+  const workspaceChatFileGroups = useMemo(() => {
+    const byId = new Map(
+      workspaceChatFileOptions.map((file) => [file.id, file]),
+    );
+    const recent = (recentFiles?.order ?? []).flatMap((id) => {
+      const file = byId.get(id);
+      return file ? [file] : [];
+    });
+    const recentIds = new Set(recent.map((file) => file.id));
+    const remaining = workspaceChatFileOptions
+      .filter((file) => !recentIds.has(file.id))
+      .sort((a, b) => a.relativePath.localeCompare(b.relativePath));
+    return [
+      { label: "Recent files", files: recent },
+      { label: "Other files", files: remaining },
+    ].filter((group) => group.files.length > 0);
+  }, [workspaceChatFileOptions, recentFiles]);
   const [fileConflictState, setFileConflictState] = useState<{
     root: string;
     files: ConflictFile[];
@@ -2903,6 +2926,7 @@ function ProjectWorkspaceLayout() {
                         <Hint content={activeFileRelativePath}>
                           {/* 106px leaves 40px for text beside both icons and their spacing. */}
                           <SelectTrigger
+                            aria-label="Choose file"
                             size="sm"
                             className="h-8 min-w-0 max-w-full @max-[106px]/file-switcher:gap-1 gap-2 overflow-hidden rounded-md @max-[106px]/file-switcher:px-1.5 px-2 py-0 font-normal text-sm leading-none shadow-none *:data-[slot=select-value]:min-w-0 @max-[106px]/file-switcher:[&_[data-slot=select-value]_svg]:hidden"
                           >
@@ -2914,15 +2938,23 @@ function ProjectWorkspaceLayout() {
                           align="start"
                           sideOffset={1}
                         >
-                          {workspaceChatFileOptions.map((file) => (
-                            <SelectItem key={file.id} value={file.id}>
-                              <div className="flex min-w-0 items-center gap-2">
-                                {getWorkspaceChatFileIcon(file)}
-                                <span className="truncate">
-                                  {file.relativePath}
-                                </span>
-                              </div>
-                            </SelectItem>
+                          {workspaceChatFileGroups.map((group, index) => (
+                            <SelectGroup
+                              key={group.label}
+                              aria-label={group.label}
+                            >
+                              {index > 0 && <SelectSeparator />}
+                              {group.files.map((file) => (
+                                <SelectItem key={file.id} value={file.id}>
+                                  <div className="flex min-w-0 items-center gap-2">
+                                    {getWorkspaceChatFileIcon(file)}
+                                    <span className="truncate">
+                                      {file.relativePath}
+                                    </span>
+                                  </div>
+                                </SelectItem>
+                              ))}
+                            </SelectGroup>
                           ))}
                         </SelectContent>
                       </Select>

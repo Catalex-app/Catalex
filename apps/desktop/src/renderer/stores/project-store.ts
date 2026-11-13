@@ -11,6 +11,12 @@ interface RecentProject {
 
 interface ProjectState {
   recentProjects: RecentProject[];
+  recentFilesByProject: Record<string, { recent: string[]; order: string[] }>;
+  recordRecentFileSelection: (
+    path: string,
+    fileId: string,
+    availableFileIds: string[],
+  ) => void;
   sidebarWidthsByProject: Record<string, number>;
   setProjectSidebarWidth: (path: string, width: number | null) => void;
   lastProjectFolder: string | null;
@@ -28,6 +34,31 @@ export const useProjectStore = create<ProjectState>()(
   persist(
     (set) => ({
       recentProjects: [],
+      recentFilesByProject: {},
+      recordRecentFileSelection: (path, fileId, availableFileIds) => {
+        const available = new Set(availableFileIds);
+        if (!available.has(fileId)) return;
+        set((state) => {
+          const previous = state.recentFilesByProject[path];
+          // Recency controls eviction; retained rows keep their display order.
+          const recent = [
+            fileId,
+            ...(previous?.recent ?? []).filter(
+              (id) => id !== fileId && available.has(id),
+            ),
+          ].slice(0, 5);
+          const kept = (previous?.order ?? []).filter((id) =>
+            recent.includes(id),
+          );
+          const order = [...kept, ...recent.filter((id) => !kept.includes(id))];
+          return {
+            recentFilesByProject: {
+              ...state.recentFilesByProject,
+              [path]: { recent, order },
+            },
+          };
+        });
+      },
       sidebarWidthsByProject: {},
       setProjectSidebarWidth: (path, width) => {
         if (width !== null && !Number.isFinite(width)) return;

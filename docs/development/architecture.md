@@ -110,6 +110,14 @@ placement, runner commands, and harness documentation.
 
 ## Workspace appearance
 
+The Full chat workspace's file selector shows up to five recent files, then a
+separator and the remaining files sorted by relative path. Explicit file
+selections update per-project history in `project-store.ts`. Recency controls
+eviction independently of display order: retained rows stay in place and a new
+entry is appended after evicting the least recently used file. Missing files
+are omitted. The existing project-store persistence synchronizes both orders
+across native windows and full application restarts.
+
 Workspace modes control layout and features. Their visual theme is independently
 assigned in Settings → Appearance: `pure` (Artisan) defaults to Classic;
 `sidecar` (Duet) and `handoff` (Vibe) default to Modern. `lib/ui-theme.ts`

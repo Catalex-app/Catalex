@@ -1153,6 +1153,12 @@ export const useDocumentStore = create<DocumentState>()((set, get) => ({
       useProjectStore
         .getState()
         .setRecentProjectLastActiveFile(state.projectRoot, id);
+      if (selected)
+        useProjectStore.getState().recordRecentFileSelection(
+          state.projectRoot,
+          id,
+          state.files.map((file) => file.id),
+        );
     }
   },
 
