@@ -4423,7 +4423,7 @@ export function LatexEditor({
   useEffect(() => {
     const clearForPdfSelection = (event: Event) => {
       const owner = (event as CustomEvent).detail;
-      if (owner !== "pdf" && owner !== "none") return;
+      if (owner !== "pdf" && owner !== "markdown" && owner !== "none") return;
       const view = viewRef.current;
       if (!view || view.state.selection.main.empty) return;
       toolbarStickyRef.current = false;

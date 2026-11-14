@@ -5,6 +5,10 @@ import { getActiveComment, setActiveComment } from "../editor/active-comment";
 import type { CommentRange } from "../editor/comment-range";
 import { attachCommentToChat } from "@/lib/comment-chat-context";
 import { isReferencePanelWindow } from "@/lib/panel-window-runtime";
+import {
+  captureProposedDraft,
+  type ChatContextBadge,
+} from "@/lib/chat-context";
 import { createPortal } from "react-dom";
 import { CommentsPanel, CommentsSummaryButton } from "../editor/comments-panel";
 import { ProblemsMotion } from "../editor/problems-motion";
@@ -19,8 +23,11 @@ import {
 import { MessageSquareTextIcon } from "lucide-react";
 import { useDocumentStore } from "@/stores/document-store";
 import { useSettingsStore } from "@/stores/settings-store";
-import { useAgentChatStore } from "@/stores/agent-chat-store";
-import { PDF_COMMENT_NAVIGATE_EVENT } from "@/lib/workspace-events";
+import { offsetToLineCol, useAgentChatStore } from "@/stores/agent-chat-store";
+import {
+  PDF_COMMENT_NAVIGATE_EVENT,
+  SELECTION_OWNER_EVENT,
+} from "@/lib/workspace-events";
 import type {
   InlineEditorComment,
   InlineCommentActions,
@@ -80,6 +87,7 @@ export function MarkdownComments({
     [selectedCommentIdsJson],
   );
   const agentWorkspaceRoot = useDocumentStore((s) => s.agentWorkspaceRoot);
+  const draftSessionId = useDocumentStore((s) => s.agentWorkspaceSessionId);
   const projectFiles = useDocumentStore((s) => s.files);
   const visible = useSettingsStore(
     (s) => s.displayComments && s.showPdfComments,
@@ -184,19 +192,60 @@ export function MarkdownComments({
     setRequestedCommentId(null);
   }, [source, filePath]);
   useEffect(() => {
+    let publishedContext: ChatContextBadge | null = null;
+    const clearContext = () => {
+      const store = useDocumentStore.getState();
+      if (
+        publishedContext &&
+        store.markdownSelectionContext === publishedContext
+      )
+        store.setMarkdownSelectionContext(null);
+      publishedContext = null;
+    };
     const update = () => {
       const selected = frameDocument.getSelection();
-      setSelection(
+      const next =
         selected &&
-          !selected.isCollapsed &&
-          selected.rangeCount &&
-          selected.toString().trim()
+        !selected.isCollapsed &&
+        selected.rangeCount &&
+        frameDocument.getElementById("write")?.contains(selected.anchorNode) &&
+        frameDocument.getElementById("write")?.contains(selected.focusNode) &&
+        selected.toString().trim()
           ? {
               range: selected.getRangeAt(0).cloneRange(),
               sourceRange: markdownSelectionRange(selected, source),
             }
-          : null,
+          : null;
+      setSelection(next);
+      if (!next) {
+        clearContext();
+        return;
+      }
+      const start = next.sourceRange
+        ? offsetToLineCol(source, next.sourceRange.from)
+        : null;
+      const end = next.sourceRange
+        ? offsetToLineCol(source, next.sourceRange.to)
+        : null;
+      window.dispatchEvent(
+        new CustomEvent(SELECTION_OWNER_EVENT, { detail: "markdown" }),
       );
+      publishedContext = {
+        label:
+          start && end
+            ? `@${filePath}:${start.line}:${start.col}-${end.line}:${end.col}`
+            : `Markdown · @${filePath}`,
+        filePath,
+        selectedText: selected!.toString(),
+        proposedDraft: captureProposedDraft(draftSessionId, source),
+      };
+      useDocumentStore.getState().setMarkdownSelectionContext(publishedContext);
+    };
+    const clearForOtherSelection = (event: Event) => {
+      if ((event as CustomEvent).detail === "markdown") return;
+      frameDocument.getSelection()?.removeAllRanges();
+      setSelection(null);
+      clearContext();
     };
     const click = (event: MouseEvent) => {
       if (
@@ -264,12 +313,15 @@ export function MarkdownComments({
     frameDocument.addEventListener("selectionchange", update);
     frameDocument.addEventListener("click", click);
     frameDocument.addEventListener("keydown", key);
+    window.addEventListener(SELECTION_OWNER_EVENT, clearForOtherSelection);
     return () => {
       frameDocument.removeEventListener("selectionchange", update);
       frameDocument.removeEventListener("click", click);
       frameDocument.removeEventListener("keydown", key);
+      window.removeEventListener(SELECTION_OWNER_EVENT, clearForOtherSelection);
+      clearContext();
     };
-  }, [frameDocument, source]);
+  }, [frameDocument, source, filePath, projectRoot, draftSessionId]);
 
   useEffect(() => {
     const update = () => {

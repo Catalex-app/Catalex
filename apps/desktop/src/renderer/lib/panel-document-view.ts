@@ -19,6 +19,7 @@ export function connectPanelDocumentView(
     "jumpToPositionHighlight",
     "jumpToSelectionRange",
     "commentSelectionContext",
+    "markdownSelectionContext",
     "pdfSelectionContext",
     "pdfSelectionAnchor",
   ] as const;
@@ -29,6 +30,7 @@ export function connectPanelDocumentView(
     setSelectionRange: local.setSelectionRange,
     setSelectionPreviewRange: local.setSelectionPreviewRange,
     setCommentSelectionContext: local.setCommentSelectionContext,
+    setMarkdownSelectionContext: local.setMarkdownSelectionContext,
     setPdfSelectionContext: local.setPdfSelectionContext,
     requestJumpToPosition: local.requestJumpToPosition,
     requestJumpToSelectionRange: local.requestJumpToSelectionRange,
@@ -80,6 +82,7 @@ export function connectPanelDocumentView(
                     selectionRange: null,
                     selectionPreviewRange: null,
                     commentSelectionContext: null,
+                    markdownSelectionContext: null,
                     pdfSelectionContext: null,
                     pdfSelectionAnchor: null,
                   }

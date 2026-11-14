@@ -318,6 +318,55 @@ try {
   await expect(
     page.frameLocator('iframe[title="other.md preview"]').locator(".katex"),
   ).toHaveCount(0);
+  await page.getByRole("tab", { name: "Duet", exact: true }).click();
+  await page.evaluate(async () => {
+    (await import("/src/renderer/stores/agent-chat-store.ts")).useAgentChatStore
+      .getState()
+      .requestDrawerOpen();
+  });
+  const mainChips = page.locator(
+    '[data-chat-drawer-panel="true"] [data-selection-chip="true"]:visible',
+  );
+  await page
+    .frameLocator('iframe[title="other.md preview"]')
+    .locator("[data-comment-start]")
+    .filter({ hasText: "Found it." })
+    .first()
+    .evaluate((element) => {
+      const text = element.firstChild;
+      element.ownerDocument.getSelection().setBaseAndExtent(text, 0, text, 9);
+    });
+  await expect(mainChips).toContainText("docs/other.md");
+  const chatOpened = app.waitForEvent("window");
+  await page.evaluate(async () => {
+    (await import("/src/renderer/lib/panel-windows.ts")).openPanelWindow(
+      "chat",
+      "duet",
+    );
+  });
+  const chat = await chatOpened;
+  const chatChips = chat.locator('[data-selection-chip="true"]:visible');
+  await expect(chatChips).toContainText("docs/other.md");
+  await chatChips
+    .getByRole("button", { name: "Pin selection", exact: true })
+    .click();
+  await page
+    .frameLocator('iframe[title="other.md preview"]')
+    .locator("body")
+    .evaluate((element) =>
+      element.ownerDocument.getSelection().removeAllRanges(),
+    );
+  await expect(mainChips).toHaveAttribute("data-selection-pinned", "true");
+  await expect(chatChips).toHaveAttribute("data-selection-pinned", "true");
+  await chat
+    .locator("[data-chat-composer-input]:visible")
+    .fill("Explain this passage after restart");
+  await chat.close();
+  await page.evaluate(async () => {
+    await (
+      await import("/src/renderer/lib/project-chat-lifecycle.ts")
+    ).saveProjectChats();
+  });
   await app.close();
   app = undefined;
   page = await launch();
@@ -353,9 +402,33 @@ try {
   await expect(page.locator(".cm-content")).toContainText(
     "../assets/sample%20%5Bone%5D.txt",
   );
+  await page.evaluate(async () => {
+    (await import("/src/renderer/stores/agent-chat-store.ts")).useAgentChatStore
+      .getState()
+      .requestDrawerOpen();
+  });
+  await expect(
+    page.locator(
+      '[data-chat-drawer-panel="true"] [data-selection-chip="true"]:visible',
+    ),
+  ).toContainText("docs/other.md");
+  await expect(
+    page.locator(
+      '[data-chat-drawer-panel="true"] [data-chat-composer-input]:visible',
+    ),
+  ).toHaveValue("Explain this passage after restart");
+  const pinned = await page.evaluate(async () => {
+    const state = (
+      await import("/src/renderer/stores/agent-chat-store.ts")
+    ).useAgentChatStore.getState();
+    return state.tabs.find((tab) => tab.id === state.activeTabId).draft
+      .pinnedContexts;
+  });
+  assert.equal(pinned[0].selectedText, "Found it.");
+  assert.equal(pinned[0].selectionPinned, true);
   assert.deepEqual(errors, []);
   console.log(
-    "MathJax PDF export, recent themes and per-file math engines across windows and restart, native file drop, cross-file heading navigation, and saving passed with an isolated Electron profile.",
+    "MathJax PDF export, recent themes, per-file math engines, Markdown selection badges and pinned chat context across windows and restart, native file drop, cross-file heading navigation, and saving passed with an isolated Electron profile.",
   );
 } finally {
   await app?.close();

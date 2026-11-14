@@ -814,7 +814,8 @@ export function PdfViewer({
     };
     const clearForEditorSelection = (event: Event) => {
       const owner = (event as CustomEvent).detail;
-      if (owner !== "editor" && owner !== "none") return;
+      if (owner !== "editor" && owner !== "markdown" && owner !== "none")
+        return;
       cancelPendingSelection();
       clearSelection();
       textSelectRef.current?.(null);

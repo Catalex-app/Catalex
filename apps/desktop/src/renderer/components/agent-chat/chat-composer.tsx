@@ -989,6 +989,9 @@ export const ChatComposer: FC<{
 
   // Watch the live document selection independently of explicitly pinned excerpts
   const selectionRange = useDocumentStore((s) => s.selectionRange);
+  const markdownSelectionContext = useDocumentStore(
+    (s) => s.markdownSelectionContext,
+  );
   const pdfSelectionContext = useDocumentStore((s) => s.pdfSelectionContext);
   const pdfSelectionAnchor = useDocumentStore((s) => s.pdfSelectionAnchor);
   const commentSelectionContext = useDocumentStore(
@@ -1017,6 +1020,7 @@ export const ChatComposer: FC<{
     isOpen ||
     isExpanded ||
     !!selectionRange ||
+    !!markdownSelectionContext ||
     !!pdfSelectionContext ||
     !!commentSelectionContext ||
     hasSavedCommentContexts ||
@@ -1467,7 +1471,8 @@ export const ChatComposer: FC<{
       ),
     };
   }, [draftSessionId, selectionRange, activeFileId, files]);
-  const liveTextSelection = pdfSelectionContext ?? editorSelection;
+  const liveTextSelection =
+    markdownSelectionContext ?? pdfSelectionContext ?? editorSelection;
 
   const handlePinnedContextMouseEnter = useCallback(
     (context: PinnedContext) => {
@@ -1503,8 +1508,8 @@ export const ChatComposer: FC<{
         isSelectionRangeContextLabel(context.label) &&
         (!context.selectionPinned ||
           context.label === editorSelection?.label ||
-          (pdfSelectionContext &&
-            isSameSelectionContext(context, pdfSelectionContext)))
+          (liveTextSelection &&
+            isSameSelectionContext(context, liveTextSelection)))
       ) {
         setSelectionRange(null);
         window.dispatchEvent(
@@ -1518,7 +1523,7 @@ export const ChatComposer: FC<{
     [
       pinnedContexts,
       editorSelection?.label,
-      pdfSelectionContext,
+      liveTextSelection,
       commentSelectionContext,
       setSelectionRange,
       setSelectionPreviewRange,

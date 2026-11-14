@@ -23,6 +23,7 @@ import {
 } from "../../chat-transcript";
 import {
   chatContextItems,
+  isSelectionRangeContextLabel,
   type ChatContextBadge,
   type ChatPromptContext,
 } from "@/lib/chat-context";
@@ -249,6 +250,8 @@ function getCurrentSelectionDraftContext():
   | TabDraft["pinnedContexts"][number]
   | null {
   const docState = useDocumentStore.getState();
+  if (docState.markdownSelectionContext)
+    return docState.markdownSelectionContext;
   if (docState.pdfSelectionContext) return docState.pdfSelectionContext;
   const selectionRange = docState.selectionRange;
   if (!selectionRange) return null;
@@ -281,12 +284,8 @@ function getPinnedSelectionContext(
   contexts: TabDraft["pinnedContexts"],
 ): TabDraft["pinnedContexts"][number] | null {
   return (
-    contexts.find(
-      (context) =>
-        /^(?:PDF p\.\d+ · )?@.+:\d+:\d+-\d+:\d+(?: · PDF p\.\d+)?$/.test(
-          context.label,
-        ) || /^PDF (?:p\.\d+ · “.*”|· p\. \d+)$/.test(context.label),
-    ) ?? null
+    contexts.find((context) => isSelectionRangeContextLabel(context.label)) ??
+    null
   );
 }
 

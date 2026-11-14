@@ -43,6 +43,7 @@ export interface ChatContextBadge {
 
 export function isSelectionRangeContextLabel(label: string): boolean {
   return (
+    /^Markdown · @.+$/.test(label) ||
     /:\d+:\d+-\d+:\d+(?: · PDF p\.\d+)?$/.test(label) ||
     /^PDF (?:p\.\d+ · (?:@.+ · )?“.*”|· p\. \d+)$/.test(label)
   );

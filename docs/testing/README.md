@@ -51,6 +51,12 @@ pnpm -C apps/desktop exec playwright test -c playwright.config.ts e2e/sidebar-an
 
 Inspect rendered behavior and visual fit for UI changes; code checks alone are insufficient.
 
+The `markdown-selection-context` browser suite checks preview badge updates,
+deselection, pinned passages, file changes, editor/preview ownership, selections
+without source coordinates or visible comments, and rendered text passed to chat.
+It reuses the Markdown workspace harness and saves light/dark screenshots under
+`output/playwright/markdown-selection-*.png`.
+
 The `recent-file-selection` browser suite checks stable recent-file rows,
 least-recently-used eviction, alphabetical remaining files, keyboard selection,
 missing files, reload persistence, and light/dark/narrow layouts. Run
@@ -165,7 +171,7 @@ dragging, zoom, author filters, page labels, comment activation and preview
 pop-outs. Run it alongside `editor-minimap-harness`, `pdf-file-comments`, and
 `standalone-pdf-layout` when changing the shared minimap or PDF viewport inset.
 
-The Markdown preview/comment browser suites cover heading, HTML-anchor and line navigation, sanitized HTML formatting, sidebar file drops with undo, insertion-caret positioning across wrapped lines and scrolling, drag cancellation, preview synchronization, and comment mapping. `node apps/desktop/e2e/electron/markdown-links-smoke.mjs` uses a temporary project and isolated Electron profile to exercise native file paths through preload, the insertion caret, relative-link insertion, cross-file heading navigation, saving, and a full restart.
+The Markdown preview/comment browser suites cover heading, HTML-anchor and line navigation, sanitized HTML formatting, sidebar file drops with undo, insertion-caret positioning across wrapped lines and scrolling, drag cancellation, preview synchronization, and comment mapping. `node apps/desktop/e2e/electron/markdown-links-smoke.mjs` uses a temporary project and isolated Electron profile to exercise native file paths through preload, the insertion caret, relative-link insertion, cross-file heading navigation, saving, and a full restart. It also checks live Markdown selection badges in a chat pop-out and retains pinned passages and composer drafts after restart.
 
 The Markdown highlighting checks cover common language aliases and LaTeX, literal HTML escaping, math, plain-text fallbacks, exact code whitespace, live edits, light/dark preview colors, and imported theme overrides. Screenshots are saved under `output/playwright/markdown-code-*.png`.
 

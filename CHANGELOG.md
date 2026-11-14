@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 - File selection: Keep five recent files in stable rows above the remaining alphabetical list, with project-specific history preserved across windows and restarts.
+- Markdown selections: Show preview text in the existing chat context badge, update and clear live selections, and retain pinned passages with their source file.
 
 ## [0.3.0]
 

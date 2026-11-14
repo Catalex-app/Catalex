@@ -161,6 +161,8 @@ export interface DocumentState {
   promptDiagnostics: PromptDiagnosticSnapshot | null;
   commentSelectionContext: ChatContextBadge | null;
   setCommentSelectionContext: (context: ChatContextBadge | null) => void;
+  markdownSelectionContext: ChatContextBadge | null;
+  setMarkdownSelectionContext: (context: ChatContextBadge | null) => void;
   pdfSelectionContext: ChatContextBadge | null;
   pdfSelectionAnchor: PdfSelectionAnchor | null;
   setPdfSelectionContext: (
@@ -934,6 +936,7 @@ export const useDocumentStore = create<DocumentState>()((set, get) => ({
   outlineScrollPosition: null,
   selectionRange: null,
   promptDiagnostics: null,
+  markdownSelectionContext: null,
   pdfSelectionContext: null,
   pdfSelectionAnchor: null,
   commentSelectionContext: null,
@@ -1018,6 +1021,7 @@ export const useDocumentStore = create<DocumentState>()((set, get) => ({
             cursorPosition: 0,
             outlineScrollPosition: null,
             selectionRange: null,
+            markdownSelectionContext: null,
             pdfSelectionContext: null,
             pdfSelectionAnchor: null,
             commentSelectionContext: null,
@@ -1096,6 +1100,7 @@ export const useDocumentStore = create<DocumentState>()((set, get) => ({
           cursorPosition: 0,
           outlineScrollPosition: null,
           selectionRange: null,
+          markdownSelectionContext: null,
           pdfSelectionContext: null,
           pdfSelectionAnchor: null,
           commentSelectionContext: null,
@@ -1142,6 +1147,7 @@ export const useDocumentStore = create<DocumentState>()((set, get) => ({
         ? s.openFileIds
         : [...s.openFileIds, id],
       selectionRange: null,
+      markdownSelectionContext: null,
       pdfSelectionContext: null,
       pdfSelectionAnchor: null,
       commentSelectionContext: null,
@@ -1206,20 +1212,36 @@ export const useDocumentStore = create<DocumentState>()((set, get) => ({
   setSelectionRange: (range) =>
     set({
       selectionRange: range,
+      markdownSelectionContext: null,
       pdfSelectionContext: null,
       pdfSelectionAnchor: null,
       commentSelectionContext: null,
+    }),
+  setMarkdownSelectionContext: (markdownSelectionContext) =>
+    set({
+      markdownSelectionContext,
+      ...(markdownSelectionContext
+        ? {
+            selectionRange: null,
+            pdfSelectionContext: null,
+            pdfSelectionAnchor: null,
+            commentSelectionContext: null,
+          }
+        : {}),
     }),
   setPdfSelectionContext: (pdfSelectionContext, anchor) =>
     set({
       pdfSelectionContext,
       pdfSelectionAnchor: pdfSelectionContext ? (anchor ?? null) : null,
-      ...(pdfSelectionContext ? { commentSelectionContext: null } : {}),
+      ...(pdfSelectionContext
+        ? { markdownSelectionContext: null, commentSelectionContext: null }
+        : {}),
     }),
   setCommentSelectionContext: (commentSelectionContext) =>
     set({
       commentSelectionContext,
       selectionRange: null,
+      markdownSelectionContext: null,
       pdfSelectionContext: null,
       pdfSelectionAnchor: null,
     }),
