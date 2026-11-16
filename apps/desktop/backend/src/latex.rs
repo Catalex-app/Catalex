@@ -22,6 +22,7 @@ use std::os::windows::process::CommandExt;
 struct BuildInfo {
     output: Arc<tempfile::TempDir>,
     work_dir: PathBuf,
+    source_dir: PathBuf,
     main_file_name: String,
 }
 
@@ -1023,6 +1024,7 @@ pub async fn compile_latex(
     installation: Option<String>,
     snapshot_path: Option<String>,
     compilation_id: Option<String>,
+    root_folder: Option<String>,
 ) -> Result<Vec<u8>, CompileFailure> {
     // The RPC can be cancelled when its window closes, but spawn_blocking
     // compiler work cannot. Keep the backend future (and its project lock)
@@ -1043,6 +1045,7 @@ pub async fn compile_latex(
             installation,
             snapshot_path,
             operation.clone(),
+            root_folder,
         ).await;
         let cancelled = state.operations.finish(&owner, &project_dir, &id, &operation, result.as_ref().err().map(|e| e.message.as_str()));
         if cancelled && !result.as_ref().err().is_some_and(|error| error.message.starts_with(compile_process::CLEANUP_FAILED)) {
@@ -1068,8 +1071,29 @@ pub async fn compile_latex_bytes(
     backend: Option<CompilerBackend>,
     engine: Option<TexEngine>,
     operation: Arc<Operation>,
+    root_folder: Option<String>,
 ) -> Result<CompiledLatex, CompileFailure> {
-    compile_latex_selected(app, state, project_dir, main_file, backend, engine, None, None, operation).await
+    compile_latex_selected(app, state, project_dir, main_file, backend, engine, None, None, operation, root_folder).await
+}
+
+pub(crate) fn compilation_directory(source_dir: &Path, root_folder: Option<&str>, main_file: &str) -> Result<(PathBuf, String), String> {
+    let Some(folder) = root_folder.filter(|folder| !folder.is_empty()) else {
+        return Ok((source_dir.to_owned(), main_file.to_owned()));
+    };
+    if folder.contains('\\') || folder.contains(':') || folder.split('/').any(|part| part.is_empty() || part.starts_with('.')) {
+        return Err("Invalid compilation root folder".into());
+    }
+    let root = Path::new(folder);
+    let main = Path::new(main_file).strip_prefix(root)
+        .map_err(|_| "Main file must be inside the compilation root folder")?;
+    if main.components().any(|part| !matches!(part, std::path::Component::Normal(_))) {
+        return Err("Invalid main file path".into());
+    }
+    let directory = source_dir.join(root);
+    if !directory.is_dir() {
+        return Err(format!("Root folder not found: {folder}"));
+    }
+    Ok((directory, main.to_string_lossy().into_owned()))
 }
 
 async fn compile_latex_selected(
@@ -1082,6 +1106,7 @@ async fn compile_latex_selected(
     installation: Option<String>,
     snapshot_path: Option<String>,
     operation: Arc<Operation>,
+    root_folder: Option<String>,
 ) -> Result<CompiledLatex, CompileFailure> {
     operation.check()?;
     // Acquire semaphore permit (non-blocking)
@@ -1162,6 +1187,11 @@ async fn compile_latex_selected(
             CompilerBackend::Tectonic => "tectonic",
         }
     );
+
+    // Keep the whole project in the build cache so ../ inputs still work.
+    // Only the compiler's working directory changes.
+    let source_dir = work_dir;
+    let (work_dir, main_file) = compilation_directory(&source_dir, root_folder.as_deref(), &main_file)?;
 
     // Remove stale PDF so a failed compile doesn't return the previous result.
     let pdf_path = work_dir.join(format!("{}.pdf", main_file_name));
@@ -1360,11 +1390,16 @@ async fn compile_latex_selected(
         );
         let log_content = std::fs::read_to_string(&log_path).unwrap_or_default();
         let mut diagnostics = extract_compile_diagnostics(&log_content);
-        project_locations(&mut diagnostics, &work_dir);
+        for diagnostic in &mut diagnostics {
+            if let Some(file) = &mut diagnostic.file {
+                *file = work_dir.join(&*file).to_string_lossy().into_owned();
+            }
+        }
+        project_locations(&mut diagnostics, &source_dir);
         let mut builds = state.last_builds.lock().await;
         let mut published = state.published_builds.lock().await;
         operation.publish(|| {
-            let build = BuildInfo { work_dir, main_file_name, output: Arc::new(output) };
+            let build = BuildInfo { work_dir, source_dir, main_file_name, output: Arc::new(output) };
             builds.insert(project_dir.clone(), build.clone());
             published.push_back((operation.identity.clone(), build));
             while published.len() > 128 { published.pop_front(); }
@@ -1386,7 +1421,12 @@ async fn compile_latex_selected(
             details
         };
         let mut diagnostics = extract_compile_diagnostics(&log_content);
-        project_locations(&mut diagnostics, &work_dir);
+        for diagnostic in &mut diagnostics {
+            if let Some(file) = &mut diagnostic.file {
+                *file = work_dir.join(&*file).to_string_lossy().into_owned();
+            }
+        }
+        project_locations(&mut diagnostics, &source_dir);
         operation.check()?;
         Err(CompileFailure {
             code: "compile_failed",
@@ -1497,6 +1537,7 @@ pub async fn get_synctex_source_map(
 ) -> Result<crate::synctex_boxes::SourceMap, String> {
     let build = find_build(state, &project_dir, window_id, compilation_id.as_deref()).await?;
     let work_dir = build.work_dir.clone();
+    let source_dir = build.source_dir.clone();
     let output = build.output.clone();
     let synctex_gz = output.path().join(format!("{}.synctex.gz", build.main_file_name));
     let synctex_plain = output.path().join(format!("{}.synctex", build.main_file_name));
@@ -1505,7 +1546,7 @@ pub async fn get_synctex_source_map(
         let data = read_synctex_data(&synctex_gz, &synctex_plain)?;
         let mut map = crate::synctex_boxes::parse_source_map(&data);
         for file in map.inputs.values_mut() {
-            *file = relative_synctex_path(&work_dir, file);
+            *file = relative_synctex_path(&source_dir, &work_dir.join(&*file).to_string_lossy());
         }
         Ok(map)
     })
@@ -1543,7 +1584,7 @@ pub async fn synctex_edit(
     .await
     .map_err(|e| format!("Synctex task panicked: {}", e))??;
 
-    let file = relative_synctex_path(&work_dir, &file);
+    let file = relative_synctex_path(&build.source_dir, &work_dir.join(&file).to_string_lossy());
 
     Ok(SynctexResult { file, line, column })
 }
@@ -1593,7 +1634,7 @@ pub async fn synctex_view(
     let mut cmd = std::process::Command::new(&synctex);
     cmd.arg("view")
         .arg("-i")
-        .arg(format!("{}:{}:{}", line, column, file))
+        .arg(format!("{}:{}:{}", line, column, build.source_dir.join(file).to_string_lossy()))
         .arg("-o")
         .arg(output_pdf)
         .current_dir(&work_dir)
@@ -1637,6 +1678,22 @@ pub async fn cleanup_all_builds(state: &LatexCompilerState) {
 mod tests {
     use super::*;
 
+    #[test]
+    fn compilation_folder_preserves_project_paths() {
+        let source = tempfile::tempdir().unwrap();
+        std::fs::create_dir(source.path().join("paper")).unwrap();
+        let (work, main) = compilation_directory(source.path(), Some("paper"), "paper/main.tex").unwrap();
+        assert_eq!(work, source.path().join("paper"));
+        assert_eq!(main, "main.tex");
+        for invalid in ["../other", "/tmp", "paper/../other", ".hidden", "missing"] {
+            assert!(compilation_directory(source.path(), Some(invalid), "paper/main.tex").is_err());
+        }
+        assert!(compilation_directory(source.path(), Some("paper"), "main.tex").is_err());
+        assert!(compilation_directory(source.path(), Some("paper"), "paper/../main.tex").is_err());
+        std::fs::write(work.join("main.tex"), "source").unwrap();
+        assert_eq!(relative_synctex_path(source.path(), &work.join("main.tex").to_string_lossy()), "paper/main.tex");
+    }
+
     #[tokio::test]
     async fn displayed_pdf_uses_its_own_map_after_a_newer_native_build() {
         let state = LatexCompilerState::default();
@@ -1647,8 +1704,8 @@ mod tests {
             std::fs::write(work.path().join(file), "source").unwrap();
             std::fs::write(output.path().join("main.synctex"), format!("SyncTeX Version:1\nInput:1:{file}\nMagnification:1000\nUnit:1\nX Offset:0\nY Offset:0\nContent:\n")).unwrap();
         }
-        let old = BuildInfo { output: old_output, work_dir: work.path().to_owned(), main_file_name: "main".into() };
-        let new = BuildInfo { output: new_output, work_dir: work.path().to_owned(), main_file_name: "main".into() };
+        let old = BuildInfo { output: old_output, work_dir: work.path().to_owned(), source_dir: work.path().to_owned(), main_file_name: "main".into() };
+        let new = BuildInfo { output: new_output, work_dir: work.path().to_owned(), source_dir: work.path().to_owned(), main_file_name: "main".into() };
         state.published_builds.lock().await.push_back((("owner".into(), "/project".into(), "old-request".into()), old));
         state.last_builds.lock().await.insert("/project".into(), new);
         let map = get_synctex_source_map(&state, "/project".into(), "owner", Some("old-request".into())).await.unwrap();

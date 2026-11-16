@@ -99,6 +99,13 @@ The compilation cancellation smoke uses an isolated profile, a controlled latexm
 process tree, and the actual Tectonic subprocess. It checks scoped cancellation,
 lock reuse, and preservation of published PDF/SyncTeX output. It currently targets
 macOS/Linux process groups; Windows cleanup requires separate runtime verification.
+The `latex-project-options` browser suite checks the Recompile menu's folder and
+main-file pickers, scoped choices, persistence, and missing paths. Run
+`node apps/desktop/e2e/electron/latex-project-options-smoke.mjs` with LaTeXmk
+installed on macOS to verify real subfolder compilation, parent-folder inputs,
+project-relative SyncTeX, pop-out and cross-window sharing, renames, restart
+persistence, and missing-file handling in a temporary project/profile.
+
 The compilation-controls browser suite covers the hover/focus Stop action,
 Stopping state, pending recompiles, and resuming after a fresh edit.
 

@@ -254,7 +254,10 @@ for (const width of [400, 520, 1100]) {
       await page.evaluate(() => document.documentElement.classList.add("dark"));
     }
     // Hide the fixture-only agent inspection so it cannot cover the toolbar.
-    await page.locator("aside").evaluate((element) => element.remove());
+    await page
+      .locator("aside")
+      .filter({ hasText: "Agent page inspection" })
+      .evaluate((element) => element.remove());
     const group = page.getByRole("group", { name: "Compilation", exact: true });
     const bounds = await group.boundingBox();
     expect(bounds!.x).toBeGreaterThanOrEqual(0);
@@ -291,7 +294,10 @@ test("Recompile becomes icon-only only when the preview pane runs out of room", 
 }) => {
   await page.setViewportSize({ width: 1100, height: 800 });
   await openPreview(page);
-  await page.locator("aside").evaluate((element) => element.remove());
+  await page
+    .locator("aside")
+    .filter({ hasText: "Agent page inspection" })
+    .evaluate((element) => element.remove());
   const pane = page.getByTestId("pdf-preview-harness-shell");
   const button = page
     .getByRole("group", { name: "Compilation", exact: true })
@@ -311,7 +317,7 @@ test("Recompile becomes icon-only only when the preview pane runs out of room", 
   };
 
   await pane.evaluate((element) => {
-    element.style.width = "400px";
+    element.style.width = "700px";
   });
   await expect(label).toBeVisible();
   await expect.poll(buttonWidth).toBe(100);
@@ -357,7 +363,7 @@ test("Recompile becomes icon-only only when the preview pane runs out of room", 
   });
 
   await pane.evaluate((element) => {
-    element.style.width = "400px";
+    element.style.width = "700px";
   });
   await expect(label).toBeVisible();
   await expect.poll(buttonWidth).toBe(100);
@@ -485,7 +491,10 @@ test("Stop clears queued and scheduled recompiles, preserves the PDF, and resume
   page,
 }) => {
   await openPreview(page);
-  await page.locator("aside").evaluate((element) => element.remove());
+  await page
+    .locator("aside")
+    .filter({ hasText: "Agent page inspection" })
+    .evaluate((element) => element.remove());
   const group = page.getByRole("group", { name: "Compilation", exact: true });
   const width = await group.boundingBox();
   const preview = await page.evaluate(() =>
@@ -647,7 +656,10 @@ for (const theme of ["modern", "classic"]) {
       page,
     }) => {
       await openPreview(page);
-      await page.locator("aside").evaluate((element) => element.remove());
+      await page
+        .locator("aside")
+        .filter({ hasText: "Agent page inspection" })
+        .evaluate((element) => element.remove());
       await page.evaluate(
         ({ theme, dark }) => {
           document.documentElement.dataset.uiTheme = theme;
@@ -699,7 +711,10 @@ test("Recompile waits for pointer re-entry to reveal Stop and starts fading back
   page,
 }) => {
   await openPreview(page);
-  await page.locator("aside").evaluate((element) => element.remove());
+  await page
+    .locator("aside")
+    .filter({ hasText: "Agent page inspection" })
+    .evaluate((element) => element.remove());
   await page.evaluate(() => window.__pdfPreviewHarness?.setCompileDelay(60000));
   await page.getByRole("button", { name: "Recompile", exact: true }).click();
   const stop = page.getByRole("button", {

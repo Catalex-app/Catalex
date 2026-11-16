@@ -261,6 +261,21 @@ issues to its lines (an end at column one excludes that ending line); a clean or
 stale selection never borrows unrelated file issues. File context includes
 unlocated compiler problems. Diagnostic messages, severity, and locations travel
 with the source attachment and stay separate from the user's prompt text.
+The Recompile menu stores a root folder and optional main LaTeX file per project
+in `project-store.ts`. Defaults are the opened project folder and automatic root
+detection. An explicit main file takes precedence over active documents and magic
+comments. Automatic detection is limited to the selected folder. File and folder
+moves in the app update saved paths; missing selections require a new choice.
+Changing the folder resets an explicit main file to Automatic if it lies outside
+the new folder. Choices synchronize across windows and survive restarts.
+The compiler still copies the whole project, then runs from the selected subfolder;
+diagnostics and SyncTeX paths remain relative to the opened project.
+Each agent turn snapshots these choices in its existing compile context. The
+workspace MCP `workspace_state` exposes `root.folder` and `root.file`, both
+relative to its draft `projectPath` (an empty folder means the project folder).
+The agent compile tool uses the same folder selection as the preview, resolved
+inside the draft; choices refresh on the next turn.
+
 LaTeX preview pop-outs are keyed by project and resolved TeX root, using the
 same `resolveTexRoot` mapping as the PDF cache. Opening a preview from another
 included file focuses the existing window without resetting its page or zoom.

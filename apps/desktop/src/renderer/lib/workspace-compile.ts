@@ -2,7 +2,11 @@ import { getPanelWindowSession } from "./panel-window-runtime";
 import { invoke } from "./desktop/core";
 import type { PdfSource } from "./mupdf/pdf-source";
 import { isMarkdownFile } from "./markdown";
-import { useDocumentStore, getPdfBytes } from "@/stores/document-store";
+import {
+  useDocumentStore,
+  getPdfBytes,
+  getLatexProjectOptions,
+} from "@/stores/document-store";
 import { useHistoryStore } from "@/stores/history-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import {
@@ -147,6 +151,7 @@ function context(state: State, fileId = state.activeFileId) {
     state.projectRoot,
     state.agentWorkspaceRoot,
     state.agentWorkspaceSessionId,
+    getLatexProjectOptions(),
     state.isGitOperationRunning,
     state.isApplyingAgentDraft,
     resolveCompileTarget(fileId, state.files),
@@ -340,10 +345,22 @@ export async function compileWorkspace(options: Options = {}) {
     useDocumentStore.setState({ isCompiling: true, pendingRecompile: true });
     return;
   }
+  const latexOptions = getLatexProjectOptions();
+  if (
+    latexOptions.rootFolder &&
+    !state.folders.includes(latexOptions.rootFolder)
+  ) {
+    state.setCompileError(
+      `Root folder not found: ${latexOptions.rootFolder}. Choose a folder in Compilation options.`,
+    );
+    return;
+  }
   const target = resolveCompileTarget(fileId, state.files);
   if (!target) {
     state.setCompileError(
-      "No .tex file found in this project. Create a main.tex file to compile.",
+      latexOptions.mainFile
+        ? `Main file not found: ${latexOptions.mainFile}. Choose a file in Compilation options.`
+        : "No .tex file found in the compilation folder. Choose a folder or create a main.tex file.",
     );
     return;
   }
@@ -398,6 +415,7 @@ export async function compileWorkspace(options: Options = {}) {
       engine,
       autoEngine,
       request.id,
+      latexOptions.rootFolder || undefined,
     );
     publishCompilation(request, result.pdfData, result.diagnostics);
   } catch (error) {

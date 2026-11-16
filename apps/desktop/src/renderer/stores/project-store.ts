@@ -1,4 +1,4 @@
-import { create } from "zustand";
+import { createPanelStore } from "@/lib/panel-window-runtime";
 import { persist } from "zustand/middleware";
 import { synchronizePersistedStore } from "@/lib/persisted-store-sync";
 
@@ -9,7 +9,18 @@ interface RecentProject {
   lastActiveFile?: string;
 }
 
+export interface LatexProjectOptions {
+  rootFolder: string;
+  mainFile: string | null;
+}
+export const DEFAULT_LATEX_PROJECT_OPTIONS: LatexProjectOptions = {
+  rootFolder: "",
+  mainFile: null,
+};
+
 interface ProjectState {
+  latexOptionsByProject: Record<string, LatexProjectOptions>;
+  setLatexProjectOptions: (path: string, options: LatexProjectOptions) => void;
   recentProjects: RecentProject[];
   recentFilesByProject: Record<string, { recent: string[]; order: string[] }>;
   recordRecentFileSelection: (
@@ -30,9 +41,26 @@ const MAX_RECENT = 10;
 export const MIN_PROJECT_SIDEBAR_WIDTH = 200;
 export const MAX_PROJECT_SIDEBAR_WIDTH = 420;
 
-export const useProjectStore = create<ProjectState>()(
+export const useProjectStore = createPanelStore("projects")<ProjectState>()(
   persist(
     (set) => ({
+      latexOptionsByProject: {},
+      setLatexProjectOptions: (path, options) => {
+        const validPath = (value: string) =>
+          !value.includes("\\") &&
+          !value.includes(":") &&
+          value
+            .split("/")
+            .every((part) => part.length > 0 && !part.startsWith("."));
+        if (options.rootFolder && !validPath(options.rootFolder)) return;
+        if (options.mainFile && !validPath(options.mainFile)) return;
+        set((state) => ({
+          latexOptionsByProject: {
+            ...state.latexOptionsByProject,
+            [path]: options,
+          },
+        }));
+      },
       recentProjects: [],
       recentFilesByProject: {},
       recordRecentFileSelection: (path, fileId, availableFileIds) => {

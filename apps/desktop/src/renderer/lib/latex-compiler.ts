@@ -7,7 +7,7 @@ import {
 import { useSettingsStore } from "@/stores/settings-store";
 import { Channel, invoke } from "@/lib/desktop/core";
 import {
-  resolveProjectTexRoot,
+  getLatexProjectOptions,
   resolveTexRoot,
   getCurrentPdfBytes,
   type ProjectFile,
@@ -72,6 +72,11 @@ export function resolveCompileTarget(
   activeFileId: string,
   files: ProjectFile[],
 ): { rootId: string; targetPath: string } | null {
+  const options = getLatexProjectOptions();
+  if (options.rootFolder)
+    files = files.filter((file) =>
+      file.relativePath.startsWith(`${options.rootFolder}/`),
+    );
   const rootId = resolveTexRoot(activeFileId, files);
   const rootEntry = files.find((f) => f.id === rootId);
   if (
@@ -80,13 +85,7 @@ export function resolveCompileTarget(
   ) {
     return { rootId, targetPath: rootEntry.relativePath };
   }
-  // Last resort: a project whose .tex files carry no \documentclass.
-  const fallback =
-    resolveProjectTexRoot(files) ??
-    files.find((f) => f.type === "tex" && !hasHiddenDirectory(f.relativePath));
-  return fallback
-    ? { rootId: fallback.id, targetPath: fallback.relativePath }
-    : null;
+  return null;
 }
 
 export function detectTexEngineFromContent(
@@ -150,6 +149,7 @@ export async function compileLatex(
   engine: ConcreteCompilerEngine = "pdflatex",
   autoEngine = false,
   compilationId?: string,
+  rootFolder?: string,
 ): Promise<CompileResult> {
   log.info(`Compiling ${mainFile} (backend: ${backend}, engine: ${engine})`);
   const start = performance.now();
@@ -165,6 +165,7 @@ export async function compileLatex(
     >(window.catalex ? "compile_latex_snapshot" : "compile_latex", {
       projectDir,
       mainFile,
+      rootFolder,
       compilationId,
       backend,
       engine: autoEngine ? null : engine,

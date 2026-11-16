@@ -2,6 +2,7 @@ import { LARGE_FILE_THRESHOLD } from "./project-files";
 import { browserHarness, hostInvoke } from "./desktop/bridge";
 import { compileWorkspace, stopCompilation } from "./workspace-compile";
 import { getPublishedCompilation } from "./latex-compiler";
+import { useProjectStore } from "@/stores/project-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import { useHistoryStore } from "@/stores/history-store";
 import { useAgentQuestionStore } from "@/stores/agent-question-store";
@@ -90,6 +91,7 @@ export function openPanelWindow(
     stores: {
       chat: chatView?.store ?? useAgentChatStore,
       settings: useSettingsStore,
+      projects: useProjectStore,
       history: useHistoryStore,
       questions: useAgentQuestionStore,
       reviews: useAgentReviewQueueStore,

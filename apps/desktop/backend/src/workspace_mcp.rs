@@ -330,7 +330,7 @@ fn tool_catalog() -> Vec<Tool> {
     [
         ("compile", concat!("Compile this draft's resolved LaTeX root using ", env!("APP_BRAND_NAME"), "'s preview compiler and engine. Returns authoritative compile status, diagnostics, configured engine, and actualEngine (the last engine invoked, or null if no compiler ran)."), empty.clone()),
         ("diagnostics", concat!("Read diagnostics and actualEngine from this draft's latest ", env!("APP_BRAND_NAME"), " compile."), empty.clone()),
-        ("workspace_state", "Read this draft's resolved LaTeX root, compiler settings, and verification capabilities.", empty),
+        ("workspace_state", "Read this draft's main LaTeX file and compilation folder (both relative to projectPath; empty folder means projectPath), compiler settings, and verification capabilities.", empty),
         ("render_page", "Render one to three pages of this draft's latest compiled PDF as PNG images. Compile first if the document changed.", json!({
             "type":"object", "properties":{"pages":{"type":"array","items":{"type":"integer","minimum":1},"minItems":1,"maxItems":MAX_RENDER_PAGES,"uniqueItems":true}},
             "required":["pages"],"additionalProperties":false
@@ -767,6 +767,7 @@ pub(crate) mod tests {
             backend: crate::latex::CompilerBackend::Latexmk,
             engine: crate::latex::TexEngine::XeLaTeX,
             auto_engine: false,
+            root_folder: String::new(),
         };
         let second = connection
             .begin_turn("/draft-b".into(), Some(context.clone()))

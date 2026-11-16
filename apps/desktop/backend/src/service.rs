@@ -55,6 +55,7 @@ async fn compile_pdf(window: WindowContext, args: &Value, snapshot: bool) -> Res
         argument(args, "installation")?,
         if snapshot { Some(argument(args, "snapshotPath")?) } else { None },
         argument(args, "compilationId")?,
+        argument(args, "rootFolder")?,
     )
     .await
     .map_err(|error| serde_json::to_value(error).unwrap_or_else(|error| json!(error.to_string())))

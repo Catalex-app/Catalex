@@ -87,6 +87,7 @@ vi.mock("@/lib/desktop/event", () => ({
 }));
 
 vi.mock("@/stores/document-store", () => ({
+  getLatexProjectOptions: () => ({ rootFolder: "", mainFile: null }),
   useDocumentStore: {
     getState: vi.fn(() => mocks.documentState),
     subscribe: (listener: (state: any, previous: any) => void) => {

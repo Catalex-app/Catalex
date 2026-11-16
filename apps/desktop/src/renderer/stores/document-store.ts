@@ -37,7 +37,11 @@ import {
 } from "@/lib/project-files";
 import { useHistoryStore } from "@/stores/history-store";
 import { useAgentChatStore } from "@/stores/agent-chat-store";
-import { useProjectStore } from "@/stores/project-store";
+import {
+  DEFAULT_LATEX_PROJECT_OPTIONS,
+  type LatexProjectOptions,
+  useProjectStore,
+} from "@/stores/project-store";
 import {
   clearDocCache,
   prepareForNewPdfRevision,
@@ -457,6 +461,51 @@ export function resolveProjectTexRoot(
   return preferred(roots);
 }
 
+export function getLatexProjectOptions(): LatexProjectOptions {
+  const root = (
+    storeRef?.getState() ?? getPanelWindowSession()?.document.getState()
+  )?.projectRoot;
+  return (
+    (root && useProjectStore.getState().latexOptionsByProject[root]) ||
+    DEFAULT_LATEX_PROJECT_OPTIONS
+  );
+}
+
+/** An explicit project main file wins; otherwise detect within its compilation folder. */
+export function resolveTexRoot(fileId: string, files: ProjectFile[]): string {
+  const options = getLatexProjectOptions();
+  if (options.mainFile) return options.mainFile;
+  return resolveAutomaticTexRoot(fileId, files, options.rootFolder);
+}
+
+export function resolveAutomaticTexRoot(
+  fileId: string,
+  files: ProjectFile[],
+  rootFolder = "",
+): string {
+  if (rootFolder)
+    files = files.filter((file) =>
+      file.relativePath.startsWith(`${rootFolder}/`),
+    );
+  const resolved = resolveDetectedTexRoot(fileId, files);
+  if (
+    files.some(
+      (file) =>
+        file.id === resolved &&
+        file.type === "tex" &&
+        !hasHiddenDirectory(file.relativePath),
+    )
+  )
+    return resolved;
+  return (
+    resolveProjectTexRoot(files)?.id ??
+    files.find(
+      (file) => file.type === "tex" && !hasHiddenDirectory(file.relativePath),
+    )?.id ??
+    ""
+  );
+}
+
 /**
  * Resolve the root .tex file for compilation.
  *
@@ -468,7 +517,7 @@ export function resolveProjectTexRoot(
  * 5. Any other .tex file in the project that contains `\documentclass`
  * 6. Fallback: the active file itself
  */
-export function resolveTexRoot(fileId: string, files: ProjectFile[]): string {
+function resolveDetectedTexRoot(fileId: string, files: ProjectFile[]): string {
   const file = files.find((f) => f.id === fileId);
   if (!file || file.type !== "tex" || !file.content) return fileId;
 
@@ -759,6 +808,17 @@ async function moveDocumentPath(
       compileDiagnosticsCache: remapCache(state.compileDiagnosticsCache),
       lastCompiledGenerations: remapCache(state.lastCompiledGenerations),
     }));
+    const options = useProjectStore.getState().latexOptionsByProject[root];
+    if (options) {
+      const rootFolder = folder
+        ? remap(options.rootFolder)
+        : options.rootFolder;
+      const mainFile = options.mainFile ? remap(options.mainFile) : null;
+      useProjectStore.getState().setLatexProjectOptions(root, {
+        rootFolder,
+        mainFile,
+      });
+    }
     const recent = useProjectStore
       .getState()
       .recentProjects.find((project) => project.path === root);
@@ -2864,4 +2924,39 @@ useDocumentStore.subscribe((state, previous) => {
     workspaceGeneration += 1;
     cancelAutoSave();
   }
+});
+
+// Compilation choices synchronize through the existing persisted project store.
+// Invalidate cached results and pending publication when another window changes them.
+useProjectStore.subscribe((state, previous) => {
+  if (getPanelWindowSession()) return;
+  const document = useDocumentStore.getState();
+  const root = document.projectRoot;
+  if (
+    !root ||
+    JSON.stringify(state.latexOptionsByProject[root]) ===
+      JSON.stringify(previous.latexOptionsByProject[root])
+  )
+    return;
+  clearPdfBytesCache();
+  useDocumentStore.setState({
+    files: [...document.files],
+    compileError: null,
+    compileErrorCache: new Map(),
+    compileDiagnosticsCache: new Map(),
+    lastCompiledGenerations: new Map(),
+    contentGeneration: document.contentGeneration + 1,
+    pdfRevision: document.pdfRevision + 1,
+    sourceViewSnapshot: document.sourceViewSnapshot
+      ? {
+          ...document.sourceViewSnapshot,
+          pdfBytesCache: new Map(),
+          currentPdfRootId: null,
+          compileError: null,
+          compileErrorCache: new Map(),
+          compileDiagnosticsCache: new Map(),
+          lastCompiledGenerations: new Map(),
+        }
+      : null,
+  });
 });

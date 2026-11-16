@@ -2651,6 +2651,7 @@ mod tests {
                     backend: crate::latex::CompilerBackend::Latexmk,
                     engine: crate::latex::TexEngine::LuaLaTeX,
                     auto_engine: false,
+                    root_folder: String::new(),
                 };
                 let mut events = handle.notifications.subscribe();
                 let requests_before = handle.next_request_id.load(Ordering::SeqCst);

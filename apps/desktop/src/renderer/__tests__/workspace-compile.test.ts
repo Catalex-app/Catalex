@@ -4,6 +4,7 @@ import {
   getCurrentPdfBytes,
   useDocumentStore,
 } from "@/stores/document-store";
+import { useProjectStore } from "@/stores/project-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import { invoke } from "@/lib/desktop/core";
 import { compileLatex } from "@/lib/latex-compiler";
@@ -51,6 +52,7 @@ const initial = useDocumentStore.getState();
 beforeEach(() => {
   vi.useFakeTimers();
   vi.clearAllMocks();
+  useProjectStore.setState({ latexOptionsByProject: {} });
   useSettingsStore.setState({
     defaultAutoCompile: true,
     autoCompileByProject: {},
@@ -613,4 +615,40 @@ it("coalesces automatic requests for the same root from two views", async () => 
   await first;
   expect(compileLatex).toHaveBeenCalledTimes(1);
   expect(getCurrentPdfBytes()).toBe(bytes);
+});
+
+it("does not publish a result produced with an earlier root folder choice", () => {
+  const request = beginCompilation("main.tex")!;
+  useProjectStore
+    .getState()
+    .setLatexProjectOptions("/one", { rootFolder: "paper", mainFile: null });
+  publishCompilation(request, bytes);
+  expect(getCurrentPdfBytes()).toBeNull();
+  finishCompilation(request);
+});
+
+it("does not restore a PDF built with old choices when leaving an agent draft", async () => {
+  const state = useDocumentStore.getState();
+  useDocumentStore.setState({
+    agentWorkspaceRoot: "/draft",
+    sourceViewSnapshot: {
+      files: state.files,
+      folders: [],
+      activeFileId: "main.tex",
+      openFileIds: ["main.tex"],
+      pdfBytesCache: new Map([["main.tex", bytes]]),
+      currentPdfRootId: "main.tex",
+      compileError: null,
+      compileErrorCache: new Map(),
+      compileDiagnosticsCache: new Map(),
+      lastCompiledGenerations: new Map([["main.tex", state.contentGeneration]]),
+    },
+    refreshFiles: vi.fn(async () => {}),
+  });
+  useProjectStore
+    .getState()
+    .setLatexProjectOptions("/one", { rootFolder: "", mainFile: "main.tex" });
+  await useDocumentStore.getState().restoreSourceWorkspace();
+  expect(getCurrentPdfBytes()).toBeNull();
+  expect(useDocumentStore.getState().lastCompiledGenerations.size).toBe(0);
 });

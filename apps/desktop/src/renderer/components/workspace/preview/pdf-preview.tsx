@@ -94,6 +94,10 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuCheckboxItem,
   DropdownMenuSeparator,
+  DropdownMenuPortal,
+  DropdownMenuSub,
+  DropdownMenuSubTrigger,
+  DropdownMenuSubContent,
 } from "@/components/ui/dropdown-menu";
 
 import {
@@ -120,7 +124,14 @@ import type {
   PdfReadingAnchor,
   PdfReadingAnchorControl,
 } from "./pdf-reading-anchor";
-import { resolveTexRoot } from "@/stores/document-store";
+import {
+  DEFAULT_LATEX_PROJECT_OPTIONS,
+  useProjectStore,
+} from "@/stores/project-store";
+import {
+  resolveAutomaticTexRoot,
+  resolveTexRoot,
+} from "@/stores/document-store";
 
 import { useProjectComments } from "../editor/use-project-comments";
 import {
@@ -451,13 +462,68 @@ export function PdfPreview({
     }
   }, [isCompiling, isStandalonePdf, scrollSyncEnabled]);
 
+  const latexOptions = useProjectStore(
+    (state) =>
+      (projectRoot && state.latexOptionsByProject[projectRoot]) ||
+      DEFAULT_LATEX_PROJECT_OPTIONS,
+  );
+  const setLatexProjectOptions = useProjectStore(
+    (state) => state.setLatexProjectOptions,
+  );
+  const folders = useDocumentStore((state) => state.folders);
+  const selectableFolders = useMemo(
+    () =>
+      folders
+        .filter((path) => !path.split("/").some((part) => part.startsWith(".")))
+        .sort(),
+    [folders],
+  );
+  const selectableTexFiles = useMemo(
+    () =>
+      files
+        .filter(
+          (file) =>
+            file.type === "tex" &&
+            !file.relativePath
+              .split("/")
+              .some((part) => part.startsWith(".")) &&
+            (!latexOptions.rootFolder ||
+              file.relativePath.startsWith(`${latexOptions.rootFolder}/`)),
+        )
+        .sort((a, b) => a.relativePath.localeCompare(b.relativePath)),
+    [files, latexOptions.rootFolder],
+  );
+  const automaticMainFile = useMemo(
+    () =>
+      resolveAutomaticTexRoot(
+        standaloneRootFileId ?? activeFile?.id ?? "",
+        files,
+        latexOptions.rootFolder,
+      ),
+    [standaloneRootFileId, activeFile?.id, files, latexOptions.rootFolder],
+  );
+  const mainFileLabel = latexOptions.mainFile
+    ? `${latexOptions.mainFile}${selectableTexFiles.some((file) => file.id === latexOptions.mainFile) ? "" : " (missing)"}`
+    : `Auto: ${automaticMainFile || "None"}`;
+  const rootFolderLabel = latexOptions.rootFolder
+    ? `${latexOptions.rootFolder}${folders.includes(latexOptions.rootFolder) ? "" : " (missing)"}`
+    : "Project folder";
+
   // Keep-alive: track which root files have PdfViewer instances alive (LRU order)
   const currentRootFileId = useMemo(
     () =>
       isolatedSnapshot
         ? `history-snapshot:${standaloneRootFileId ?? "preview"}`
-        : (standaloneRootFileId ?? resolveTexRoot(activeFile?.id ?? "", files)),
-    [isolatedSnapshot, standaloneRootFileId, activeFile?.id, files],
+        : isStandalonePdf
+          ? (standaloneRootFileId ?? activeFile?.id ?? "")
+          : resolveTexRoot(standaloneRootFileId ?? activeFile?.id ?? "", files),
+    [
+      isolatedSnapshot,
+      isStandalonePdf,
+      standaloneRootFileId,
+      activeFile?.id,
+      files,
+    ],
   );
   const currentRootFile = files.find((file) => file.id === currentRootFileId);
   const pdfDocumentPath = currentRootFile?.relativePath ?? currentRootFileId;
@@ -2739,7 +2805,7 @@ export function PdfPreview({
                 <ChevronDownIcon className="size-3" />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
+            <DropdownMenuContent align="center" className="w-64">
               {isCompiling && (
                 <>
                   <DropdownMenuItem
@@ -2766,6 +2832,108 @@ export function PdfPreview({
                   <span>Compiler settings</span>
                 </span>
               </DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger className="gap-2 [&>svg]:ml-0">
+                  <span className="shrink-0">LaTeX root</span>
+                  <span
+                    className="min-w-0 flex-1 truncate text-right text-muted-foreground"
+                    title={rootFolderLabel}
+                  >
+                    {rootFolderLabel}
+                  </span>
+                </DropdownMenuSubTrigger>
+                <DropdownMenuPortal>
+                  <DropdownMenuSubContent className="max-h-80 w-72 overflow-y-auto">
+                    <DropdownMenuRadioGroup
+                      value={latexOptions.rootFolder}
+                      onValueChange={(rootFolder) => {
+                        if (projectRoot)
+                          setLatexProjectOptions(projectRoot, {
+                            rootFolder,
+                            mainFile:
+                              latexOptions.mainFile &&
+                              (!rootFolder ||
+                                latexOptions.mainFile.startsWith(
+                                  `${rootFolder}/`,
+                                ))
+                                ? latexOptions.mainFile
+                                : null,
+                          });
+                      }}
+                    >
+                      <DropdownMenuRadioItem
+                        value=""
+                        indicatorPosition="end"
+                        indicator={<CheckIcon className="size-4" />}
+                      >
+                        Project folder
+                      </DropdownMenuRadioItem>
+                      {selectableFolders.map((folder) => (
+                        <DropdownMenuRadioItem
+                          key={folder}
+                          value={folder}
+                          indicatorPosition="end"
+                          indicator={<CheckIcon className="size-4" />}
+                        >
+                          <span className="truncate" title={folder}>
+                            {folder}
+                          </span>
+                        </DropdownMenuRadioItem>
+                      ))}
+                    </DropdownMenuRadioGroup>
+                  </DropdownMenuSubContent>
+                </DropdownMenuPortal>
+              </DropdownMenuSub>
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger className="gap-2 [&>svg]:ml-0">
+                  <span className="shrink-0">Main file</span>
+                  <span
+                    className="min-w-0 flex-1 truncate text-right text-muted-foreground"
+                    title={mainFileLabel}
+                  >
+                    {mainFileLabel}
+                  </span>
+                </DropdownMenuSubTrigger>
+                <DropdownMenuPortal>
+                  <DropdownMenuSubContent className="max-h-80 w-72 overflow-y-auto">
+                    <DropdownMenuRadioGroup
+                      value={latexOptions.mainFile ?? ""}
+                      onValueChange={(mainFile) => {
+                        if (projectRoot)
+                          setLatexProjectOptions(projectRoot, {
+                            ...latexOptions,
+                            mainFile: mainFile || null,
+                          });
+                      }}
+                    >
+                      <DropdownMenuRadioItem
+                        value=""
+                        indicatorPosition="end"
+                        indicator={<CheckIcon className="size-4" />}
+                      >
+                        Automatic
+                      </DropdownMenuRadioItem>
+                      {selectableTexFiles.map((file) => (
+                        <DropdownMenuRadioItem
+                          key={file.id}
+                          value={file.id}
+                          indicatorPosition="end"
+                          indicator={<CheckIcon className="size-4" />}
+                        >
+                          <span className="truncate" title={file.relativePath}>
+                            {latexOptions.rootFolder
+                              ? file.relativePath.slice(
+                                  latexOptions.rootFolder.length + 1,
+                                )
+                              : file.relativePath}
+                          </span>
+                        </DropdownMenuRadioItem>
+                      ))}
+                    </DropdownMenuRadioGroup>
+                  </DropdownMenuSubContent>
+                </DropdownMenuPortal>
+              </DropdownMenuSub>
               <DropdownMenuSeparator />
               <DropdownMenuRadioGroup
                 value={compilerChoice}
@@ -2797,7 +2965,6 @@ export function PdfPreview({
                 >
                   LuaLaTeX
                 </DropdownMenuRadioItem>
-                <DropdownMenuSeparator />
                 <DropdownMenuRadioItem
                   value="tectonic"
                   indicatorPosition="end"
@@ -2826,6 +2993,12 @@ export function PdfPreview({
       ) : null),
     [
       toolbarContent,
+      latexOptions,
+      setLatexProjectOptions,
+      selectableFolders,
+      selectableTexFiles,
+      mainFileLabel,
+      rootFolderLabel,
       isStandalonePdf,
       compilerChoice,
       setCompilerChoice,

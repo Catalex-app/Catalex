@@ -1,6 +1,17 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { resolveCompileTarget } from "@/lib/latex-compiler";
-import { resolveTexRoot, type ProjectFile } from "@/stores/document-store";
+import {
+  resolveTexRoot,
+  useDocumentStore,
+  type ProjectFile,
+} from "@/stores/document-store";
+
+import { useProjectStore } from "@/stores/project-store";
+
+beforeEach(() => {
+  useProjectStore.setState({ latexOptionsByProject: {} });
+  useDocumentStore.setState({ projectRoot: "/project" });
+});
 
 function file(
   relativePath: string,
@@ -78,4 +89,51 @@ describe("resolveCompileTarget", () => {
     );
     expect(resolveCompileTarget("notes.md", [hidden, notes])).toBeNull();
   });
+});
+
+it("explicit main overrides standalone files and magic comments, including roots with included preambles", () => {
+  const files = [
+    file("main.tex", root()),
+    file("chosen.tex", "\\input{preamble}"),
+    file("section.tex", "% !TEX root = main.tex"),
+  ];
+  useProjectStore.getState().setLatexProjectOptions("/project", {
+    rootFolder: "",
+    mainFile: "chosen.tex",
+  });
+  for (const active of ["main.tex", "section.tex", "notes.md", ""]) {
+    expect(resolveCompileTarget(active, files)?.rootId).toBe("chosen.tex");
+    expect(resolveTexRoot(active, files)).toBe("chosen.tex");
+  }
+  expect(
+    resolveCompileTarget(
+      "main.tex",
+      files.filter((file) => file.id !== "chosen.tex"),
+    ),
+  ).toBeNull();
+});
+
+it("automatic selection stays within the compilation folder and explicit missing choices never fall back", () => {
+  const files = [
+    file("main.tex", root()),
+    file("paper/main.tex", root()),
+    file("paper/section.tex", "Section"),
+  ];
+  useProjectStore.getState().setLatexProjectOptions("/project", {
+    rootFolder: "paper",
+    mainFile: null,
+  });
+  expect(resolveCompileTarget("main.tex", files)?.rootId).toBe(
+    "paper/main.tex",
+  );
+  useProjectStore.getState().setLatexProjectOptions("/project", {
+    rootFolder: "paper",
+    mainFile: "paper/missing.tex",
+  });
+  expect(resolveCompileTarget("main.tex", files)).toBeNull();
+  useProjectStore.getState().setLatexProjectOptions("/project", {
+    rootFolder: "missing",
+    mainFile: null,
+  });
+  expect(resolveCompileTarget("main.tex", files)).toBeNull();
 });

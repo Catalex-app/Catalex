@@ -24,6 +24,8 @@ const RENDER_TIMEOUT: Duration = Duration::from_secs(45);
 pub struct VerificationContext {
     pub root_id: String,
     pub target_path: String,
+    #[serde(default)]
+    pub root_folder: String,
     pub backend: crate::latex::CompilerBackend,
     pub engine: crate::latex::TexEngine,
     #[serde(default)]
@@ -290,6 +292,16 @@ fn validate_project_scope(
         });
     }
 
+    let (compilation_folder, _) = crate::latex::compilation_directory(
+        &canonical_project, Some(&context.root_folder), &context.target_path,
+    ).map_err(|message| VerificationError { code: "invalid_root", message })?;
+    let canonical_folder = std::fs::canonicalize(compilation_folder).map_err(|error| VerificationError {
+        code: "invalid_root", message: format!("Could not resolve compilation folder: {error}"),
+    })?;
+    if !canonical_folder.starts_with(&canonical_project) {
+        return Err(VerificationError { code: "invalid_root", message: "Compilation folder resolves outside the opened project".into() });
+    }
+
     let canonical_target =
         std::fs::canonicalize(canonical_project.join(target)).map_err(|error| {
             VerificationError {
@@ -473,6 +485,7 @@ async fn compile(
         Some(context.backend),
         if context.auto_engine { None } else { Some(context.engine) },
         operation.clone(),
+        Some(context.root_folder.clone()),
     ).await;
     let stopped = compiler_state.operations.finish(&window.id, project_path, &request_id, &operation,
         compile_result.as_ref().err().map(|e| e.message.as_str()));
@@ -628,6 +641,7 @@ async fn workspace_state(
         json!({
             "id": context.root_id,
             "file": context.target_path,
+            "folder": context.root_folder,
             "backend": compiler_backend_name(context.backend),
             "engine": if context.auto_engine { "auto" } else { tex_engine_name(context.engine) }
         })
@@ -888,7 +902,7 @@ mod tests {
             let file = format!("{name}.tex");
             if !source.is_empty() { fs::write(Path::new(project).join(&file), source).unwrap(); }
             let context = VerificationContext { root_id: file.clone(), target_path: file.clone(),
-                backend: crate::latex::CompilerBackend::Latexmk, engine, auto_engine: auto };
+                root_folder: String::new(), backend: crate::latex::CompilerBackend::Latexmk, engine, auto_engine: auto };
             let result = compile(&window, project, "tab", &context, project, &cancelled).await;
             assert_eq!(result.success, succeeds, "{name}: {:?}", result.payload);
             assert_eq!(result.payload["actualEngine"], json!(expected), "{name}");
@@ -898,6 +912,20 @@ mod tests {
             assert_eq!(saved["rootFile"], file);
             assert_eq!(workspace_state(&window, project, project, Some(&context)).await.payload["root"]["engine"], result.payload["engine"]);
         }
+        fs::create_dir(Path::new(project).join("paper")).unwrap();
+        fs::write(Path::new(project).join("shared.tex"), "Draft shared content").unwrap();
+        fs::write(Path::new(project).join("paper/main.tex"), r"\documentclass{article}\begin{document}\input{../shared}\end{document}").unwrap();
+        let context = VerificationContext {
+            root_id: "paper/main.tex".into(), target_path: "paper/main.tex".into(),
+            root_folder: "paper".into(), backend: crate::latex::CompilerBackend::Latexmk,
+            engine: crate::latex::TexEngine::Latex, auto_engine: false,
+        };
+        assert!(validate_project_scope(project, Some(&context)).is_ok());
+        let state = workspace_state(&window, project, project, Some(&context)).await;
+        assert_eq!(state.payload["root"]["folder"], "paper");
+        assert_eq!(state.payload["root"]["file"], "paper/main.tex");
+        let result = compile(&window, project, "tab", &context, project, &cancelled).await;
+        assert!(result.success, "{:?}", result.payload);
     }
 
     #[tokio::test]
@@ -956,6 +984,7 @@ mod tests {
         let valid = VerificationContext {
             root_id: "main.tex".to_string(),
             target_path: "main.tex".to_string(),
+            root_folder: String::new(),
             backend: crate::latex::CompilerBackend::Latexmk,
             engine: crate::latex::TexEngine::XeLaTeX,
             auto_engine: false,

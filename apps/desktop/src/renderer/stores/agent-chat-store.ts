@@ -41,7 +41,7 @@ import {
   type AgentContextUsage,
 } from "@/lib/agent-context-usage";
 import { invoke } from "@/lib/desktop/core";
-import { useDocumentStore } from "./document-store";
+import { getLatexProjectOptions, useDocumentStore } from "./document-store";
 import type { AgentQuestion, SavedAgentQuestion } from "./agent-question-store";
 import {
   type ChatProvider,
@@ -2594,6 +2594,7 @@ const createAgentChatState: StateCreator<AgentChatState> = (set, get) => ({
       return {
         rootId: resolved.rootId,
         targetPath: resolved.targetPath,
+        rootFolder: getLatexProjectOptions().rootFolder,
         backend,
         engine,
         autoEngine,

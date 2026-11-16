@@ -5,6 +5,7 @@ describe("useProjectStore", () => {
   beforeEach(() => {
     // Reset the store between tests
     useProjectStore.setState({
+      latexOptionsByProject: {},
       recentProjects: [],
       recentFilesByProject: {},
       sidebarWidthsByProject: {},
@@ -154,4 +155,26 @@ describe("useProjectStore", () => {
       expect(b?.lastActiveFile).toBe("notes.tex");
     });
   });
+});
+
+it("saves independent LaTeX choices across rehydration and rejects paths outside the project", async () => {
+  const set = useProjectStore.getState().setLatexProjectOptions;
+  set("/a", { rootFolder: "paper", mainFile: "paper/article.tex" });
+  set("/b", { rootFolder: "", mainFile: null });
+  const choices = useProjectStore.getState().latexOptionsByProject;
+  for (const rootFolder of [
+    "../outside",
+    "/tmp",
+    "paper/../other",
+    ".hidden",
+    "paper//other",
+  ]) {
+    set("/a", { rootFolder, mainFile: null });
+    expect(useProjectStore.getState().latexOptionsByProject).toEqual(choices);
+  }
+  const saved = localStorage.getItem("catalex-projects")!;
+  useProjectStore.setState({ latexOptionsByProject: {} });
+  localStorage.setItem("catalex-projects", saved);
+  await useProjectStore.persist.rehydrate();
+  expect(useProjectStore.getState().latexOptionsByProject).toEqual(choices);
 });

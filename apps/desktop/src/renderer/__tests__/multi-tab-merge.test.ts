@@ -3,7 +3,10 @@ import { usePiSetupStore } from "@/stores/pi-setup-store";
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { invoke } from "@/lib/desktop/core";
 import { useAgentChatStore } from "@/stores/agent-chat-store";
-import { useDocumentStore } from "@/stores/document-store";
+import {
+  getLatexProjectOptions,
+  useDocumentStore,
+} from "@/stores/document-store";
 import { useProposedChangesStore } from "@/stores/proposed-changes-store";
 import { useAgentReviewQueueStore } from "@/stores/agent-review-queue-store";
 import { useSettingsStore } from "@/stores/settings-store";
@@ -35,6 +38,7 @@ vi.mock("@/stores/document-store", () => ({
     if (activeFileId) return activeFileId;
     return files.find((file) => file.type === "tex")?.id ?? "";
   }),
+  getLatexProjectOptions: vi.fn(() => ({ rootFolder: "", mainFile: null })),
   resolveProjectTexRoot: vi.fn(() => undefined),
   useDocumentStore: {
     getState: vi.fn(() => ({
@@ -85,6 +89,10 @@ function resetStores() {
       tabId: workspaceArgs?.tabId ?? "tab-default",
       mode: workspaceArgs?.mode === "edit" ? "edit" : "ask",
     } as any;
+  });
+  vi.mocked(getLatexProjectOptions).mockReturnValue({
+    rootFolder: "",
+    mainFile: null,
   });
   vi.mocked(readTexFileContent).mockReset();
   vi.mocked(readTexFileContent).mockResolvedValue("");
@@ -891,20 +899,24 @@ describe("Multi-tab merge triggers", () => {
 
   describe("Codex app-server thread routing", () => {
     it("passes the resolved root and active compiler choice to Codex", async () => {
+      vi.mocked(getLatexProjectOptions).mockReturnValue({
+        rootFolder: "paper",
+        mainFile: "paper/main.tex",
+      });
       vi.mocked(useDocumentStore.getState).mockReturnValue({
         projectRoot: "/project",
         files: [
           {
-            id: "main.tex",
-            name: "main.tex",
+            id: "paper/main.tex",
+            name: "paper/main.tex",
             type: "tex",
-            relativePath: "main.tex",
-            absolutePath: "/project/main.tex",
+            relativePath: "paper/main.tex",
+            absolutePath: "/project/paper/main.tex",
             content: "% !TEX program = lualatex\n\\documentclass{article}",
             isDirty: false,
           },
         ],
-        activeFileId: "main.tex",
+        activeFileId: "paper/main.tex",
         selectionRange: null,
         reloadFile: vi.fn(),
         refreshFiles: vi.fn(() => Promise.resolve()),
@@ -933,8 +945,9 @@ describe("Multi-tab merge triggers", () => {
           runtimeSessionKey:
             useAgentChatStore.getState().tabs[0].runtimeSessionKey,
           compileContext: {
-            rootId: "main.tex",
-            targetPath: "main.tex",
+            rootId: "paper/main.tex",
+            targetPath: "paper/main.tex",
+            rootFolder: "paper",
             backend: "latexmk",
             engine: "lualatex",
             autoEngine: undefined,
@@ -1040,6 +1053,7 @@ describe("Multi-tab merge triggers", () => {
           compileContext: {
             rootId: "paper.tex",
             targetPath: "paper.tex",
+            rootFolder: "",
             backend: "latexmk",
             engine: "xelatex",
             autoEngine: undefined,
