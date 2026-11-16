@@ -109,11 +109,6 @@ export function commentsInPdfSelection(
     .map((comment) => commentChatContext(filePath, comment));
 }
 
-const recoveredBySource = new WeakMap<
-  PdfSource,
-  Map<string, Promise<PdfTextRange[]>>
->();
-
 function selectionBoundsByPage(regions: PdfSelectionAnchor["regions"]) {
   const bounds = new Map<
     number,
@@ -139,74 +134,111 @@ function selectionBoundsByPage(regions: PdfSelectionAnchor["regions"]) {
   return bounds;
 }
 
-export async function recoverPdfSelectionCommentRanges(
-  comments: InlineEditorComment[],
-  selection: PdfSelectionAnchor,
-): Promise<ReadonlyMap<PdfCommentAnchor, PdfTextRange[]>> {
-  const { source } = selection;
-  let cache = recoveredBySource.get(source);
-  if (!cache) {
-    cache = new Map();
-    recoveredBySource.set(source, cache);
-  }
-  const selectedPages = new Set(selection.ranges.map(({ page }) => page));
-  let selectionBounds: ReturnType<typeof selectionBoundsByPage> | undefined;
-  const pageText = new Map<number, Promise<StructuredTextData>>();
-  const getPageText = (page: number) => {
-    let request = pageText.get(page);
-    if (!request) {
-      request = getOrOpenDocument(source).then(({ docId }) =>
-        getMupdfClient().getPageText(docId, page - 1),
-      );
-      pageText.set(page, request);
-    }
-    return request;
+export type PdfSelectionCommentRanges = ReadonlyMap<
+  PdfCommentAnchor,
+  PdfTextRange[]
+>;
+
+/** One composer owns recovery only while it accepts a live PDF selection. */
+export function createPdfSelectionCommentRecovery() {
+  let source: PdfSource | null = null;
+  let generation = 0;
+  const cache = new Map<PdfCommentAnchor, Promise<PdfTextRange[]>>();
+  const clear = () => {
+    generation++;
+    source = null;
+    cache.clear();
   };
-  const recovered = new Map<PdfCommentAnchor, PdfTextRange[]>();
-  await Promise.all(
-    comments.map(async ({ pdf, resolved, text }) => {
-      if (
-        resolved ||
-        !text.trim() ||
-        pdf?.fingerprint !== selection.fingerprint ||
-        !validPdfCommentRegions(pdf.regions) ||
-        !pdf.regions.some(({ page }) => selectedPages.has(page))
-      )
-        return;
-
-      const key = JSON.stringify([pdf.text, pdf.regions]);
-      let request = cache.get(key);
-      if (!request) {
-        const bounds = (selectionBounds ??= selectionBoundsByPage(
-          selection.regions,
-        ));
-        const nearby = pdf.regions.some(({ page, x, y, width, height }) => {
-          if (!selectedPages.has(page)) return false;
-          const box = bounds.get(page);
-          if (!box) return true;
-          // Allow a line's worth of slack for differences in glyph metrics.
-          const padding = Math.max(box.lineHeight, height);
-          return (
-            x <= box.right + padding &&
-            x + width >= box.left - padding &&
-            y <= box.bottom + padding &&
-            y + height >= box.top - padding
-          );
-        });
-        if (!nearby) return;
-
-        const pages = [...new Set(pdf.regions.map(({ page }) => page))];
-        request = Promise.all(
-          pages.map(async (page) => [page, await getPageText(page)] as const),
-        ).then((entries) => recoverPdfCommentRanges(pdf, new Map(entries)));
-        cache.set(key, request);
+  return {
+    clear,
+    async recover(
+      comments: InlineEditorComment[],
+      selection: PdfSelectionAnchor,
+    ): Promise<PdfSelectionCommentRanges> {
+      if (source !== selection.source) {
+        clear();
+        source = selection.source;
       }
-      try {
-        recovered.set(pdf, await request);
-      } catch {
-        if (cache.get(key) === request) cache.delete(key);
+      const revision = generation;
+      const anchors = comments.flatMap(({ pdf, resolved, text }) => {
+        if (
+          resolved ||
+          !text.trim() ||
+          pdf?.fingerprint !== selection.fingerprint ||
+          !validPdfCommentRegions(pdf.regions)
+        )
+          return [];
+        return [pdf];
+      });
+      const current = new Set(anchors);
+      for (const anchor of cache.keys()) {
+        if (!current.has(anchor)) cache.delete(anchor);
       }
-    }),
-  );
-  return recovered;
+      const selectedPages = new Set(selection.ranges.map(({ page }) => page));
+      let selectionBounds: ReturnType<typeof selectionBoundsByPage> | undefined;
+      const pageText = new Map<number, Promise<StructuredTextData>>();
+      const getPageText = (page: number) => {
+        let request = pageText.get(page);
+        if (!request) {
+          request = getOrOpenDocument(selection.source).then(({ docId }) => {
+            if (revision !== generation)
+              throw new DOMException("PDF selection dismissed", "AbortError");
+            return getMupdfClient().getPageText(docId, page - 1);
+          });
+          pageText.set(page, request);
+        }
+        return request;
+      };
+      const recovered = new Map<PdfCommentAnchor, PdfTextRange[]>();
+      await Promise.all(
+        anchors.map(async (pdf) => {
+          if (!pdf.regions.some(({ page }) => selectedPages.has(page))) return;
+
+          let request = cache.get(pdf);
+          if (!request) {
+            const bounds = (selectionBounds ??= selectionBoundsByPage(
+              selection.regions,
+            ));
+            const nearby = pdf.regions.some(({ page, x, y, width, height }) => {
+              if (!selectedPages.has(page)) return false;
+              const box = bounds.get(page);
+              if (!box) return true;
+              // Allow a line's worth of slack for differences in glyph metrics.
+              const padding = Math.max(box.lineHeight, height);
+              return (
+                x <= box.right + padding &&
+                x + width >= box.left - padding &&
+                y <= box.bottom + padding &&
+                y + height >= box.top - padding
+              );
+            });
+            if (!nearby) return;
+
+            const pages = [...new Set(pdf.regions.map(({ page }) => page))];
+            request = Promise.all(
+              pages.map(
+                async (page) => [page, await getPageText(page)] as const,
+              ),
+            ).then((entries) =>
+              cache.get(pdf) === request
+                ? recoverPdfCommentRanges(pdf, new Map(entries))
+                : [],
+            );
+            cache.set(pdf, request);
+          }
+          try {
+            const ranges = await request;
+            if (cache.get(pdf) === request) recovered.set(pdf, ranges);
+          } catch {
+            if (cache.get(pdf) === request) cache.delete(pdf);
+          }
+        }),
+      );
+      if (revision !== generation) return new Map();
+      for (const anchor of recovered.keys()) {
+        if (!cache.has(anchor)) recovered.delete(anchor);
+      }
+      return recovered;
+    },
+  };
 }

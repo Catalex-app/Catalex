@@ -5,10 +5,11 @@ import {
   commentChatContext,
   commentsInPdfSelection,
   commentsInSelection,
-  recoverPdfSelectionCommentRanges,
+  createPdfSelectionCommentRecovery,
 } from "./comment-chat-context";
 import * as mupdfClient from "./mupdf/mupdf-client";
 import * as pdfDocCache from "./mupdf/pdf-doc-cache";
+import * as pdfPassage from "./mupdf/pdf-comment-passage";
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -209,7 +210,8 @@ it("skips distant uncached highlights and compares recovered text for nearby hig
     id: String(i),
     pdf,
   }));
-  const recovered = await recoverPdfSelectionCommentRanges(comments, selected);
+  const recovery = createPdfSelectionCommentRecovery();
+  const recovered = await recovery.recover(comments, selected);
   expect([...recovered.keys()]).toEqual([matching, touching, nearEdge]);
   expect(
     commentsInPdfSelection("paper.pdf", comments, selected, recovered).map(
@@ -218,18 +220,218 @@ it("skips distant uncached highlights and compares recovered text for nearby hig
   ).toEqual(["0", "2"]);
   expect(getPageText).toHaveBeenCalledTimes(1);
 
-  const cached = await recoverPdfSelectionCommentRanges(comments, {
+  const cached = await recovery.recover(comments, {
     ...selected,
     regions: [{ ...region, x: 300 }],
   });
   expect(cached.get(matching)).toEqual(recovered.get(matching));
   expect(getPageText).toHaveBeenCalledTimes(1);
 
-  const missingBounds = await recoverPdfSelectionCommentRanges(comments, {
+  const missingBounds = await recovery.recover(comments, {
     ...selected,
     regions: [{ ...region, page: 2 }],
   });
   expect(missingBounds.get(distant[0])).toEqual([
     { page: 1, from: 11, to: 16 },
   ]);
+});
+
+function pdfRecoveryFixture() {
+  const pageText = {
+    blocks: [{ lines: [{ text: "alpha beta gamma" }] }],
+  };
+  const getPageText = vi.fn().mockResolvedValue(pageText);
+  vi.spyOn(mupdfClient, "getMupdfClient").mockReturnValue({
+    getPageText,
+  } as unknown as ReturnType<typeof mupdfClient.getMupdfClient>);
+  vi.spyOn(pdfDocCache, "getOrOpenDocument").mockResolvedValue({
+    docId: 1,
+    pageSizes: [],
+    cacheHit: true,
+  });
+  const region = { page: 1, x: 20, y: 30, width: 40, height: 10 };
+  const pdf = { fingerprint: "a".repeat(40), text: "beta", regions: [region] };
+  const comments = [{ ...comment, pdf }];
+  const selection = {
+    fingerprint: pdf.fingerprint,
+    source: new Uint8Array(),
+    ranges: [{ page: 1, from: 6, to: 10 }],
+    regions: [region],
+  };
+  return {
+    pageText,
+    getPageText,
+    pdf,
+    comments,
+    selection,
+    distantSelection: { ...selection, regions: [{ ...region, x: 300 }] },
+  };
+}
+
+describe("PDF comment recovery lifetime", () => {
+  it.each([
+    "deleted",
+    "resolved",
+    "replaced",
+  ])("releases %s anchors while another selection remains active", async (change) => {
+    const { comments, pdf, selection, distantSelection, getPageText } =
+      pdfRecoveryFixture();
+    const recovery = createPdfSelectionCommentRecovery();
+    await recovery.recover(comments, selection);
+    const updated =
+      change === "deleted"
+        ? []
+        : comments.map((item) =>
+            change === "resolved"
+              ? { ...item, resolved: true }
+              : { ...item, pdf: { ...pdf, text: "gamma" } },
+          );
+    await recovery.recover(updated, distantSelection);
+    const restored = await recovery.recover(comments, distantSelection);
+    expect(restored.size).toBe(0);
+    expect(getPageText).toHaveBeenCalledTimes(1);
+    expect((await recovery.recover(comments, selection)).get(pdf)).toEqual([
+      { page: 1, from: 6, to: 10 },
+    ]);
+    expect(getPageText).toHaveBeenCalledTimes(2);
+  });
+
+  it("releases cached anchors on dismissal and source changes", async () => {
+    const { comments, pdf, selection, distantSelection, getPageText } =
+      pdfRecoveryFixture();
+    const recovery = createPdfSelectionCommentRecovery();
+    await recovery.recover(comments, selection);
+    recovery.clear();
+    expect((await recovery.recover(comments, distantSelection)).size).toBe(0);
+    await recovery.recover(comments, selection);
+    expect(getPageText).toHaveBeenCalledTimes(2);
+    await recovery.recover(comments, {
+      ...distantSelection,
+      source: new Uint8Array(),
+    });
+    expect((await recovery.recover(comments, distantSelection)).size).toBe(0);
+    expect((await recovery.recover(comments, selection)).has(pdf)).toBe(true);
+    expect(getPageText).toHaveBeenCalledTimes(3);
+  });
+
+  it.each([
+    "dismissed",
+    "deleted",
+  ])("discards pending recovery after its selection is %s", async (change) => {
+    const { comments, selection, distantSelection, getPageText, pageText } =
+      pdfRecoveryFixture();
+    let finishRead!: (value: typeof pageText) => void;
+    getPageText.mockReturnValueOnce(
+      new Promise((resolve) => {
+        finishRead = resolve;
+      }),
+    );
+    const recovery = createPdfSelectionCommentRecovery();
+    const recoverRanges = vi.spyOn(pdfPassage, "recoverPdfCommentRanges");
+    const pending = recovery.recover(comments, selection);
+    await vi.waitFor(() => expect(getPageText).toHaveBeenCalledTimes(1));
+    if (change === "dismissed") recovery.clear();
+    else await recovery.recover([], selection);
+    finishRead(pageText);
+    expect((await pending).size).toBe(0);
+    expect(recoverRanges).not.toHaveBeenCalled();
+    expect((await recovery.recover(comments, distantSelection)).size).toBe(0);
+    await recovery.recover(comments, selection);
+    expect(getPageText).toHaveBeenCalledTimes(2);
+  });
+
+  it("stops dismissed recovery before requesting worker text", async () => {
+    const { comments, selection, getPageText } = pdfRecoveryFixture();
+    let finishOpen!: () => void;
+    vi.mocked(pdfDocCache.getOrOpenDocument).mockReturnValueOnce(
+      new Promise((resolve) => {
+        finishOpen = () => resolve({ docId: 1, pageSizes: [], cacheHit: true });
+      }),
+    );
+    const recovery = createPdfSelectionCommentRecovery();
+    const pending = recovery.recover(comments, selection);
+    recovery.clear();
+    finishOpen();
+    expect((await pending).size).toBe(0);
+    expect(getPageText).not.toHaveBeenCalled();
+  });
+
+  it("preserves a new request for the same anchor when a dismissed request finishes", async () => {
+    const { comments, pdf, selection, getPageText, pageText } =
+      pdfRecoveryFixture();
+    let finishOld!: (value: typeof pageText) => void;
+    let finishCurrent!: (value: typeof pageText) => void;
+    getPageText
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          finishOld = resolve;
+        }),
+      )
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          finishCurrent = resolve;
+        }),
+      );
+    const recovery = createPdfSelectionCommentRecovery();
+    const recoverRanges = vi.spyOn(pdfPassage, "recoverPdfCommentRanges");
+    const old = recovery.recover(comments, selection);
+    await vi.waitFor(() => expect(getPageText).toHaveBeenCalledTimes(1));
+    recovery.clear();
+    const current = recovery.recover(comments, selection);
+    await vi.waitFor(() => expect(getPageText).toHaveBeenCalledTimes(2));
+    finishOld(pageText);
+    expect((await old).size).toBe(0);
+    expect(recoverRanges).not.toHaveBeenCalled();
+    finishCurrent(pageText);
+    expect((await current).get(pdf)).toEqual([{ page: 1, from: 6, to: 10 }]);
+    expect(recoverRanges).toHaveBeenCalledTimes(1);
+    await recovery.recover(comments, selection);
+    expect(getPageText).toHaveBeenCalledTimes(2);
+  });
+
+  it("removes an already recovered anchor while another page is still pending", async () => {
+    const { comments, pdf, selection, getPageText, pageText } =
+      pdfRecoveryFixture();
+    const second = {
+      ...pdf,
+      regions: pdf.regions.map((region) => ({ ...region, page: 2 })),
+    };
+    const secondComment = { ...comments[0], id: "second", pdf: second };
+    const bothPages = {
+      ...selection,
+      ranges: [...selection.ranges, { ...selection.ranges[0], page: 2 }],
+      regions: [...selection.regions, ...second.regions],
+    };
+    let finishSecond!: (value: typeof pageText) => void;
+    getPageText.mockResolvedValueOnce(pageText).mockReturnValueOnce(
+      new Promise((resolve) => {
+        finishSecond = resolve;
+      }),
+    );
+    const recovery = createPdfSelectionCommentRecovery();
+    const recoverRanges = vi.spyOn(pdfPassage, "recoverPdfCommentRanges");
+    const old = recovery.recover([...comments, secondComment], bothPages);
+    await vi.waitFor(() => expect(recoverRanges).toHaveBeenCalledTimes(1));
+    const current = recovery.recover([secondComment], bothPages);
+    finishSecond(pageText);
+    expect([...(await old).keys()]).toEqual([second]);
+    expect([...(await current).keys()]).toEqual([second]);
+    expect(getPageText).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps recovery owners independent when one composer dismisses selection", async () => {
+    const { comments, pdf, selection, distantSelection, getPageText } =
+      pdfRecoveryFixture();
+    const first = createPdfSelectionCommentRecovery();
+    const second = createPdfSelectionCommentRecovery();
+    await first.recover(comments, selection);
+    await second.recover(comments, selection);
+    expect(getPageText).toHaveBeenCalledTimes(2);
+    first.clear();
+    expect((await first.recover(comments, distantSelection)).size).toBe(0);
+    expect((await second.recover(comments, distantSelection)).has(pdf)).toBe(
+      true,
+    );
+    expect(getPageText).toHaveBeenCalledTimes(2);
+  });
 });

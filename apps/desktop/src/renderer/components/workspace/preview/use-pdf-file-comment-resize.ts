@@ -28,20 +28,34 @@ export function usePdfFileCommentResize(
     () => ({
       pages: new Map<number, StructuredTextData>(),
       pending: new Map<number, Promise<void>>(),
+      generation: 0,
     }),
     [source],
   );
+  const clearPages = useCallback(() => {
+    cache.generation++;
+    cache.pages.clear();
+    cache.pending.clear();
+  }, [cache]);
   const loadPage = useCallback(
     (page: number) => {
       if (!source || cache.pages.has(page)) return Promise.resolve();
       let request = cache.pending.get(page);
       if (!request) {
+        const generation = cache.generation;
         request = getOrOpenDocument(source)
-          .then(({ docId }) => getMupdfClient().getPageText(docId, page - 1))
+          .then(({ docId }) =>
+            cache.generation === generation
+              ? getMupdfClient().getPageText(docId, page - 1)
+              : null,
+          )
           .then((textData) => {
-            cache.pages.set(page, textData);
+            if (textData && cache.generation === generation)
+              cache.pages.set(page, textData);
           })
-          .finally(() => cache.pending.delete(page));
+          .finally(() => {
+            if (cache.pending.get(page) === request) cache.pending.delete(page);
+          });
         cache.pending.set(page, request);
       }
       return request;
@@ -93,13 +107,18 @@ export function usePdfFileCommentResize(
             from: { page: first.page, offset: first.from },
             to: { page: last.page, offset: last.to },
           });
+        // Handles only need endpoints. Full geometry is loaded again during a drag.
+        clearPages();
       })
-      .catch(() => {});
+      .catch(() => {
+        if (!cancelled) clearPages();
+      });
     return () => {
       cancelled = true;
       drag.current = null;
+      clearPages();
     };
-  }, [source, anchor, onResize, loadPage, cache]);
+  }, [source, anchor, onResize, loadPage, cache, clearPages]);
 
   const ready = Boolean(
     prepared && prepared.source === source && prepared.anchor === anchor,
@@ -170,6 +189,7 @@ export function usePdfFileCommentResize(
       const finish = () => {
         if (drag.current !== current) return;
         resetDrag();
+        clearPages();
         if (commit && current.next) onResize?.(current.target, current.next);
       };
       if (commit && current.pending) void current.pending.then(finish);

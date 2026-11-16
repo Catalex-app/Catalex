@@ -55,7 +55,8 @@ import { useProjectComments } from "@/components/workspace/editor/use-project-co
 import {
   commentsInPdfSelection,
   commentsInSelection,
-  recoverPdfSelectionCommentRanges,
+  createPdfSelectionCommentRecovery,
+  type PdfSelectionCommentRanges,
 } from "@/lib/comment-chat-context";
 import { ContextBadgeList, type ChatContextBadge } from "./context-badge-list";
 import { Hint } from "@/components/ui/tooltip";
@@ -1031,9 +1032,11 @@ export const ChatComposer: FC<{
   const pdfComments = pdfSelectionContext
     ? commentsByFile[pdfSelectionContext.filePath]
     : undefined;
+  const [pdfCommentRecovery] = useState(createPdfSelectionCommentRecovery);
+  useEffect(() => () => pdfCommentRecovery.clear(), [pdfCommentRecovery]);
   const [recoveredPdfComments, setRecoveredPdfComments] = useState<{
     source: PdfSelectionAnchor["source"];
-    ranges: Awaited<ReturnType<typeof recoverPdfSelectionCommentRanges>>;
+    ranges: PdfSelectionCommentRanges;
   } | null>(null);
   useEffect(() => {
     if (
@@ -1041,23 +1044,29 @@ export const ChatComposer: FC<{
       !pdfSelectionAnchor ||
       !pdfComments?.length
     ) {
+      pdfCommentRecovery.clear();
       setRecoveredPdfComments(null);
       return;
     }
     let cancelled = false;
-    void recoverPdfSelectionCommentRanges(pdfComments, pdfSelectionAnchor).then(
-      (ranges) => {
+    void pdfCommentRecovery
+      .recover(pdfComments, pdfSelectionAnchor)
+      .then((ranges) => {
         if (!cancelled)
           setRecoveredPdfComments({
             source: pdfSelectionAnchor.source,
             ranges,
           });
-      },
-    );
+      });
     return () => {
       cancelled = true;
     };
-  }, [acceptPendingAttachments, pdfComments, pdfSelectionAnchor]);
+  }, [
+    acceptPendingAttachments,
+    pdfComments,
+    pdfSelectionAnchor,
+    pdfCommentRecovery,
+  ]);
 
   // Consume pending attachments from external sources (e.g. PDF capture)
   const pendingAttachments = useAgentChatStore((s) => s.pendingAttachments);
