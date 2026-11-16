@@ -85,52 +85,12 @@ test("model discovery failure uses production error panel and refreshes without 
   });
   const panel = page.locator("[data-chat-error-composer]:visible");
   await expect(panel).toContainText("Model discovery unavailable");
-  await expect(
-    panel.getByRole("button", { name: "Fix with chat" }),
-  ).toHaveCount(0);
   await panel.getByRole("button", { name: "Refresh" }).click();
   await expect(panel).toHaveCount(0);
   await expect(
     page.locator("[data-chat-drawer-panel] textarea:visible"),
   ).toBeVisible();
 });
-test("Fix with chat sends raw error context once without consuming the composer draft", async ({
-  page,
-}) => {
-  await setup(page);
-  await page
-    .locator("[data-chat-drawer-panel] textarea:visible")
-    .fill("My draft stays here");
-  await page.evaluate(() => {
-    window.fixPrompts = [];
-    window.chat.setState({
-      sendPrompt: async (prompt) => {
-        window.fixPrompts.push(prompt);
-        window.chat
-          .getState()
-          ._setError(window.chat.getState().activeTabId, null);
-      },
-    });
-    window.chat
-      .getState()
-      ._setError(
-        window.chat.getState().activeTabId,
-        "The agent draft did not compile. Missing results.tex",
-      );
-  });
-  await page
-    .locator("[data-chat-drawer-panel]")
-    .getByRole("button", { name: "Fix with chat", exact: true })
-    .click();
-  await expect(
-    page.locator("[data-chat-drawer-panel] textarea:visible"),
-  ).toHaveValue("My draft stays here");
-  expect(await page.evaluate(() => window.fixPrompts)).toHaveLength(1);
-  expect(await page.evaluate(() => window.fixPrompts[0])).toContain(
-    "Missing results.tex",
-  );
-});
-
 test("revoked Claude token shows terminal recovery and reloads without losing the draft", async ({
   page,
 }) => {
@@ -164,9 +124,6 @@ test("revoked Claude token shows terminal recovery and reloads without losing th
   await expect(panel).toContainText("401 OAuth access token has been revoked.");
   await expect(panel).toContainText("claude auth logout");
   await expect(panel).toContainText("claude auth login");
-  await expect(
-    panel.getByRole("button", { name: "Fix with chat" }),
-  ).toHaveCount(0);
   await expect(panel.locator("..")).toHaveCSS(
     "background-color",
     "rgb(207, 69, 75)",
@@ -242,9 +199,6 @@ test("unknown provider failure reconnects without sending and preserves new draf
   });
   const panel = page.locator("[data-chat-error-composer]:visible");
   await expect(panel).toContainText("Exact provider failure text");
-  await expect(
-    panel.getByRole("button", { name: "Fix with chat" }),
-  ).toHaveCount(0);
   await expect(panel.locator("..")).toHaveCSS(
     "background-color",
     "rgb(207, 69, 75)",

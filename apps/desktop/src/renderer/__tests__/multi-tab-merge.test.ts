@@ -35,6 +35,7 @@ vi.mock("@/stores/document-store", () => ({
     if (activeFileId) return activeFileId;
     return files.find((file) => file.type === "tex")?.id ?? "";
   }),
+  resolveProjectTexRoot: vi.fn(() => undefined),
   useDocumentStore: {
     getState: vi.fn(() => ({
       projectRoot: "/project",

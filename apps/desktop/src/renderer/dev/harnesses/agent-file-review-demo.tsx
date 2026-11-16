@@ -88,12 +88,7 @@ function figure(title: string, color: string, bars: number[]) {
 }
 
 function showDemoError(
-  kind:
-    | "connection"
-    | "compile"
-    | "repair"
-    | "logged-out"
-    | "busy" = "connection",
+  kind: "connection" | "repair" | "logged-out" | "busy" = "connection",
 ) {
   const chat = useAgentChatStore.getState();
   chat._setError(
@@ -104,9 +99,7 @@ function showDemoError(
         ? "Authentication required. You are not signed in to the agent provider. Sign in, then refresh to continue."
         : kind === "repair"
           ? "The revision could not be completed because a referenced file is missing. The agent is available to investigate."
-          : kind === "compile"
-            ? "The agent draft did not compile. The source project was not changed; the draft is available for review. LaTeX error: Undefined control sequence (\\figref)."
-            : "Could not start refinement. Your draft and message are preserved. The agent connection was interrupted. Please try again.",
+          : "Could not start refinement. Your draft and message are preserved. The agent connection was interrupted. Please try again.",
   );
   chat.requestDrawerOpen();
 }
@@ -425,18 +418,7 @@ Publish the current figure and close the experiment.
         chat._setStreaming(session.tabId, true);
         useAgentChatStore.setState((state) => ({
           tabs: state.tabs.map((tab) =>
-            tab.id === session.tabId
-              ? {
-                  ...tab,
-                  provider: "codex",
-                  agentVerificationContext: {
-                    rootId: "main.tex",
-                    targetPath: "main.tex",
-                    backend: "latexmk",
-                    engine: "pdflatex",
-                  },
-                }
-              : tab,
+            tab.id === session.tabId ? { ...tab, provider: "codex" } : tab,
           ),
         }));
       }
@@ -880,11 +862,7 @@ Code stays literal: ` + "`\\(u_k\\)`"
     new URLSearchParams(location.search).has("errorOptions") ||
     new URLSearchParams(location.search).has("errorInput")
   )
-    showDemoError(
-      new URLSearchParams(location.search).get("error") === "compile"
-        ? "compile"
-        : "connection",
-    );
+    showDemoError();
 }
 
 function DemoWorkspace() {
@@ -1114,22 +1092,13 @@ export function AgentFileReviewDemo() {
               </>
             )}
             {!acceptanceDemo && !compileCase && !errorInput && (
-              <>
-                <button
-                  type="button"
-                  disabled={!ready}
-                  onClick={() => showDemoError("compile")}
-                >
-                  Show compile error
-                </button>
-                <button
-                  type="button"
-                  disabled={!ready}
-                  onClick={() => showDemoError()}
-                >
-                  Show chat error
-                </button>
-              </>
+              <button
+                type="button"
+                disabled={!ready}
+                onClick={() => showDemoError()}
+              >
+                Show chat error
+              </button>
             )}
             {errorInput && (
               <button

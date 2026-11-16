@@ -39,8 +39,6 @@ export interface ReviewQueueEntry {
   conflicts: AgentWorkspaceConflict[];
   preview?: AgentWorkspacePreview;
   error?: string;
-  // Persist across queue delays and rechecks; source checks do not recompile.
-  verificationError?: string;
   editedContents?: Record<string, string>;
   excludedChangeIds?: string[];
   refinementDecisions?: Record<
@@ -125,10 +123,7 @@ export const useAgentReviewQueueStore = create<{
     sessionId: string,
   ) => Promise<{ session: AgentWorkspaceSession; instructions: string }>;
   recoverRefinement: (sessionId: string) => Promise<void>;
-  enqueue: (
-    session: AgentWorkspaceSession,
-    verificationError?: string,
-  ) => Promise<void>;
+  enqueue: (session: AgentWorkspaceSession) => Promise<void>;
   advance: (projectRoot: string) => Promise<void>;
   show: (sessionId: string) => Promise<void>;
   finish: (sessionId: string) => Promise<void>;
@@ -549,7 +544,7 @@ export const useAgentReviewQueueStore = create<{
           }),
         }));
       },
-      enqueue: async (session, verificationError) => {
+      enqueue: async (session) => {
         const refining = get().entries.find(
           (entry) =>
             entry.session.sessionId === session.sessionId &&
@@ -565,7 +560,6 @@ export const useAgentReviewQueueStore = create<{
                     phase: "queued",
                     preview: undefined,
                     editedContents: undefined,
-                    verificationError,
                   }
                 : entry,
             ),
@@ -579,7 +573,7 @@ export const useAgentReviewQueueStore = create<{
           set((state) => ({
             entries: [
               ...state.entries,
-              { session, phase: "queued", conflicts: [], verificationError },
+              { session, phase: "queued", conflicts: [] },
             ],
           }));
         }
@@ -640,9 +634,7 @@ export const useAgentReviewQueueStore = create<{
                 ? "question"
                 : preview.conflicts.length
                   ? "review"
-                  : head.session.mode === "edit" &&
-                      !head.verificationError &&
-                      !head.refinementRound
+                  : head.session.mode === "edit" && !head.refinementRound
                     ? "applying"
                     : "review",
             });
@@ -654,11 +646,7 @@ export const useAgentReviewQueueStore = create<{
             ) {
               await get().show(id);
             } else if (!preview.conflicts.length) {
-              if (
-                head.session.mode === "edit" &&
-                !head.verificationError &&
-                !head.refinementRound
-              ) {
+              if (head.session.mode === "edit" && !head.refinementRound) {
                 if (
                   head.session.status !== "review" ||
                   head.session.dirtyBuffers?.length

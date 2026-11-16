@@ -47,8 +47,6 @@ import {
   type ChatProvider,
   type ClaudeEffortLevel,
   type ClaudeModelId,
-  type CompilerBackend,
-  type ConcreteCompilerEngine,
   type AgentExecutionMode,
   type CodexModelId,
   type CodexReasoningEffort,
@@ -359,13 +357,6 @@ export interface TabState {
     prompt: string;
     context?: ChatPromptContext;
   } | null;
-  agentVerificationContext?: {
-    rootId: string;
-    targetPath: string;
-    backend: CompilerBackend;
-    engine: ConcreteCompilerEngine;
-    autoEngine?: boolean;
-  } | null;
 }
 
 /** Fields that are projected from the active tab to top-level state */
@@ -471,7 +462,6 @@ function makeDefaultTab(
     pendingClaudeExecutionMode: null,
     agentWorkspace: null,
     cancelledByUser: false,
-    agentVerificationContext: null,
   };
 }
 
@@ -2426,7 +2416,6 @@ const createAgentChatState: StateCreator<AgentChatState> = (set, get) => ({
             turnPhase: null,
             pausedRequest: null,
             pendingClaudeExecutionMode: null,
-            agentVerificationContext: null,
             cancelledByUser: false,
           }),
         );
@@ -2447,7 +2436,6 @@ const createAgentChatState: StateCreator<AgentChatState> = (set, get) => ({
             turnPhase: null,
             pausedRequest: null,
             pendingClaudeExecutionMode: null,
-            agentVerificationContext: null,
             cancelledByUser: false,
           }),
         );
@@ -2468,7 +2456,6 @@ const createAgentChatState: StateCreator<AgentChatState> = (set, get) => ({
           pauseState: activeTab.pauseState === "paused" ? "paused" : null,
           error: `Could not create an isolated agent workspace: ${String(error)}`,
           pendingClaudeExecutionMode: null,
-          agentVerificationContext: null,
           cancelledByUser: false,
         }),
       );
@@ -2612,11 +2599,6 @@ const createAgentChatState: StateCreator<AgentChatState> = (set, get) => ({
         autoEngine,
       };
     })();
-    set((current) =>
-      applyTabUpdate(current, activeTabId, {
-        agentVerificationContext: verificationContext,
-      }),
-    );
     const invocationMode =
       selectedProvider === "codex"
         ? codexThreadId
@@ -2747,7 +2729,6 @@ const createAgentChatState: StateCreator<AgentChatState> = (set, get) => ({
           error: err?.message || String(err),
           pendingFileBaseline: null,
           pendingClaudeExecutionMode: null,
-          agentVerificationContext: null,
           cancelledByUser: false,
         }),
       );
@@ -3982,7 +3963,6 @@ const createAgentChatState: StateCreator<AgentChatState> = (set, get) => ({
           : {
               pendingClaudeExecutionMode: null,
               cancelledByUser: false,
-              agentVerificationContext: null,
               ...(tab?.cancelledByUser && !tab.pauseState
                 ? { pendingQuestion: null, retryRequest: null }
                 : {}),
@@ -4108,7 +4088,6 @@ const createAgentChatState: StateCreator<AgentChatState> = (set, get) => ({
         pendingFileBaseline: null,
         pendingClaudeExecutionMode: null,
         retryRequest: null,
-        agentVerificationContext: null,
         pendingQuestion: null,
         pendingReviewDecisions: [],
         isStreaming: false,
@@ -4145,7 +4124,6 @@ const createAgentChatState: StateCreator<AgentChatState> = (set, get) => ({
               agentWorkspace: null,
               isStreaming: false,
               pendingClaudeExecutionMode: null,
-              agentVerificationContext: null,
               cancelledByUser: false,
             }
           : tab,

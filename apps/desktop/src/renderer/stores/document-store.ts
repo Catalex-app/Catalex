@@ -10,6 +10,7 @@ import { normalizeDocumentText, encodeDocumentText } from "@/lib/document-text";
 import type { ChatContextBadge, PdfSelectionAnchor } from "@/lib/chat-context";
 import type { PromptDiagnosticSnapshot } from "@/lib/prompt-library";
 import type { CompileDiagnostic } from "@/lib/latex-compiler";
+import { texIncludeClosure } from "@/lib/latex-includes";
 import { create } from "zustand";
 import { useSettingsStore } from "@/stores/settings-store";
 import { toast } from "sonner";
@@ -426,14 +427,46 @@ function getTexRootMetadata(file: ProjectFile) {
 }
 
 /**
+ * Choose the project's compilable root: a visible .tex file with
+ * `\documentclass`. With several roots, prefer one that includes
+ * `includedFile`, then `main.tex` or `document.tex`, then the first.
+ */
+export function resolveProjectTexRoot(
+  files: ProjectFile[],
+  includedFile?: ProjectFile,
+): ProjectFile | undefined {
+  const roots = files.filter(
+    (f) =>
+      f.type === "tex" &&
+      !hasHiddenDirectory(f.relativePath) &&
+      !!f.content &&
+      getTexRootMetadata(f).hasDocumentClass,
+  );
+  if (roots.length <= 1) return roots[0];
+  const preferred = (candidates: ProjectFile[]) =>
+    candidates.find(
+      (f) => f.name === "main.tex" || f.name === "document.tex",
+    ) ?? candidates[0];
+  if (includedFile) {
+    // Only projects with several roots pay for walking their include graphs.
+    const including = roots.filter((root) =>
+      texIncludeClosure(root, files).has(includedFile.id),
+    );
+    if (including.length > 0) return preferred(including);
+  }
+  return preferred(roots);
+}
+
+/**
  * Resolve the root .tex file for compilation.
  *
  * Priority order:
  * 1. `% !TEX root = <file>` magic comment in the first 20 lines of the active file
  * 2. The file itself, if it contains `\documentclass`
- * 3. `main.tex` or `document.tex` that contains `\documentclass`
- * 4. Any other .tex file in the project that contains `\documentclass`
- * 5. Fallback: the active file itself
+ * 3. A root that includes the file, preferring `main.tex` or `document.tex`
+ * 4. `main.tex` or `document.tex` that contains `\documentclass`
+ * 5. Any other .tex file in the project that contains `\documentclass`
+ * 6. Fallback: the active file itself
  */
 export function resolveTexRoot(fileId: string, files: ProjectFile[]): string {
   const file = files.find((f) => f.id === fileId);
@@ -462,30 +495,8 @@ export function resolveTexRoot(fileId: string, files: ProjectFile[]): string {
     return fileId;
   }
 
-  // 3. Look for main.tex or document.tex with \documentclass
-  const wellKnown = files.find(
-    (f) =>
-      (f.name === "main.tex" || f.name === "document.tex") &&
-      f.type === "tex" &&
-      !hasHiddenDirectory(f.relativePath) &&
-      f.content &&
-      getTexRootMetadata(f).hasDocumentClass,
-  );
-  if (wellKnown) return wellKnown.id;
-
-  // 4. Any .tex file with \documentclass
-  const anyRoot = files.find(
-    (f) =>
-      f.type === "tex" &&
-      f.id !== fileId &&
-      !hasHiddenDirectory(f.relativePath) &&
-      f.content &&
-      getTexRootMetadata(f).hasDocumentClass,
-  );
-  if (anyRoot) return anyRoot.id;
-
-  // 5. Fallback: the active file itself
-  return fileId;
+  // 3-6. Another root in the project, else the active file itself
+  return resolveProjectTexRoot(files, file)?.id ?? fileId;
 }
 
 /** Re-key the external PDF bytes cache when a file is renamed/moved. */

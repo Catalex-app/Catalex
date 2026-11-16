@@ -7,6 +7,7 @@ import {
 import { useSettingsStore } from "@/stores/settings-store";
 import { Channel, invoke } from "@/lib/desktop/core";
 import {
+  resolveProjectTexRoot,
   resolveTexRoot,
   getCurrentPdfBytes,
   type ProjectFile,
@@ -63,8 +64,9 @@ function hasHiddenDirectory(relativePath: string): boolean {
 }
 
 /** Resolve which file to compile and the root ID for caching.
- *  resolveTexRoot now handles \documentclass detection and main.tex fallback,
- *  so the only remaining fallback here is for projects with no .tex files.
+ *  A .tex file resolves through resolveTexRoot. Any other active file (or
+ *  none) uses the project's root, so a fragment that merely sorts first is
+ *  never compiled while a real root exists.
  *  Returns `null` when the project has no compilable .tex file. */
 export function resolveCompileTarget(
   activeFileId: string,
@@ -78,14 +80,13 @@ export function resolveCompileTarget(
   ) {
     return { rootId, targetPath: rootEntry.relativePath };
   }
-  // No .tex file exists — cannot compile
-  const anyTex = files.find(
-    (f) => f.type === "tex" && !hasHiddenDirectory(f.relativePath),
-  );
-  if (anyTex) {
-    return { rootId: anyTex.id, targetPath: anyTex.relativePath };
-  }
-  return null;
+  // Last resort: a project whose .tex files carry no \documentclass.
+  const fallback =
+    resolveProjectTexRoot(files) ??
+    files.find((f) => f.type === "tex" && !hasHiddenDirectory(f.relativePath));
+  return fallback
+    ? { rootId: fallback.id, targetPath: fallback.relativePath }
+    : null;
 }
 
 export function detectTexEngineFromContent(

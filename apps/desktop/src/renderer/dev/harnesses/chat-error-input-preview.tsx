@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { RefreshCw, Sparkles } from "lucide-react";
+import { RefreshCw } from "lucide-react";
 import { ChatErrorPanel } from "@/components/agent-chat/chat-error-panel";
 import { useAgentChatStore } from "@/stores/agent-chat-store";
 import { Button } from "@/components/ui/button";
@@ -67,28 +67,6 @@ export function ChatErrorInputPreview({
                   disabled: busy,
                   hint: "Stop the other session and reconnect here.",
                   onClick: () => setConfirm(true),
-                },
-              ]
-            : []),
-          ...(!blocked
-            ? [
-                {
-                  label: "Fix with chat",
-                  primary: true,
-                  disabled: busy,
-                  icon: <Sparkles className="size-3.5" />,
-                  onClick: () => {
-                    const chat = useAgentChatStore.getState();
-                    chat._setError(chat.activeTabId, null);
-                    void chat.sendPrompt(
-                      "Please investigate and fix the problem. Preserve my manual edits and already-approved changes.\n\n" +
-                        error,
-                      undefined,
-                      false,
-                      undefined,
-                      chat.activeTabId,
-                    );
-                  },
                 },
               ]
             : []),

@@ -8,15 +8,10 @@ import { useClaudeSetupStore } from "@/stores/claude-setup-store";
 import { useCodexSetupStore } from "@/stores/codex-setup-store";
 import { useDocumentStore } from "@/stores/document-store";
 import { useAgentReviewQueueStore } from "@/stores/agent-review-queue-store";
-import { compileLatex } from "@/lib/latex-compiler";
 import { invoke } from "@/lib/desktop/core";
 
 vi.mock("@/lib/desktop/core", () => ({ invoke: vi.fn(), Channel: class {} }));
-vi.mock("@/lib/latex-compiler", async (original) => ({
-  ...(await original<typeof import("@/lib/latex-compiler")>()),
-  compileLatex: vi.fn(),
-}));
-const error = "The agent draft did not compile. Undefined control sequence.";
+const error = "Provider error: connection lost";
 const originalTab = useAgentChatStore.getState().tabs[0];
 const send = vi.fn(async (_prompt: string) => {});
 let root: Root;
@@ -33,7 +28,6 @@ const waitFor = vi.waitFor;
 function mount(
   message = error,
   source: "chat" | "models" | "setup" = "chat",
-  canFix = true,
   provider: "claude" | "codex" = "codex",
 ) {
   return act(() =>
@@ -44,7 +38,6 @@ function mount(
         provider={provider}
         agentName="Demo model"
         effort="High"
-        canFix={canFix}
       />,
     ),
   );
@@ -92,13 +85,6 @@ beforeEach(() => {
           candidateRoot: "/candidate",
           status: "review",
         } as any,
-        agentVerificationContext: {
-          rootId: "main.tex",
-          targetPath: "main.tex",
-          backend: "latexmk",
-          engine: "pdflatex",
-          autoEngine: true,
-        },
       },
     ],
   });
@@ -114,7 +100,6 @@ beforeEach(() => {
       {
         session: { sessionId: "s" },
         phase: "review",
-        verificationError: error,
       },
     ] as any,
   });
@@ -124,56 +109,6 @@ afterEach(() => {
   container.remove();
 });
 describe("production error recovery", () => {
-  it("recompiles the candidate before clearing the error and queue verification failure", async () => {
-    vi.mocked(compileLatex).mockResolvedValue({
-      pdfData: new Uint8Array(),
-      diagnostics: [],
-    });
-    mount();
-    await click("Refresh");
-    await waitFor(() => expect(useAgentChatStore.getState().error).toBeNull());
-    expect(compileLatex).toHaveBeenCalledWith(
-      "/candidate",
-      "main.tex",
-      "latexmk",
-      "pdflatex",
-      true,
-    );
-    expect(
-      useAgentReviewQueueStore.getState().entries[0].verificationError,
-    ).toBeUndefined();
-  });
-  it("keeps the original failure when refresh fails and shows the raw new error", async () => {
-    vi.mocked(compileLatex).mockRejectedValue(new Error("Still broken"));
-    mount();
-    await click("Refresh");
-    await waitFor(() =>
-      expect(container.textContent).toContain("Still broken"),
-    );
-    expect(useAgentChatStore.getState().error).toBe(error);
-    expect(
-      useAgentReviewQueueStore.getState().entries[0].verificationError,
-    ).toBe(error);
-  });
-  it("does not clear another tab or a newer failure after an asynchronous refresh", async () => {
-    let resolve!: (value: any) => void;
-    vi.mocked(compileLatex).mockImplementation(
-      () =>
-        new Promise((r) => {
-          resolve = r;
-        }),
-    );
-    mount();
-    await click("Refresh");
-    act(() => useAgentChatStore.getState()._setError("a", "New failure"));
-    await act(async () =>
-      resolve({ pdfData: new Uint8Array(), diagnostics: [] }),
-    );
-    expect(useAgentChatStore.getState().error).toBe("New failure");
-    expect(
-      useAgentReviewQueueStore.getState().entries[0].verificationError,
-    ).toBe(error);
-  });
   it("reconnects without resending the original input or consuming the new draft", async () => {
     const message = "Provider error: authentication service timeout";
     useAgentChatStore.setState((state) => ({
@@ -190,7 +125,6 @@ describe("production error recovery", () => {
     }));
     mount(message);
     expect(button("Settings")).toBeUndefined();
-    expect(button("Fix with chat")).toBeUndefined();
     await click("Reconnect");
     expect(send).not.toHaveBeenCalled();
     expect(invoke).toHaveBeenCalledWith("dispose_codex_session", {
@@ -227,7 +161,7 @@ describe("production error recovery", () => {
       }));
       const tab = useAgentChatStore.getState().tabs[0];
       const queue = useAgentReviewQueueStore.getState().entries;
-      mount(message, "chat", true, provider);
+      mount(message, "chat", provider);
       await click("Reconnect");
       expect(useAgentChatStore.getState().tabs[0]).toMatchObject({
         error: null,
@@ -336,21 +270,11 @@ describe("production error recovery", () => {
     expect(send).not.toHaveBeenCalled();
   });
 
-  it("sends a fixing prompt without consuming the typed draft", async () => {
-    mount();
-    await click("Fix with chat");
-    await waitFor(() => expect(send).toHaveBeenCalledTimes(1));
-    expect(send.mock.calls[0][0]).toContain(error);
-    expect(useAgentChatStore.getState().tabs[0].draft.input).toBe(
-      "Keep this draft",
-    );
-  });
-  it("offers settings instead of a fixing prompt when signed out and clears after sign-in", async () => {
+  it("offers settings when signed out and clears after sign-in", async () => {
     const message = "Not authenticated";
     useAgentChatStore.getState()._setError("a", message);
     useCodexSetupStore.setState({ status: "not-authenticated" });
-    mount(message, "chat", false);
-    expect(button("Fix with chat")).toBeUndefined();
+    mount(message);
     await click("Settings");
     await waitFor(() =>
       expect(invoke).toHaveBeenCalledWith("open_settings_window", {

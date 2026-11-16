@@ -27,7 +27,6 @@ const mount = (message = revoked, provider: "claude" | "codex" = "claude") =>
         provider={provider}
         agentName="Claude"
         effort="High"
-        canFix
       />,
     );
   });
@@ -82,7 +81,6 @@ describe("Claude revoked-token recovery", () => {
     act(() => useClaudeSetupStore.setState({ status: "ready" }));
     expect(useAgentChatStore.getState().error).toBe(revoked);
     expect(button()).toBeDefined();
-    expect(container.textContent).not.toContain("Fix with chat");
   });
   it.each([
     ["API Error: 401 Invalid API key", "claude"],

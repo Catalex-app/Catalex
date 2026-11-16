@@ -29,15 +29,8 @@ import {
   type ChatProvider,
 } from "@/stores/agent-chat-store";
 import { useDocumentStore } from "@/stores/document-store";
-import { useSettingsStore } from "@/stores/settings-store";
 import { getAssetUrl } from "@/lib/project-files";
-import {
-  type CompileDiagnostic,
-  compileLatex,
-  detectTexEngineFromContent,
-  resolveCompileTarget,
-  formatCompileError,
-} from "@/lib/latex-compiler";
+import type { CompileDiagnostic } from "@/lib/latex-compiler";
 import { createLogger } from "@/lib/debug/logger";
 import { getMupdfClient } from "@/lib/mupdf/mupdf-client";
 import { getOrOpenDocument } from "@/lib/mupdf/pdf-doc-cache";
@@ -297,7 +290,7 @@ function assistantMessageFromCodexText(text: string): AgentStreamMessage {
  * Hook that manages desktop event listeners for provider CLI streaming output.
  *
  * Listeners are kept alive at all times (no race condition with invoke).
- * Per-tab mutable state (pendingToolUses, hasTexChanges) is stored in Maps
+ * Per-tab pending tool uses are stored in Maps
  * keyed by tab_id so multiple tabs can stream concurrently.
  */
 export function useAgentEvents() {
@@ -307,7 +300,6 @@ export function useAgentEvents() {
   const pendingToolUsesRef = useRef(
     new Map<string, Map<string, { name: string; input: any }>>(),
   );
-  const hasTexChangesRef = useRef(new Map<string, boolean>());
   const cancelledForAskRef = useRef(new Map<string, boolean>());
   const listenersRef = useRef<UnlistenFn[]>([]);
   const msgCountRef = useRef(new Map<string, number>());
@@ -326,7 +318,6 @@ export function useAgentEvents() {
       if (tab.isStreaming && !msgCountRef.current.has(tab.id)) {
         // New stream detected for this tab — initialize state
         pendingToolUsesRef.current.set(tab.id, new Map());
-        hasTexChangesRef.current.set(tab.id, false);
         cancelledForAskRef.current.set(tab.id, false);
         msgCountRef.current.set(tab.id, 0);
         streamStartTimeRef.current.delete(tab.id);
@@ -555,7 +546,6 @@ export function useAgentEvents() {
           completingTabs.add(tabId);
           try {
             pendingToolUsesRef.current.delete(tabId);
-            hasTexChangesRef.current.delete(tabId);
             cancelledForAskRef.current.delete(tabId);
             // A paused draft remains active. Reconciliation would turn it into a
             // review (or delete an empty draft), preventing a same-workspace resume.
@@ -583,7 +573,6 @@ export function useAgentEvents() {
         }
 
         pendingToolUsesRef.current.delete(tabId);
-        hasTexChangesRef.current.delete(tabId);
         cancelledForAskRef.current.delete(tabId);
         chatStore._setStreaming(tabId, false);
 
@@ -625,51 +614,12 @@ export function useAgentEvents() {
               .getState()
               .finish(workspace.sessionId);
           } else {
-            let verificationError: string | undefined;
-            if (success) {
-              const { files, activeFileId } = useDocumentStore.getState();
-              const resolved =
-                tab.agentVerificationContext ??
-                resolveCompileTarget(activeFileId, files);
-              if (resolved) {
-                const { rootId, targetPath } = resolved;
-                try {
-                  const compilerChoice = tab.agentVerificationContext;
-                  const { backend, engine, autoEngine } =
-                    compilerChoice ??
-                    (() => {
-                      const rootFile = files.find((file) => file.id === rootId);
-                      const detectedEngine = rootFile?.content
-                        ? detectTexEngineFromContent(rootFile.content)
-                        : null;
-                      return useSettingsStore
-                        .getState()
-                        .initializeCompilerChoiceForRoot(
-                          workspace.projectRoot,
-                          rootId,
-                          detectedEngine,
-                        );
-                    })();
-                  await compileLatex(
-                    workspace.candidateRoot,
-                    targetPath,
-                    backend,
-                    engine,
-                    autoEngine,
-                  );
-                } catch (error) {
-                  verificationError = `The agent draft did not compile. The source project was not changed; the draft is available for review. ${formatCompileError(error)}`;
-                  chatStore._setError(tabId, verificationError);
-                }
-              }
-            }
-
             const { useAgentReviewQueueStore } = await import(
               "@/stores/agent-review-queue-store"
             );
             await useAgentReviewQueueStore
               .getState()
-              .enqueue(reconciliation.session, verificationError);
+              .enqueue(reconciliation.session);
           }
         } catch (error) {
           const { useAgentReviewQueueStore } = await import(

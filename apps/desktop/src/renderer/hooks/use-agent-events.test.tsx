@@ -641,10 +641,10 @@ describe("useAgentEvents provider updates", () => {
       sessionId: workspace.sessionId,
       outcome: "cancelled",
     });
-    expect(enqueue).toHaveBeenCalledExactlyOnceWith(
-      { ...workspace, status: "cancelled" },
-      undefined,
-    );
+    expect(enqueue).toHaveBeenCalledExactlyOnceWith({
+      ...workspace,
+      status: "cancelled",
+    });
     expect(drain).not.toHaveBeenCalled();
     expect(mocks.compileLatex).not.toHaveBeenCalled();
     expect(invoke).not.toHaveBeenCalledWith(
@@ -2284,7 +2284,7 @@ describe("useAgentEvents provider updates", () => {
   it.each([
     "codex",
     "pi",
-  ] as const)("reconciles and verifies a %s ask-mode workspace without changing source files", async (provider) => {
+  ] as const)("reconciles a %s ask-mode workspace without compiling or changing source files", async (provider) => {
     const workspaceSession = {
       version: 2,
       sessionId: "workspace-1",
@@ -2414,17 +2414,9 @@ describe("useAgentEvents provider updates", () => {
       "workspace-1",
       "/workspace/candidate",
     );
-    expect(mocks.compileLatex.mock.invocationCallOrder[0]).toBeLessThan(
-      mocks.documentState.activateAgentWorkspace.mock.invocationCallOrder[0],
-    );
-    expect(mocks.compileLatex).toHaveBeenCalledWith(
-      "/workspace/candidate",
-      "main.tex",
-      "latexmk",
-      "pdflatex",
-      undefined,
-    );
-    // Verifying a candidate must not replace the current project's PDF.
+    // Drafts go to review without a compile; the preview compiles as usual.
+    expect(mocks.compileLatex).not.toHaveBeenCalled();
+    // Completing a draft must not replace the current project's PDF.
     expect(mocks.documentState.setPdfData).not.toHaveBeenCalled();
     expect(invoke).toHaveBeenCalledWith(
       "save_shared_session",
@@ -2446,7 +2438,7 @@ describe("useAgentEvents provider updates", () => {
     ]);
   });
 
-  it("automatically applies a verified Edit-mode workspace after compilation", async () => {
+  it("automatically applies a successful Edit-mode workspace without compilation", async () => {
     const workspaceSession = {
       version: 2,
       sessionId: "workspace-edit",
@@ -2546,129 +2538,16 @@ describe("useAgentEvents provider updates", () => {
       ["main.tex"],
       { preserveSelection: true },
     );
-    expect(mocks.compileLatex).toHaveBeenCalledWith(
-      "/workspace/candidate",
-      "main.tex",
-      "latexmk",
-      "pdflatex",
-      undefined,
-    );
-    const applyIndex = vi
-      .mocked(invoke)
-      .mock.calls.findIndex(([command]) => command === "apply_agent_workspace");
-    expect(mocks.compileLatex.mock.invocationCallOrder[0]).toBeLessThan(
-      vi.mocked(invoke).mock.invocationCallOrder[applyIndex],
+    // Edit mode applies the draft without compiling it first.
+    expect(mocks.compileLatex).not.toHaveBeenCalled();
+    expect(invoke).toHaveBeenCalledWith(
+      "apply_agent_workspace",
+      expect.anything(),
     );
     expect(mocks.documentState.activateAgentWorkspace).not.toHaveBeenCalled();
     expect(useAgentReviewQueueStore.getState().entries).toEqual([]);
     expect(useAgentChatStore.getState().tabs[0].agentWorkspace).toBeNull();
     expect(useProposedChangesStore.getState().changes).toEqual([]);
-  });
-
-  it("keeps an Edit-mode workspace for review when candidate verification fails", async () => {
-    const workspaceSession = {
-      version: 2,
-      sessionId: "workspace-edit-failed",
-      projectRoot: "/project",
-      tabId: "tab-default",
-      mode: "edit" as const,
-      status: "active" as const,
-      createdAt: 1,
-      updatedAt: 1,
-      sourceCommit: "fixture-source",
-      baselineCommit: "fixture-baseline",
-      candidateRoot: "/workspace/candidate",
-      warnings: [],
-    };
-    const change = {
-      id: "workspace-change",
-      kind: "modified",
-      filePath: "main.tex",
-      oldFilePath: "main.tex",
-      newFilePath: "main.tex",
-      sourceAbsolutePath: "/project/main.tex",
-      candidateAbsolutePath: "/workspace/candidate/main.tex",
-      oldContent: "before",
-      newContent: "broken",
-      binary: false,
-      sourceChanged: false,
-    };
-    mocks.documentState.files = [
-      {
-        id: "main",
-        relativePath: "main.tex",
-        absolutePath: "/workspace/candidate/main.tex",
-        content: "broken",
-      },
-    ];
-    mocks.documentState.activeFileId = "main";
-    mocks.compileLatex.mockRejectedValueOnce(new Error("compile failed"));
-    vi.mocked(invoke).mockImplementation(async (command) => {
-      if (
-        command === "reconcile_agent_workspace" ||
-        command === "preview_agent_workspace"
-      ) {
-        return {
-          session: { ...workspaceSession, status: "review" },
-          currentContents: { "workspace-change": "before" },
-          mergedContents: {},
-          sourceRevision: "revision-1",
-          conflicts: [],
-          changes: [change],
-        } as any;
-      }
-      return undefined;
-    });
-    useAgentChatStore.setState((state) => ({
-      selectedProvider: "codex",
-      tabs: state.tabs.map((tab) => ({
-        ...tab,
-        provider: "codex",
-        isStreaming: true,
-        agentWorkspace: workspaceSession,
-      })),
-      isStreaming: true,
-    }));
-
-    await act(async () => {
-      root?.render(<Harness />);
-    });
-    const complete = await waitForEventHandler("codex-complete");
-    await act(async () => {
-      complete({ payload: { tab_id: "tab-default", success: true } });
-      await settleAsyncWork();
-    });
-
-    expect(invoke).not.toHaveBeenCalledWith(
-      "apply_agent_workspace",
-      expect.anything(),
-    );
-    expect(mocks.documentState.restoreSourceWorkspace).not.toHaveBeenCalled();
-    expect(useProposedChangesStore.getState().changes).toEqual([
-      expect.objectContaining({
-        id: "workspace-change",
-        workspaceSessionId: "workspace-edit-failed",
-      }),
-    ]);
-    expect(useAgentChatStore.getState().tabs[0].error).toContain(
-      "did not compile",
-    );
-    expect(useAgentReviewQueueStore.getState().entries[0]?.phase).toBe(
-      "review",
-    );
-    // Rechecking source conflicts must not clear the failed compilation gate.
-    await act(async () => {
-      await useAgentReviewQueueStore
-        .getState()
-        .recheck("workspace-edit-failed");
-    });
-    expect(invoke).not.toHaveBeenCalledWith(
-      "apply_agent_workspace",
-      expect.anything(),
-    );
-    expect(useAgentReviewQueueStore.getState().entries[0]?.phase).toBe(
-      "review",
-    );
   });
 
   it.each([

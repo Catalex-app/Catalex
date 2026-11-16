@@ -3215,18 +3215,6 @@ export const ChatComposer: FC<{
                   : formatCodexModelName(selectedCodexModel)
             }
             effort={effortShortLabel(selectedEffort)}
-            canFix={
-              !!projectRoot &&
-              !isStreaming &&
-              !modelSelectionBlocked &&
-              !sendBlockedReason &&
-              !pendingResumeChoice &&
-              (selectedProvider === "pi"
-                ? piReady
-                : selectedProvider === "claude"
-                  ? claudeReady
-                  : codexReady)
-            }
           />
         ) : (
           <>
