@@ -717,6 +717,34 @@ fn apply_workspace(
     )
 }
 
+fn decided_files_match_draft(
+    session_dir: &Path,
+    records: &[ChangeRecord],
+    decisions: &HashMap<String, AgentWorkspaceDecision>,
+) -> Result<bool, String> {
+    let candidate = session_dir.join(CANDIDATE_DIR_NAME);
+    for record in records.iter().filter(|record| decisions.contains_key(&record.id)) {
+        for path in record.old_path.iter().chain(record.new_path.iter()) {
+            let expected = record
+                .candidate
+                .as_ref()
+                .filter(|_| record.new_path.as_ref() == Some(path))
+                .map(|file| file.bytes.as_slice());
+            let file = candidate.join(safe_relative_path(path)?);
+            // Scans list regular files only; anything else counts as absent.
+            let actual = if fs::symlink_metadata(&file).is_ok_and(|metadata| metadata.is_file()) {
+                file_bytes(&file)?
+            } else {
+                None
+            };
+            if actual.as_deref() != expected {
+                return Ok(false);
+            }
+        }
+    }
+    Ok(true)
+}
+
 fn apply_workspace_with_comments(
     comment_storage: Option<&Path>,
     session_dir: &Path,
@@ -726,11 +754,18 @@ fn apply_workspace_with_comments(
 ) -> Result<AgentWorkspaceApplyResult, String> {
     let mut session = load_session(&session_dir)?;
     ensure_session_project(&session, &project_root)?;
-    let records = reconcile_records(&session_dir)?;
+    let mut records = reconcile_records(&session_dir)?;
     let decisions_by_id: HashMap<_, _> = decisions
         .into_iter()
         .map(|decision| (decision.change_id.clone(), decision))
         .collect();
+    // Draft scans skip files whose metadata is unchanged. Compare every decided
+    // file with the draft on disk before writing; on a difference read the whole
+    // draft again, so the revision checks below judge its real content.
+    if !decided_files_match_draft(session_dir, &records, &decisions_by_id)? {
+        git_storage::forget_scan(session_dir);
+        records = reconcile_records(&session_dir)?;
+    }
 
     let source_root = PathBuf::from(&session.project_root);
     let source_snapshot = git_storage::snapshot_records(session_dir, &session.source_commit, &records)?;
@@ -1394,6 +1429,27 @@ fn visit_inventory(
     current: &Path,
     visit: &mut impl FnMut(String, FileEntry) -> Result<(), String>,
 ) -> Result<(), String> {
+    visit_inventory_paths(root, current, &mut |relative, path| {
+        let bytes = fs::read(path)
+            .map_err(|error| format!("Failed to read {}: {error}", path.display()))?;
+        let digest = hex_digest(&bytes);
+        visit(
+            relative,
+            FileEntry {
+                mode: file_mode(path)?,
+                bytes,
+                digest,
+            },
+        )
+    })
+}
+
+/// Lists inventory files without reading them, so a caller can skip unchanged content.
+fn visit_inventory_paths(
+    root: &Path,
+    current: &Path,
+    visit: &mut impl FnMut(String, &Path) -> Result<(), String>,
+) -> Result<(), String> {
     if !current.exists() {
         return Ok(());
     }
@@ -1419,7 +1475,7 @@ fn visit_inventory(
             if excluded_directory(&entry.file_name().to_string_lossy()) {
                 continue;
             }
-            visit_inventory(root, &entry.path(), visit)?;
+            visit_inventory_paths(root, &entry.path(), visit)?;
             continue;
         }
         if !file_type.is_file() {
@@ -1431,17 +1487,7 @@ fn visit_inventory(
             .map_err(|error| format!("Failed to make workspace path relative: {error}"))?
             .to_string_lossy()
             .replace('\\', "/");
-        let bytes = fs::read(entry.path())
-            .map_err(|error| format!("Failed to read {}: {error}", entry.path().display()))?;
-        let digest = hex_digest(&bytes);
-        visit(
-            relative,
-            FileEntry {
-                mode: file_mode(&entry.path())?,
-                bytes,
-                digest,
-            },
-        )?;
+        visit(relative, &entry.path())?;
     }
     Ok(())
 }

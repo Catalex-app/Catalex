@@ -185,14 +185,100 @@ pub(super) fn snapshot(dir: &Path, oid: &str) -> Result<BTreeMap<String, FileEnt
     visit(&repo, &tree, "", &mut files)?;
     Ok(files)
 }
+/// File metadata that changes whenever the content is replaced or edited.
+#[derive(Clone, PartialEq, Eq)]
+struct FileStamp {
+    size: u64,
+    modified: u128,
+    // Inode and status-change time: a write cannot keep both, even when it
+    // restores the modification time. Unavailable outside Unix.
+    identity: Option<(u64, i64, i64)>,
+    mode: u32,
+}
+
+struct ScannedFile {
+    stamp: FileStamp,
+    // When the content was read. Compared with `modified` below.
+    seen: u128,
+    oid: Oid,
+}
+
+// A file modified in the same timestamp tick as the scan can change again
+// without a new timestamp. Two seconds covers the coarsest filesystem clocks.
+const SCAN_TRUST_NANOS: u128 = 2_000_000_000;
+
+/// Blob IDs of each draft's files from its last scan, for this process only.
+/// A restart, a failed scan, or a missing object falls back to reading the file.
+fn scans() -> &'static Mutex<HashMap<PathBuf, HashMap<String, ScannedFile>>> {
+    static SCANS: OnceLock<Mutex<HashMap<PathBuf, HashMap<String, ScannedFile>>>> =
+        OnceLock::new();
+    SCANS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn file_stamp(path: &Path) -> Result<FileStamp, String> {
+    let metadata = fs::metadata(path)
+        .map_err(|error| format!("Failed to inspect {}: {error}", path.display()))?;
+    let modified = metadata
+        .modified()
+        .ok()
+        .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
+        .map_or(0, |elapsed| elapsed.as_nanos());
+    #[cfg(unix)]
+    let (identity, mode) = {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+        (
+            Some((metadata.ino(), metadata.ctime(), metadata.ctime_nsec())),
+            if metadata.permissions().mode() & 0o111 != 0 { 0o100755 } else { 0o100644 },
+        )
+    };
+    #[cfg(not(unix))]
+    let (identity, mode) = (None, 0o100644);
+    Ok(FileStamp { size: metadata.len(), modified, identity, mode })
+}
+
 fn inventory_tree(repo: &Repository, root: &Path) -> Result<Oid, String> {
+    Ok(scan_inventory(repo, root)?.0)
+}
+
+/// Returns the draft tree and how many files had to be read. Files whose
+/// metadata is unchanged since the last scan reuse their stored content.
+fn scan_inventory(repo: &Repository, root: &Path) -> Result<(Oid, usize), String> {
+    let previous = scans()
+        .lock()
+        .map_err(|_| "Draft scan state unavailable")?
+        .remove(root)
+        .unwrap_or_default();
+    let odb = repo.odb().map_err(|e| e.to_string())?;
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |elapsed| elapsed.as_nanos());
+    let mut next = HashMap::new();
+    let mut read = 0;
     let mut index = Index::new().map_err(|e| e.to_string())?;
-    visit_inventory(root, root, &mut |path, file| {
-        let oid = repo.blob(&file.bytes).map_err(|e| e.to_string())?;
-        let mut item = entry(&path, oid, file.bytes.len());
-        item.mode = file.mode;
-        index.add(&item).map_err(|e| e.to_string())
-    })?;
+    let mut add = |relative: String, path: &Path| -> Result<(), String> {
+        // Inspect before reading: a later edit then changes the stamp.
+        let stamp = file_stamp(path)?;
+        let known = previous.get(&relative).filter(|known| {
+            known.stamp == stamp
+                && stamp.modified.saturating_add(SCAN_TRUST_NANOS) <= known.seen
+                && odb.exists(known.oid)
+        });
+        let (oid, seen) = match known {
+            Some(known) => (known.oid, known.seen),
+            None => {
+                read += 1;
+                let bytes = fs::read(path)
+                    .map_err(|error| format!("Failed to read {}: {error}", path.display()))?;
+                (repo.blob(&bytes).map_err(|e| e.to_string())?, now)
+            }
+        };
+        let mut item = entry(&relative, oid, stamp.size.min(usize::MAX as u64) as usize);
+        item.mode = stamp.mode;
+        index.add(&item).map_err(|e| e.to_string())?;
+        next.insert(relative, ScannedFile { stamp, seen, oid });
+        Ok(())
+    };
+    visit_inventory_paths(root, root, &mut add)?;
     // Explicit editor buffers remain part of the draft even when their suffix
     // normally denotes generated output. Internal paths are still rejected.
     let session = read_session_manifest(root.parent().ok_or("Missing draft directory")?)?;
@@ -206,13 +292,14 @@ fn inventory_tree(repo: &Repository, root: &Path) -> Result<Oid, String> {
             continue;
         }
         ensure_no_symlink_components(root, &buffer.relative_path)?;
-        let bytes = fs::read(&full).map_err(|e| e.to_string())?;
-        let oid = repo.blob(&bytes).map_err(|e| e.to_string())?;
-        let mut item = entry(&buffer.relative_path, oid, bytes.len());
-        item.mode = file_mode(&full)?;
-        index.add(&item).map_err(|e| e.to_string())?;
+        add(buffer.relative_path.clone(), &full)?;
     }
-    index.write_tree_to(repo).map_err(|e| e.to_string())
+    let oid = index.write_tree_to(repo).map_err(|e| e.to_string())?;
+    scans()
+        .lock()
+        .map_err(|_| "Draft scan state unavailable")?
+        .insert(root.to_path_buf(), next);
+    Ok((oid, read))
 }
 
 fn tree_file(repo: &Repository, oid: Oid, mode: u32) -> Result<FileEntry, String> {
@@ -448,7 +535,15 @@ pub(super) fn remove_worktree(dir: &Path) -> Result<(), String> {
     }
     Ok(())
 }
+/// Makes the next scan of this draft read every file.
+pub(super) fn forget_scan(dir: &Path) {
+    if let Ok(mut scans) = scans().lock() {
+        scans.remove(&dir.join(CANDIDATE_DIR_NAME));
+    }
+}
+
 pub(super) fn discard(dir: &Path) -> Result<(), String> {
+    forget_scan(dir);
     remove_worktree(dir)?;
     let repo = repository(dir)?;
     let id = session_id(dir)?;
@@ -675,6 +770,41 @@ fn load_settlement(dir: &Path, repo: &Repository) -> Result<Settlement, String> 
 }
 
 /// Persist the approved transition before touching project files.
+/// Commits `parent`'s tree with only the decided paths replaced or removed.
+/// Every other file keeps its stored content without being loaded.
+fn advance_commit(
+    repo: &Repository,
+    parent: &str,
+    decided: &StoredFiles,
+    message: &str,
+) -> Result<Oid, String> {
+    let parent = Oid::from_str(parent).map_err(|e| e.to_string())?;
+    let tree = repo
+        .find_commit(parent)
+        .and_then(|commit| commit.tree())
+        .map_err(|e| e.to_string())?;
+    let mut index = Index::new().map_err(|e| e.to_string())?;
+    index.read_tree(&tree).map_err(|e| e.to_string())?;
+    for (path, file) in decided {
+        safe_relative_path(path)?;
+        match file {
+            Some(file) => {
+                let oid = Oid::from_str(&file.blob).map_err(|e| e.to_string())?;
+                let mut item = entry(path, oid, 0);
+                item.mode = file.mode.unwrap_or(0o100644);
+                index.add(&item).map_err(|e| e.to_string())?;
+            }
+            None => {
+                if index.get_path(Path::new(path), 0).is_some() {
+                    index.remove(Path::new(path), 0).map_err(|e| e.to_string())?;
+                }
+            }
+        }
+    }
+    let tree = index.write_tree_to(repo).map_err(|e| e.to_string())?;
+    commit(repo, tree, Some(parent), message)
+}
+
 pub(super) fn prepare_settlement(
     dir: &Path,
     session: &AgentWorkspaceSession,
@@ -685,8 +815,6 @@ pub(super) fn prepare_settlement(
 ) -> Result<(), String> {
     checkpoint(dir)?;
     let repo = repository(dir)?;
-    let mut source = snapshot(dir, &session.source_commit)?;
-    let mut baseline = snapshot(dir, &session.baseline_commit)?;
     let mut before = StoredFiles::new();
     for record in records.iter().filter(|r| decisions.contains_key(&r.id)) {
         for path in record.old_path.iter().chain(record.new_path.iter()) {
@@ -724,34 +852,17 @@ pub(super) fn prepare_settlement(
             changed_paths.insert(path.clone());
         }
     }
-    for (path, file) in &after {
-        for files in [&mut source, &mut baseline] {
-            if let Some(file) = file {
-                let bytes = blob(&repo, file)?.content().to_vec();
-                files.insert(
-                    path.clone(),
-                    FileEntry {
-                        mode: file.mode.unwrap_or(0o100644),
-                        digest: hex_digest(&bytes),
-                        bytes,
-                    },
-                );
-            } else {
-                files.remove(path);
-            }
-        }
-    }
     let mut next = session.clone();
-    let new_source = commit(
+    let new_source = advance_commit(
         &repo,
-        tree(&repo, &source)?,
-        Some(Oid::from_str(&session.source_commit).map_err(|e| e.to_string())?),
+        &session.source_commit,
+        &after,
         "Project after partial review",
     )?;
-    let new_baseline = commit(
+    let new_baseline = advance_commit(
         &repo,
-        tree(&repo, &baseline)?,
-        Some(Oid::from_str(&session.baseline_commit).map_err(|e| e.to_string())?),
+        &session.baseline_commit,
+        &after,
         "Remaining proposal baseline",
     )?;
     pin(&repo, &session.session_id, "source", new_source)?;
@@ -997,6 +1108,214 @@ mod tests {
         let dir = workspaces.path().join(&session.session_id);
         (project, workspaces, session, dir)
     }
+    fn set_modified(path: &Path, seconds: u64) {
+        fs::File::options()
+            .write(true)
+            .open(path)
+            .unwrap()
+            .set_modified(UNIX_EPOCH + std::time::Duration::from_secs(seconds))
+            .unwrap();
+    }
+
+    #[test]
+    fn draft_scans_read_only_new_changed_or_recent_files() {
+        let (_p, _w, session, dir) = fixture();
+        let candidate = Path::new(&session.candidate_root);
+        let repo = repository(&dir).unwrap();
+        for name in ["a.tex", "b.tex"] {
+            set_modified(&candidate.join(name), 1_700_000_000);
+        }
+        let (first, _) = scan_inventory(&repo, candidate).unwrap();
+        assert_eq!(scan_inventory(&repo, candidate).unwrap(), (first, 0));
+
+        // Restoring the modification time (and, on Unix, the size) does not hide an edit.
+        let edited = if cfg!(unix) { "a changed!\n" } else { "a changed\n" };
+        fs::write(candidate.join("a.tex"), edited).unwrap();
+        set_modified(&candidate.join("a.tex"), 1_700_000_000);
+        let (second, read) = scan_inventory(&repo, candidate).unwrap();
+        assert_eq!(read, 1);
+        assert_ne!(second, first);
+        assert_eq!(scan_inventory(&repo, candidate).unwrap(), (second, 0));
+
+        // A file modified moments ago is read on every scan.
+        fs::write(candidate.join("b.tex"), "b recent\n").unwrap();
+        let (third, read) = scan_inventory(&repo, candidate).unwrap();
+        assert_eq!(read, 1);
+        assert_eq!(scan_inventory(&repo, candidate).unwrap(), (third, 1));
+
+        fs::remove_file(candidate.join("b.tex")).unwrap();
+        let (fourth, read) = scan_inventory(&repo, candidate).unwrap();
+        assert_eq!(read, 0);
+        assert_ne!(fourth, third);
+
+        // Each result matches a scan that reads every file.
+        scans().lock().unwrap().remove(candidate);
+        assert_eq!(scan_inventory(&repo, candidate).unwrap(), (fourth, 1));
+    }
+
+    #[test]
+    fn acceptance_rereads_a_decided_file_the_scan_missed() {
+        let (p, _w, session, dir) = fixture();
+        let candidate = dir.join(CANDIDATE_DIR_NAME);
+        fs::write(candidate.join("a.tex"), "a proposed\n").unwrap();
+        let preview = preview_workspace(&dir, session.clone(), &[]).unwrap();
+        let reviewed = preview.changes[0].clone();
+
+        // An edit the scan cannot see: its metadata equals the scanned version.
+        fs::write(candidate.join("a.tex"), "a replaced\n").unwrap();
+        {
+            let mut scans = scans().lock().unwrap();
+            let known = scans.get_mut(&candidate).unwrap().get_mut("a.tex").unwrap();
+            known.stamp = file_stamp(&candidate.join("a.tex")).unwrap();
+            known.seen = u128::MAX;
+        }
+        let stale = preview_workspace(&dir, session.clone(), &[]).unwrap();
+        assert_eq!(stale.changes[0].new_content.as_deref(), Some("a proposed\n"));
+
+        let error = apply_workspace(
+            &dir,
+            p.path().to_str().unwrap(),
+            vec![AgentWorkspaceDecision {
+                change_id: reviewed.id.clone(),
+                accept: true,
+                proposal_revision: Some(reviewed.proposal_revision.clone()),
+                ..Default::default()
+            }],
+            Some(preview.source_revision),
+        )
+        .unwrap_err();
+        assert!(error.contains("Agent proposal changed since review"), "{error}");
+        assert_eq!(fs::read_to_string(p.path().join("a.tex")).unwrap(), "a original\n");
+        let fresh = preview_workspace(&dir, session, &[]).unwrap();
+        assert_eq!(fresh.changes[0].new_content.as_deref(), Some("a replaced\n"));
+    }
+
+    #[test]
+    fn acceptance_advances_only_decided_paths_in_source_and_baseline() {
+        let (p, _w, session, dir) = fixture();
+        let candidate = Path::new(&session.candidate_root);
+        fs::write(candidate.join("a.tex"), "a proposed\n").unwrap();
+        fs::write(candidate.join("c.tex"), "c proposed\n").unwrap();
+        fs::remove_file(candidate.join("b.tex")).unwrap();
+        let preview = preview_workspace(&dir, session.clone(), &[]).unwrap();
+        // An edit, an addition and a deletion all match the draft, so the
+        // apply does not read the whole draft again.
+        let records = reconcile_records(&dir).unwrap();
+        let every = records
+            .iter()
+            .map(|record| (record.id.clone(), AgentWorkspaceDecision::default()))
+            .collect();
+        assert!(decided_files_match_draft(&dir, &records, &every).unwrap());
+        let decisions = preview
+            .changes
+            .iter()
+            .filter(|change| change.file_path != "c.tex")
+            .map(|change| AgentWorkspaceDecision {
+                change_id: change.id.clone(),
+                accept: true,
+                proposal_revision: Some(change.proposal_revision.clone()),
+                ..Default::default()
+            })
+            .collect();
+        let result = apply_workspace(
+            &dir,
+            p.path().to_str().unwrap(),
+            decisions,
+            Some(preview.source_revision),
+        )
+        .unwrap();
+        assert!(result.applied);
+        let next = load_session(&dir).unwrap();
+        let repo = repository(&dir).unwrap();
+        for (old, new) in [
+            (&session.source_commit, &next.source_commit),
+            (&session.baseline_commit, &next.baseline_commit),
+        ] {
+            let files = snapshot(&dir, new).unwrap();
+            assert_eq!(files.keys().collect::<Vec<_>>(), ["a.tex"]);
+            assert_eq!(files["a.tex"].bytes, b"a proposed\n");
+            assert_eq!(
+                repo.find_commit(Oid::from_str(new).unwrap())
+                    .unwrap()
+                    .parent_id(0)
+                    .unwrap(),
+                Oid::from_str(old).unwrap()
+            );
+        }
+        let remaining = result.remaining_preview.unwrap();
+        assert_eq!(remaining.changes.len(), 1);
+        assert_eq!(remaining.changes[0].file_path, "c.tex");
+    }
+
+    #[test]
+    fn applied_history_snapshot_already_holds_moved_comment_positions() {
+        let project = TempDir::new().unwrap();
+        let data = TempDir::new().unwrap();
+        let d = data.path().to_path_buf();
+        let paths = crate::project_storage::ProjectStoragePaths {
+            project_id: "test-project".into(),
+            history_dir: d.join("history.git"),
+            history_exclude_file: d.join("history-exclude"),
+            history_settings_file: d.join("history-settings.json"),
+            sessions_dir: d.join("sessions"),
+            agent_workspaces_dir: d.join("agent-workspaces"),
+            latex_build_dir: d.join("latex-build"),
+            cache_dir: d.join("cache"),
+            data_dir: d.clone(),
+        };
+        let root = project.path().to_str().unwrap().to_string();
+        let original = "First line\nCommented line\nLast line\n";
+        fs::write(project.path().join("a.tex"), original).unwrap();
+        let storage = d.join("comments");
+        fs::create_dir_all(&storage).unwrap();
+        let from = original.find("Commented").unwrap();
+        crate::comments::test_write(
+            storage.join("human.json"),
+            serde_json::json!({"version": 1, "counter": 1, "files": {"a.tex": [
+                {"id": "H-1", "from": from, "to": from + 9, "line": 2, "text": "Keep", "resolved": false,
+                 "anchorRevision": hex_digest(original.as_bytes())}
+            ]}, "sources": {hex_digest(original.as_bytes()): original}})
+            .to_string(),
+        )
+        .unwrap();
+        crate::comments::refresh_revisions(project.path(), &storage, &["a.tex".into()]).unwrap();
+        crate::history::history_init_at(&root, &paths).unwrap();
+        let session = prepare_workspace_in_root(&paths.agent_workspaces_dir, &root, "tab", None, "ask", vec![]).unwrap();
+        let dir = paths.agent_workspaces_dir.join(&session.session_id);
+        let inserted = "Inserted by the agent\n";
+        fs::write(dir.join("candidate/a.tex"), format!("{inserted}{original}")).unwrap();
+        let preview = preview_workspace(&dir, session, &[]).unwrap();
+        let result = apply_workspace_with_comments(
+            Some(&storage),
+            &dir,
+            &root,
+            vec![AgentWorkspaceDecision {
+                change_id: preview.changes[0].id.clone(),
+                accept: true,
+                proposal_revision: Some(preview.changes[0].proposal_revision.clone()),
+                ..Default::default()
+            }],
+            Some(preview.source_revision),
+        )
+        .unwrap();
+        assert!(result.applied);
+        assert_eq!(result.comment_patches.len(), 1);
+        let applied = crate::history::history_snapshot_unlocked_at(&root, &paths, "[agent] Applied reviewed changes".into()).unwrap();
+        assert!(applied.is_some());
+
+        // The app then reloads comments. That must leave nothing for a second snapshot.
+        crate::comments::reconcile_paths(project.path(), &storage).unwrap();
+        let saved: serde_json::Value = serde_json::from_slice(&crate::comments::test_read(storage.join("human.json")).unwrap()).unwrap();
+        let comment = &saved["files"]["a.tex"][0];
+        assert_eq!(comment["from"], from + inserted.len());
+        assert_eq!(comment["to"], from + 9 + inserted.len());
+        assert!(comment.get("positionReset").is_none());
+        // The comment is anchored to the applied text, so the reload has nothing to repair.
+        assert_eq!(comment["anchorRevision"], saved["revisions"]["a.tex"][0]);
+        let again = crate::history::history_snapshot_unlocked_at(&root, &paths, "After accepted agent edit".into()).unwrap();
+        assert!(again.is_none());
+    }
+
     #[test]
     #[ignore = "representative preview timing and storage measurement"]
     fn measure_large_project_preview() {

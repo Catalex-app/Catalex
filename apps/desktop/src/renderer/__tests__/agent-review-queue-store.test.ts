@@ -807,10 +807,8 @@ describe("Edit mode automatic acceptance", () => {
         decisions: [{ changeId: "a-change", accept: true, content: "a" }],
       }),
     );
-    expect(useHistoryStore.getState().createSnapshot).toHaveBeenCalledWith(
-      "/project",
-      "[edit] After accepted agent edit",
-    );
+    // The native apply records the only "after" checkpoint.
+    expect(useHistoryStore.getState().createSnapshot).not.toHaveBeenCalled();
     expect(
       useDocumentStore.getState().restoreSourceWorkspace,
     ).toHaveBeenCalledWith(["main.tex"], { preserveSelection: true });

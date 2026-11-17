@@ -223,6 +223,16 @@ fn open_repo_at(project_root: &str, paths: &ProjectStoragePaths) -> Result<Repos
         .map_err(|e| format!("Failed to open history repo: {}", e))?;
     repo.set_workdir(Path::new(project_root), false)
         .map_err(|e| format!("Failed to bind history repo to project: {}", e))?;
+    // Record names exactly as they are on disk. With case folding, an index
+    // updated in place would keep the old name after a case-only rename.
+    let mut config = repo
+        .config()
+        .map_err(|e| format!("Failed to read history configuration: {}", e))?;
+    if config.get_bool("core.ignorecase").unwrap_or(false) {
+        config
+            .set_bool("core.ignorecase", false)
+            .map_err(|e| format!("Failed to update history configuration: {}", e))?;
+    }
     Ok(repo)
 }
 
@@ -566,27 +576,67 @@ fn history_tracks_assets(repo: &Repository, tree: &git2::Tree<'_>) -> bool {
         .is_some_and(|blob| blob.content() == HISTORY_COVERAGE)
 }
 
-fn rebuild_history_index(repo: &Repository, paths: &ProjectStoragePaths) -> Result<Oid, String> {
-    let workdir = repo.workdir().ok_or("No automatic history workdir")?;
+fn index_entry_path(entry: &git2::IndexEntry) -> Option<PathBuf> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::ffi::OsStrExt;
+        Some(PathBuf::from(std::ffi::OsStr::from_bytes(&entry.path)))
+    }
+    #[cfg(not(unix))]
+    {
+        std::str::from_utf8(&entry.path).ok().map(PathBuf::from)
+    }
+}
+
+/// History repositories whose index was built from every file by this process.
+fn verified_history_indexes() -> &'static Mutex<HashSet<PathBuf>> {
+    static VERIFIED: std::sync::OnceLock<Mutex<HashSet<PathBuf>>> = std::sync::OnceLock::new();
+    VERIFIED.get_or_init(|| Mutex::new(HashSet::new()))
+}
+
+fn history_index_verified(repo: &Repository) -> bool {
+    verified_history_indexes()
+        .lock()
+        .is_ok_and(|verified| verified.contains(repo.path()))
+}
+
+/// Reads every project file into the history index once per app session, so a
+/// change that kept its file metadata cannot stay unrecorded across sessions.
+/// Called when a project opens; a failure leaves the check to the next snapshot.
+fn verify_history_index_once(project_root: &str, paths: &ProjectStoragePaths) {
+    let result = open_repo_at(project_root, paths).and_then(|repo| {
+        if history_index_verified(&repo) {
+            return Ok(());
+        }
+        ensure_excludes(paths, &repo)?;
+        let workdir = repo.workdir().ok_or("No automatic history workdir")?;
+        update_history_index(&repo, workdir, true).map(|_| ())
+    });
+    if let Err(error) = result {
+        eprintln!("[history] Full history index check deferred: {error}");
+    }
+}
+
+/// Brings the history index up to date with the project files. Entries whose
+/// file metadata is unchanged keep their stored content without being read;
+/// `rebuild` starts from an empty index and reads every file.
+fn update_history_index(repo: &Repository, workdir: &Path, rebuild: bool) -> Result<Oid, String> {
     let mut index = repo
         .index()
         .map_err(|error| format!("Failed to get automatic history index: {error}"))?;
-    index
-        .clear()
-        .map_err(|error| format!("Failed to reset automatic history index: {error}"))?;
-    let mut include_project_files = |relative_path: &Path, _pathspec: &[u8]| {
-        let full_path = workdir.join(relative_path);
-        if !crate::private_files::excluded(workdir, relative_path)
-            && fs::symlink_metadata(&full_path).is_ok_and(|metadata| {
+    if rebuild {
+        index
+            .clear()
+            .map_err(|error| format!("Failed to reset automatic history index: {error}"))?;
+    }
+    let included = |relative_path: &Path| {
+        !crate::private_files::excluded(workdir, relative_path)
+            && fs::symlink_metadata(workdir.join(relative_path)).is_ok_and(|metadata| {
                 !metadata.file_type().is_symlink() && (metadata.is_file() || metadata.is_dir())
             })
-
-        {
-            0
-        } else {
-            1
-        }
     };
+    let mut include_project_files =
+        |relative_path: &Path, _pathspec: &[u8]| if included(relative_path) { 0 } else { 1 };
     index
         .add_all(
             ["*"].iter(),
@@ -594,12 +644,55 @@ fn rebuild_history_index(repo: &Repository, paths: &ProjectStoragePaths) -> Resu
             Some(&mut include_project_files),
         )
         .map_err(|error| format!("Failed to add project files to automatic history: {error}"))?;
+    if !rebuild {
+        // Skipped paths keep their old entries: remove deleted files and files
+        // the selection now excludes. Stored content must still exist.
+        let odb = repo.odb().map_err(|error| error.to_string())?;
+        let mut stale = Vec::new();
+        for entry in index.iter() {
+            let path = index_entry_path(&entry).ok_or("History index contains an invalid path")?;
+            if !included(&path) {
+                stale.push(path);
+            } else if !odb.exists(entry.id) {
+                return Err(format!("History is missing stored content for {}", path.display()));
+            }
+        }
+        for path in stale {
+            index
+                .remove_path(&path)
+                .map_err(|error| format!("Failed to update automatic history index: {error}"))?;
+        }
+    }
     index
         .write()
         .map_err(|error| format!("Failed to write automatic history index: {error}"))?;
-    let tree_oid = index
+    let tree = index
         .write_tree()
         .map_err(|error| format!("Failed to write automatic history tree: {error}"))?;
+    if rebuild {
+        if let Ok(mut verified) = verified_history_indexes().lock() {
+            verified.insert(repo.path().to_path_buf());
+        }
+    }
+    Ok(tree)
+}
+
+fn rebuild_history_index(repo: &Repository, paths: &ProjectStoragePaths) -> Result<Oid, String> {
+    let workdir = repo.workdir().ok_or("No automatic history workdir")?;
+    // The first update of an app session, and an index that cannot be updated
+    // in place, read every file.
+    let updated = if history_index_verified(repo) {
+        update_history_index(repo, workdir, false)
+    } else {
+        Err("not yet checked in this session".to_string())
+    };
+    let tree_oid = match updated {
+        Ok(oid) => oid,
+        Err(error) => {
+            eprintln!("[history] Rebuilding the history index: {error}");
+            update_history_index(repo, workdir, true)?
+        }
+    };
     let tree = repo
         .find_tree(tree_oid)
         .map_err(|error| error.to_string())?;
@@ -2055,16 +2148,27 @@ pub fn git_overleaf_clone(
 }
 
 pub fn history_init(app: crate::host::ServiceContext, project_root: String) -> Result<(), String> {
-    let _comment_guard = app.comments.lock_project_blocking(&project_root)?;
-    let paths = resolve_project_storage(&app, &project_root)?;
-    history_init_at(&project_root, &paths)
+    let paths = {
+        let _comment_guard = app.comments.lock_project_blocking(&project_root)?;
+        let paths = resolve_project_storage(&app, &project_root)?;
+        let _history_guard = lock_history_operations();
+        history_init_unlocked_at(&project_root, &paths)?;
+        paths
+    };
+    // Reading every file can take seconds on a large project. It touches only
+    // the history index, so comments stay available meanwhile.
+    let _history_guard = lock_history_operations();
+    verify_history_index_once(&project_root, &paths);
+    Ok(())
 }
 
 // Acquires the shared repository lock internally. Call before acquiring a
 // mutation guard through lock_history_operations, never while holding one.
 pub(crate) fn history_init_at(project_root: &str, paths: &ProjectStoragePaths) -> Result<(), String> {
     let _history_guard = lock_history_operations();
-    history_init_unlocked_at(project_root, paths)
+    history_init_unlocked_at(project_root, paths)?;
+    verify_history_index_once(project_root, paths);
+    Ok(())
 }
 
 fn history_init_unlocked_at(project_root: &str, paths: &ProjectStoragePaths) -> Result<(), String> {
@@ -5939,6 +6043,196 @@ mod tests {
         // No modification → None
         let result = history_snapshot(r, "no-op".into()).unwrap();
         assert!(result.is_none());
+    }
+
+    #[test]
+    fn incremental_index_matches_a_full_rebuild() {
+        let dir = setup_project(&[
+            ("main.tex", "v1"),
+            ("sub/a.tex", "a"),
+            ("fig.pdf", "asset"),
+            ("keep.tex", "keep"),
+        ]);
+        let r = root(&dir);
+        history_init(r.clone()).unwrap();
+        let repo = open_repo_at(&r, &test_paths(&r)).unwrap();
+        let workdir = repo.workdir().unwrap().to_path_buf();
+        let compare = || {
+            let incremental = update_history_index(&repo, &workdir, false).unwrap();
+            assert_eq!(update_history_index(&repo, &workdir, true).unwrap(), incremental);
+            repo.find_tree(incremental).unwrap()
+        };
+
+        // A same-size edit in the same instant, a deletion, an addition, and
+        // a file that became generated output.
+        fs::write(dir.path().join("main.tex"), "v2").unwrap();
+        fs::remove_file(dir.path().join("sub/a.tex")).unwrap();
+        fs::write(dir.path().join("new.tex"), "new").unwrap();
+        fs::write(dir.path().join("fig.fls"), "OUTPUT fig.pdf\n").unwrap();
+        let tree = compare();
+        for path in ["main.tex", "new.tex", "keep.tex"] {
+            assert!(tree.get_path(Path::new(path)).is_ok(), "{path}");
+        }
+        for path in ["sub/a.tex", "fig.pdf", "fig.fls"] {
+            assert!(tree.get_path(Path::new(path)).is_err(), "{path}");
+        }
+        let main = tree.get_path(Path::new("main.tex")).unwrap();
+        assert_eq!(repo.find_blob(main.id()).unwrap().content(), b"v2");
+
+        // The file is selected again once it is no longer recorded as output.
+        fs::remove_file(dir.path().join("fig.fls")).unwrap();
+        assert!(compare().get_path(Path::new("fig.pdf")).is_ok());
+    }
+
+    #[test]
+    fn incremental_index_follows_renames_and_file_type_changes() {
+        let dir = setup_project(&[
+            ("main.tex", "v1"),
+            ("keep.tex", "keep"),
+            ("sub/a.tex", "a"),
+            ("x.tex", "x"),
+            ("Dir/b.tex", "b"),
+        ]);
+        let r = root(&dir);
+        history_init(r.clone()).unwrap();
+        let repo = open_repo_at(&r, &test_paths(&r)).unwrap();
+        let workdir = repo.workdir().unwrap().to_path_buf();
+        let files = |label: &str| {
+            let incremental = update_history_index(&repo, &workdir, false).unwrap();
+            assert_eq!(
+                update_history_index(&repo, &workdir, true).unwrap(),
+                incremental,
+                "{label}"
+            );
+            let mut names = Vec::new();
+            repo.find_tree(incremental)
+                .unwrap()
+                .walk(git2::TreeWalkMode::PreOrder, |parent, entry| {
+                    if entry.kind() == Some(ObjectType::Blob) {
+                        names.push(format!("{parent}{}", entry.name().unwrap()));
+                    }
+                    git2::TreeWalkResult::Ok
+                })
+                .unwrap();
+            names
+        };
+        let path = |name: &str| dir.path().join(name);
+
+        // A case-only rename records the new name, also on case-insensitive disks.
+        fs::rename(path("keep.tex"), path("Keep.tex")).unwrap();
+        fs::rename(path("Dir"), path("dir")).unwrap();
+        let names = files("case-only renames");
+        assert!(names.contains(&"Keep.tex".to_string()) && !names.contains(&"keep.tex".to_string()));
+        assert!(names.contains(&"dir/b.tex".to_string()) && !names.contains(&"Dir/b.tex".to_string()));
+
+        fs::remove_file(path("x.tex")).unwrap();
+        fs::create_dir(path("x.tex")).unwrap();
+        fs::write(path("x.tex/inner.tex"), "inner").unwrap();
+        assert!(files("file became a folder").contains(&"x.tex/inner.tex".to_string()));
+
+        fs::remove_dir_all(path("sub")).unwrap();
+        fs::write(path("sub"), "now a file").unwrap();
+        let names = files("folder became a file");
+        assert!(names.contains(&"sub".to_string()) && !names.contains(&"sub/a.tex".to_string()));
+
+        #[cfg(unix)]
+        {
+            fs::remove_file(path("main.tex")).unwrap();
+            std::os::unix::fs::symlink(path("Keep.tex"), path("main.tex")).unwrap();
+            assert!(!files("file became a link").contains(&"main.tex".to_string()));
+            fs::remove_file(path("main.tex")).unwrap();
+            fs::write(path("main.tex"), "v3").unwrap();
+            assert!(files("link became a file").contains(&"main.tex".to_string()));
+        }
+
+        fs::rename(path("Keep.tex"), path("moved.tex")).unwrap();
+        let names = files("rename");
+        assert!(names.contains(&"moved.tex".to_string()) && !names.contains(&"Keep.tex".to_string()));
+    }
+
+    #[test]
+    fn opening_a_project_in_a_new_session_reads_every_file_once() {
+        let dir = setup_project(&[("main.tex", "real content")]);
+        fs::File::options()
+            .write(true)
+            .open(dir.path().join("main.tex"))
+            .unwrap()
+            .set_modified(std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_700_000_000))
+            .unwrap();
+        let r = root(&dir);
+        history_init(r.clone()).unwrap();
+        let paths = test_paths(&r);
+        let stored = |repo: &Repository| {
+            let index = repo.index().unwrap();
+            let id = index.get_path(Path::new("main.tex"), 0).unwrap().id;
+            repo.find_blob(id).unwrap().content().to_vec()
+        };
+
+        // A change the metadata check cannot see: the index holds other
+        // content for a file whose size and times still match.
+        let repo = open_repo_at(&r, &paths).unwrap();
+        let workdir = repo.workdir().unwrap().to_path_buf();
+        let mut index = repo.index().unwrap();
+        let mut entry = index.get_path(Path::new("main.tex"), 0).unwrap();
+        entry.id = repo.blob(b"stale content").unwrap();
+        index.add(&entry).unwrap();
+        index.write().unwrap();
+        update_history_index(&repo, &workdir, false).unwrap();
+        assert_eq!(stored(&repo), b"stale content");
+        let key = repo.path().to_path_buf();
+        drop(index);
+        drop(repo);
+
+        // Later in the same session the project opens again: no full read.
+        history_init(r.clone()).unwrap();
+        assert_eq!(stored(&open_repo_at(&r, &paths).unwrap()), b"stale content");
+
+        // A new app session opens the project.
+        verified_history_indexes().lock().unwrap().remove(&key);
+        history_init(r.clone()).unwrap();
+        assert_eq!(stored(&open_repo_at(&r, &paths).unwrap()), b"real content");
+        assert!(history_snapshot(r, "nothing was lost".into()).unwrap().is_none());
+    }
+
+    #[test]
+    fn unchanged_files_reuse_stored_content_and_missing_content_is_rebuilt() {
+        let dir = setup_project(&[("main.tex", "v1"), ("asset.bin", "unchanged asset")]);
+        // An old file cannot be mistaken for one edited during the snapshot.
+        fs::File::options()
+            .write(true)
+            .open(dir.path().join("asset.bin"))
+            .unwrap()
+            .set_modified(std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_700_000_000))
+            .unwrap();
+        let r = root(&dir);
+        history_init(r.clone()).unwrap();
+        let paths = test_paths(&r);
+        let repo = open_repo_at(&r, &paths).unwrap();
+        let workdir = repo.workdir().unwrap().to_path_buf();
+        let asset = repo
+            .head()
+            .unwrap()
+            .peel_to_tree()
+            .unwrap()
+            .get_path(Path::new("asset.bin"))
+            .unwrap()
+            .id();
+        let hex = asset.to_string();
+        let object = repo.path().join("objects").join(&hex[..2]).join(&hex[2..]);
+        fs::remove_file(&object).unwrap();
+        drop(repo);
+
+        // The unchanged file is not read, so its content is not stored again.
+        let repo = open_repo_at(&r, &paths).unwrap();
+        assert!(update_history_index(&repo, &workdir, false).is_err());
+        assert!(!object.exists());
+        drop(repo);
+
+        fs::write(dir.path().join("main.tex"), "v2").unwrap();
+        let snapshot = history_snapshot(r.clone(), "edited".into()).unwrap().unwrap();
+        assert_eq!(snapshot.changed_files, vec!["main.tex".to_string()]);
+        let repo = open_repo_at(&r, &paths).unwrap();
+        assert_eq!(repo.find_blob(asset).unwrap().content(), b"unchanged asset");
     }
 
     #[test]

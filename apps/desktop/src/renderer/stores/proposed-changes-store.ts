@@ -658,17 +658,8 @@ async function applyWorkspaceReview(
         `could not initialize history: ${historyInitializationError}`,
       );
     }
-    if (!historyInitializationError) {
-      await useHistoryStore
-        .getState()
-        .createSnapshot(
-          projectRoot,
-          `[${review.session.mode}] After accepted agent edit`,
-        )
-        .catch((error) => {
-          postApplyErrors.push(`could not record history: ${String(error)}`);
-        });
-    }
+    // The native apply already recorded the "Applied reviewed changes"
+    // checkpoint, including moved comment positions.
   }
   const { useAgentChatStore } = await import("./agent-chat-store");
   const chatStore = useAgentChatStore.getState();

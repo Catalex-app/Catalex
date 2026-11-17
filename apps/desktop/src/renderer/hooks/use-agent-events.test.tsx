@@ -2531,10 +2531,8 @@ describe("useAgentEvents provider updates", () => {
       projectRoot: "/project",
       sessionId: "workspace-edit",
     });
-    expect(mocks.historyState.createSnapshot).toHaveBeenCalledWith(
-      "/project",
-      "[edit] After accepted agent edit",
-    );
+    // The native apply records the only "after" checkpoint.
+    expect(mocks.historyState.createSnapshot).not.toHaveBeenCalled();
     expect(mocks.documentState.restoreSourceWorkspace).toHaveBeenCalledWith(
       ["main.tex"],
       { preserveSelection: true },
