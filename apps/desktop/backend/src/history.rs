@@ -1377,6 +1377,43 @@ where
     Ok(outcome)
 }
 
+/// Result of the last maintenance run that ended over the storage limit, per
+/// history repository, for this process only.
+#[derive(Clone, Copy)]
+struct SettledHistory {
+    storage_limit_bytes: u64,
+    recent_snapshot_floor: usize,
+    usage_bytes: u64,
+}
+
+fn settled_histories() -> &'static Mutex<HashMap<PathBuf, SettledHistory>> {
+    static SETTLED: std::sync::OnceLock<Mutex<HashMap<PathBuf, SettledHistory>>> =
+        std::sync::OnceLock::new();
+    SETTLED.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Remembers whether maintenance left history over its limit, so the next run
+/// can tell if enough was added to make another attempt worthwhile.
+fn record_maintained_history(paths: &ProjectStoragePaths, policy: HistoryMaintenancePolicy) {
+    let Ok(usage_bytes) = directory_size(&paths.history_dir) else {
+        return;
+    };
+    if let Ok(mut settled) = settled_histories().lock() {
+        if usage_bytes > policy.storage_limit_bytes {
+            settled.insert(
+                paths.history_dir.clone(),
+                SettledHistory {
+                    storage_limit_bytes: policy.storage_limit_bytes,
+                    recent_snapshot_floor: policy.recent_snapshot_floor,
+                    usage_bytes,
+                },
+            );
+        } else {
+            settled.remove(&paths.history_dir);
+        }
+    }
+}
+
 fn maintain_history_with_policy<F>(
     project_root: &str,
     paths: &ProjectStoragePaths,
@@ -1398,12 +1435,32 @@ where
         return Ok(HistoryMaintenanceOutcome::default());
     }
 
+    // The last run under the same rules already packed history and dropped
+    // every snapshot it may drop, and still ended over the limit. Repeating it
+    // changes nothing until a tenth of the limit has been added, or enough
+    // unpacked objects have accumulated to be worth packing.
+    let settled = settled_histories()
+        .lock()
+        .ok()
+        .and_then(|settled| settled.get(&paths.history_dir).copied());
+    if !policy.force_compaction
+        && loose_objects < policy.loose_object_threshold
+        && settled.is_some_and(|last| {
+            last.storage_limit_bytes == policy.storage_limit_bytes
+                && last.recent_snapshot_floor == policy.recent_snapshot_floor
+                && usage_bytes < last.usage_bytes.saturating_add(policy.storage_limit_bytes / 10)
+        })
+    {
+        return Ok(HistoryMaintenanceOutcome::default());
+    }
+
     // Git performs the pack replacement atomically. Running it before any
     // ancestry rewrite gives size enforcement an accurate delta-compressed
     // baseline and keeps routine loose-object maintenance inexpensive.
     run_history_git_gc(project_root, paths)?;
     let packed_usage_bytes = directory_size(&paths.history_dir)?;
     if !policy.force_compaction && packed_usage_bytes <= policy.storage_limit_bytes {
+        record_maintained_history(paths, policy);
         return Ok(HistoryMaintenanceOutcome::default());
     }
 
@@ -1419,6 +1476,7 @@ where
         history_tag_targets(&repository)?;
     }
 
+    record_maintained_history(paths, policy);
     Ok(outcome)
 }
 
@@ -7328,6 +7386,71 @@ mod tests {
         assert_eq!(retained.len(), 2);
         assert_eq!(retained[0].message, "edit 5");
         assert_eq!(retained[1].message, "edit 4");
+    }
+
+    #[test]
+    fn maintenance_over_the_limit_waits_for_meaningful_growth() {
+        let project = setup_project(&[("main.tex", "initial")]);
+        let project_root = root(&project);
+        let paths = test_paths(&project_root);
+        let mut seed = 0x2545_f491_4f6c_dd1d_u64;
+        let mut noise = |length: usize| -> Vec<u8> {
+            (0..length)
+                .map(|_| {
+                    seed ^= seed << 13;
+                    seed ^= seed >> 7;
+                    seed ^= seed << 17;
+                    seed as u8
+                })
+                .collect()
+        };
+        fs::write(project.path().join("figure.bin"), noise(256 * 1024)).unwrap();
+        history_init(project_root.clone()).unwrap();
+        // History holds about 256 KB that cannot shrink: always over this limit.
+        let policy = HistoryMaintenancePolicy {
+            storage_limit_bytes: 100 * 1024,
+            recent_snapshot_floor: HISTORY_RECENT_SNAPSHOT_FLOOR,
+            loose_object_threshold: 256,
+            force_compaction: false,
+        };
+        let loose = || {
+            loose_history_object_count(&open_repo_at(&project_root, &paths).unwrap()).unwrap()
+        };
+        let maintain = |policy| {
+            maintain_history_with_policy(&project_root, &paths, policy, |_| Ok(())).unwrap();
+        };
+
+        assert!(loose() > 0);
+        maintain(policy);
+        assert_eq!(loose(), 0, "the first run packs history");
+        assert!(directory_size(&paths.history_dir).unwrap() > policy.storage_limit_bytes);
+
+        // A small edit adds far less than a tenth of the limit: no new run.
+        fs::write(project.path().join("main.tex"), "edited").unwrap();
+        history_snapshot(project_root.clone(), "small edit".into()).unwrap().unwrap();
+        let added = loose();
+        assert!(added > 0);
+        maintain(policy);
+        assert_eq!(loose(), added, "little was added since the last run");
+
+        // Different rules can have a different result, so they run.
+        maintain(HistoryMaintenancePolicy { recent_snapshot_floor: 1, ..policy });
+        assert_eq!(loose(), 0, "a changed rule runs maintenance");
+        assert_eq!(history_list(project_root.clone(), 10, 0).unwrap().len(), 1);
+        maintain(policy);
+
+        // One large file is meaningful growth even as a few objects.
+        fs::write(project.path().join("second.bin"), noise(64 * 1024)).unwrap();
+        history_snapshot(project_root.clone(), "large addition".into()).unwrap().unwrap();
+        assert!(loose() > 0 && loose() < 256);
+        maintain(policy);
+        assert_eq!(loose(), 0, "meaningful growth runs maintenance");
+
+        // Enough unpacked objects are packed regardless of size.
+        fs::write(project.path().join("main.tex"), "edited again").unwrap();
+        history_snapshot(project_root.clone(), "another small edit".into()).unwrap().unwrap();
+        maintain(HistoryMaintenancePolicy { loose_object_threshold: 1, ..policy });
+        assert_eq!(loose(), 0, "the object threshold still packs");
     }
 
     #[test]
