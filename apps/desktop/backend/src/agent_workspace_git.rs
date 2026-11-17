@@ -1248,6 +1248,67 @@ mod tests {
     }
 
     #[test]
+    fn agent_draft_works_in_a_project_with_a_nested_git_repository() {
+        let project = TempDir::new().unwrap();
+        let data = TempDir::new().unwrap();
+        let d = data.path().to_path_buf();
+        let paths = crate::project_storage::ProjectStoragePaths {
+            project_id: "test-project".into(),
+            history_dir: d.join("history.git"),
+            history_exclude_file: d.join("history-exclude"),
+            history_settings_file: d.join("history-settings.json"),
+            sessions_dir: d.join("sessions"),
+            agent_workspaces_dir: d.join("agent-workspaces"),
+            latex_build_dir: d.join("latex-build"),
+            cache_dir: d.join("cache"),
+            data_dir: d.clone(),
+        };
+        let root = project.path().to_str().unwrap().to_string();
+        fs::write(project.path().join("main.tex"), "main original\n").unwrap();
+        fs::create_dir(project.path().join("nested")).unwrap();
+        Repository::init(project.path().join("nested")).unwrap();
+        fs::write(project.path().join("nested/in.tex"), "nested original\n").unwrap();
+
+        // The same steps as starting an agent run.
+        crate::history::history_init_at(&root, &paths).unwrap();
+        crate::history::history_snapshot_unlocked_at(&root, &paths, "[agent] Before agent work".into()).unwrap();
+        let session = prepare_workspace_in_root(&paths.agent_workspaces_dir, &root, "tab", None, "ask", vec![]).unwrap();
+        let dir = paths.agent_workspaces_dir.join(&session.session_id);
+        let candidate = dir.join(CANDIDATE_DIR_NAME);
+        assert_eq!(fs::read_to_string(candidate.join("nested/in.tex")).unwrap(), "nested original\n");
+        assert!(!candidate.join("nested/.git").exists());
+
+        // Untouched nested files are not proposed; an edited one is.
+        fs::write(candidate.join("main.tex"), "main proposed\n").unwrap();
+        fs::write(candidate.join("nested/in.tex"), "nested proposed\n").unwrap();
+        let preview = preview_workspace(&dir, session, &[]).unwrap();
+        let mut proposed: Vec<_> = preview.changes.iter().map(|change| change.file_path.clone()).collect();
+        proposed.sort();
+        assert_eq!(proposed, ["main.tex", "nested/in.tex"]);
+        let decisions = preview
+            .changes
+            .iter()
+            .map(|change| AgentWorkspaceDecision {
+                change_id: change.id.clone(),
+                accept: true,
+                proposal_revision: Some(change.proposal_revision.clone()),
+                ..Default::default()
+            })
+            .collect();
+        let result = apply_workspace(&dir, &root, decisions, Some(preview.source_revision)).unwrap();
+        assert!(result.applied);
+        assert_eq!(fs::read_to_string(project.path().join("nested/in.tex")).unwrap(), "nested proposed\n");
+        assert!(project.path().join("nested/.git").exists());
+
+        let applied = crate::history::history_snapshot_unlocked_at(&root, &paths, "[agent] Applied reviewed changes".into())
+            .unwrap()
+            .unwrap();
+        let mut changed = applied.changed_files;
+        changed.sort();
+        assert_eq!(changed, ["main.tex", "nested/in.tex"]);
+    }
+
+    #[test]
     fn applied_history_snapshot_already_holds_moved_comment_positions() {
         let project = TempDir::new().unwrap();
         let data = TempDir::new().unwrap();

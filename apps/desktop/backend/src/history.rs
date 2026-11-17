@@ -3,7 +3,8 @@ use git2::{
     StatusOptions,
 };
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
+use std::cell::RefCell;
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -617,6 +618,81 @@ fn verify_history_index_once(project_root: &str, paths: &ProjectStoragePaths) {
     }
 }
 
+/// Reads and adds every selected file under `folder`. Used for folders the
+/// index update cannot enter; their files are read on every update.
+fn add_folder_files(
+    repo: &Repository,
+    index: &mut git2::Index,
+    workdir: &Path,
+    folder: &Path,
+    included: &dyn Fn(&Path) -> bool,
+) -> Result<(), String> {
+    let failed = |path: &Path, error: std::io::Error| {
+        format!("Failed to add {} to automatic history: {error}", path.display())
+    };
+    let entries = match fs::read_dir(workdir.join(folder)) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(failed(folder, error)),
+    };
+    for entry in entries {
+        let relative_path = folder.join(entry.map_err(|error| failed(folder, error))?.file_name());
+        if !included(&relative_path) {
+            continue;
+        }
+        let full_path = workdir.join(&relative_path);
+        let metadata = match fs::symlink_metadata(&full_path) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(failed(&relative_path, error)),
+        };
+        if metadata.is_dir() {
+            add_folder_files(repo, index, workdir, &relative_path, included)?;
+            continue;
+        }
+        let bytes = match fs::read(&full_path) {
+            Ok(bytes) => bytes,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(failed(&relative_path, error)),
+        };
+        #[cfg(unix)]
+        let (path, mode) = {
+            use std::os::unix::{ffi::OsStrExt, fs::PermissionsExt};
+            (
+                relative_path.as_os_str().as_bytes().to_vec(),
+                if metadata.permissions().mode() & 0o111 != 0 { 0o100755 } else { 0o100644 },
+            )
+        };
+        #[cfg(not(unix))]
+        let (path, mode) = (
+            relative_path
+                .to_str()
+                .ok_or("History cannot record a file name that is not Unicode")?
+                .replace('\\', "/")
+                .into_bytes(),
+            0o100644,
+        );
+        let id = repo.blob(&bytes).map_err(|error| error.to_string())?;
+        index
+            .add(&git2::IndexEntry {
+                ctime: git2::IndexTime::new(0, 0),
+                mtime: git2::IndexTime::new(0, 0),
+                dev: 0,
+                ino: 0,
+                mode,
+                uid: 0,
+                gid: 0,
+                file_size: bytes.len().min(u32::MAX as usize) as u32,
+                id,
+                flags: 0,
+                flags_extended: 0,
+                path,
+            })
+            .map_err(|error| format!("Failed to add {} to automatic history: {error}", relative_path.display()))?;
+    }
+    Ok(())
+}
+
 /// Brings the history index up to date with the project files. Entries whose
 /// file metadata is unchanged keep their stored content without being read;
 /// `rebuild` starts from an empty index and reads every file.
@@ -635,8 +711,38 @@ fn update_history_index(repo: &Repository, workdir: &Path, rebuild: bool) -> Res
                 !metadata.file_type().is_symlink() && (metadata.is_file() || metadata.is_dir())
             })
     };
-    let mut include_project_files =
-        |relative_path: &Path, _pathspec: &[u8]| if included(relative_path) { 0 } else { 1 };
+    // The index update treats a folder with its own Git data as one opaque
+    // item and cannot add it. Skip such folders there and add their files
+    // below, so they are recorded like any other project file.
+    let checked: RefCell<HashMap<PathBuf, bool>> = RefCell::new(HashMap::new());
+    let nested: RefCell<BTreeSet<PathBuf>> = RefCell::new(BTreeSet::new());
+    let nested_repository = |relative_path: &Path, include_self: bool| -> Option<PathBuf> {
+        let count = relative_path.components().count();
+        let mut folder = PathBuf::new();
+        for (position, part) in relative_path.components().enumerate() {
+            if position + 1 == count && !include_self {
+                break;
+            }
+            folder.push(part);
+            let found = *checked.borrow_mut().entry(folder.clone()).or_insert_with(|| {
+                fs::symlink_metadata(workdir.join(&folder).join(".git")).is_ok()
+            });
+            if found {
+                return Some(folder);
+            }
+        }
+        None
+    };
+    let mut include_project_files = |relative_path: &Path, _pathspec: &[u8]| {
+        if let Some(folder) = nested_repository(relative_path, true) {
+            nested.borrow_mut().insert(folder);
+            1
+        } else if included(relative_path) {
+            0
+        } else {
+            1
+        }
+    };
     index
         .add_all(
             ["*"].iter(),
@@ -651,6 +757,9 @@ fn update_history_index(repo: &Repository, workdir: &Path, rebuild: bool) -> Res
         let mut stale = Vec::new();
         for entry in index.iter() {
             let path = index_entry_path(&entry).ok_or("History index contains an invalid path")?;
+            if let Some(folder) = nested_repository(&path, false) {
+                nested.borrow_mut().insert(folder);
+            }
             if !included(&path) {
                 stale.push(path);
             } else if !odb.exists(entry.id) {
@@ -661,6 +770,11 @@ fn update_history_index(repo: &Repository, workdir: &Path, rebuild: bool) -> Res
             index
                 .remove_path(&path)
                 .map_err(|error| format!("Failed to update automatic history index: {error}"))?;
+        }
+    }
+    for folder in nested.into_inner() {
+        if included(&folder) {
+            add_folder_files(repo, &mut index, workdir, &folder, &included)?;
         }
     }
     index
@@ -6148,6 +6262,84 @@ mod tests {
         fs::rename(path("Keep.tex"), path("moved.tex")).unwrap();
         let names = files("rename");
         assert!(names.contains(&"moved.tex".to_string()) && !names.contains(&"Keep.tex".to_string()));
+    }
+
+    #[test]
+    fn nested_git_repositories_are_recorded_as_ordinary_files() {
+        let dir = setup_project(&[("main.tex", "v1"), ("sub/a.tex", "a1")]);
+        let r = root(&dir);
+        history_init(r.clone()).unwrap();
+        let path = |name: &str| dir.path().join(name);
+        fs::create_dir_all(path("nested/deep")).unwrap();
+        let nested = Repository::init(path("nested")).unwrap();
+        Repository::init(path("nested/deep")).unwrap();
+        fs::write(path("nested/in.tex"), "one").unwrap();
+        fs::write(path("nested/deep/d.tex"), "deep").unwrap();
+
+        // An empty nested repository, and one inside it.
+        let first = history_snapshot(r.clone(), "nested added".into()).unwrap().unwrap();
+        let mut changed = first.changed_files.clone();
+        changed.sort();
+        assert_eq!(changed, ["nested/deep/d.tex", "nested/in.tex"]);
+
+        // The nested repository has its own commit.
+        let mut index = nested.index().unwrap();
+        index.add_path(Path::new("in.tex")).unwrap();
+        index.write().unwrap();
+        let tree = nested.find_tree(index.write_tree().unwrap()).unwrap();
+        let sig = git2::Signature::now("Test", "test@example.invalid").unwrap();
+        nested.commit(Some("HEAD"), &sig, &sig, "nested", &tree, &[]).unwrap();
+        assert!(history_snapshot(r.clone(), "nothing changed".into()).unwrap().is_none());
+
+        let repo = open_repo_at(&r, &test_paths(&r)).unwrap();
+        let workdir = repo.workdir().unwrap().to_path_buf();
+        let files = |label: &str| {
+            let incremental = update_history_index(&repo, &workdir, false).unwrap();
+            assert_eq!(update_history_index(&repo, &workdir, true).unwrap(), incremental, "{label}");
+            let mut files = HashMap::new();
+            repo.find_tree(incremental)
+                .unwrap()
+                .walk(git2::TreeWalkMode::PreOrder, |parent, entry| {
+                    if entry.kind() == Some(ObjectType::Blob) {
+                        let content = repo.find_blob(entry.id()).unwrap().content().to_vec();
+                        files.insert(format!("{parent}{}", entry.name().unwrap()), content);
+                    }
+                    git2::TreeWalkResult::Ok
+                })
+                .unwrap();
+            assert!(files.keys().all(|name| !name.contains(".git")), "{label}");
+            files
+        };
+
+        fs::write(path("nested/in.tex"), "two").unwrap();
+        fs::write(path("nested/new.tex"), "new").unwrap();
+        fs::remove_file(path("nested/deep/d.tex")).unwrap();
+        let recorded = files("edit, add and delete inside");
+        assert_eq!(recorded["nested/in.tex"], b"two");
+        assert_eq!(recorded["nested/new.tex"], b"new");
+        assert!(!recorded.contains_key("nested/deep/d.tex"));
+
+        // An ordinary folder becomes a repository, and a repository an ordinary folder.
+        Repository::init(path("sub")).unwrap();
+        fs::write(path("sub/a.tex"), "a2").unwrap();
+        fs::remove_dir_all(path("nested/.git")).unwrap();
+        fs::write(path("nested/in.tex"), "three").unwrap();
+        let recorded = files("repository status changed");
+        assert_eq!(recorded["sub/a.tex"], b"a2");
+        assert_eq!(recorded["nested/in.tex"], b"three");
+
+        fs::remove_dir_all(path("sub")).unwrap();
+        let recorded = files("repository removed");
+        assert!(recorded.keys().all(|name| !name.starts_with("sub/")));
+        drop(repo);
+
+        // Restoring brings back the files and leaves the nested Git data alone.
+        Repository::init(path("nested")).unwrap();
+        history_snapshot(r.clone(), "before restore".into()).unwrap();
+        history_restore(r, first.id).unwrap();
+        assert_eq!(fs::read_to_string(path("nested/in.tex")).unwrap(), "one");
+        assert_eq!(fs::read_to_string(path("nested/deep/d.tex")).unwrap(), "deep");
+        assert!(path("nested/.git").exists());
     }
 
     #[test]
