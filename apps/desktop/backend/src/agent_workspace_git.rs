@@ -769,7 +769,6 @@ fn load_settlement(dir: &Path, repo: &Repository) -> Result<Settlement, String> 
     Ok(pending)
 }
 
-/// Persist the approved transition before touching project files.
 /// Commits `parent`'s tree with only the decided paths replaced or removed.
 /// Every other file keeps its stored content without being loaded.
 fn advance_commit(
@@ -805,6 +804,160 @@ fn advance_commit(
     commit(repo, tree, Some(parent), message)
 }
 
+/// Path, stored content and mode of every file in a tree, without loading content.
+fn tree_entries(
+    repo: &Repository,
+    tree: Oid,
+) -> Result<BTreeMap<String, (Oid, u32)>, String> {
+    let tree = repo.find_tree(tree).map_err(|e| e.to_string())?;
+    let mut entries = BTreeMap::new();
+    tree.walk(git2::TreeWalkMode::PreOrder, |parent, entry| {
+        if entry.kind() == Some(git2::ObjectType::Blob) {
+            if let Some(name) = entry.name() {
+                entries.insert(format!("{parent}{name}"), (entry.id(), entry.filemode() as u32));
+            }
+        }
+        git2::TreeWalkResult::Ok
+    })
+    .map_err(|e| e.to_string())?;
+    Ok(entries)
+}
+
+/// The part of building a review that covers files the agent did not change
+/// (the draft copy equals the draft baseline). The three-way merge of the
+/// recorded project state, the project now and the draft has nothing from the
+/// agent's side, so wherever only the project changed the result is the
+/// project's current version: the draft file, the baseline and the recorded
+/// state all move to it. This covers files edited, added or deleted in the
+/// project since the draft was made, by the user or by another accepted draft.
+/// Such files are shown as they are and are not proposals.
+///
+/// Where the baseline itself differs from the recorded state it holds an editor
+/// buffer that was unsaved when the draft started. If the project now equals
+/// it, only the recorded state moves. If the project holds a third version,
+/// both sides changed and nothing is merged here.
+///
+/// Must not run while the agent is writing. Returns the paths that changed in
+/// the draft.
+pub(super) fn follow_project_in_untouched_files(
+    dir: &Path,
+    session: &mut AgentWorkspaceSession,
+) -> Result<Vec<String>, String> {
+    let repo = repository(dir)?;
+    let commit_tree = |oid: &str| -> Result<git2::Tree<'_>, String> {
+        repo.find_commit(Oid::from_str(oid).map_err(|e| e.to_string())?)
+            .and_then(|commit| commit.tree())
+            .map_err(|e| e.to_string())
+    };
+    let source = tree_entries(&repo, commit_tree(&session.source_commit)?.id())?;
+    let baseline = tree_entries(
+        &repo,
+        review_baseline_tree(&repo, &commit_tree(&session.baseline_commit)?, session)?,
+    )?;
+    let root = dir.join(CANDIDATE_DIR_NAME);
+    let candidate = tree_entries(&repo, inventory_tree(&repo, &root)?)?;
+    let project_root = PathBuf::from(&session.project_root);
+    let mut project = BTreeMap::new();
+    visit_inventory(&project_root, &project_root, &mut |path, file| {
+        let oid = Oid::hash_object(git2::ObjectType::Blob, &file.bytes).map_err(|e| e.to_string())?;
+        project.insert(path, (oid, file.mode));
+        Ok(())
+    })?;
+
+    let mut follow = BTreeMap::new();
+    let mut recorded = StoredFiles::new();
+    for path in project.keys().chain(baseline.keys()).chain(candidate.keys()).collect::<BTreeSet<_>>() {
+        let (current, starting) = (project.get(path), source.get(path));
+        if candidate.get(path) != baseline.get(path) || current == starting {
+            continue;
+        }
+        if baseline.get(path) == starting {
+            follow.insert(path.clone(), current.copied());
+        } else if current == baseline.get(path) {
+            recorded.insert(
+                path.clone(),
+                current.map(|(oid, mode)| StoredFile { blob: oid.to_string(), mode: Some(*mode) }),
+            );
+        }
+    }
+    if follow.is_empty() && recorded.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    // Read everything before writing anything, so a file that cannot be read
+    // leaves the draft as it was.
+    let mut contents = Vec::new();
+    for (path, current) in &follow {
+        ensure_no_symlink_components(&root, path)?;
+        let bytes = match current {
+            Some(_) => {
+                ensure_no_symlink_components(&project_root, path)?;
+                Some(
+                    fs::read(project_root.join(safe_relative_path(path)?))
+                        .map_err(|error| format!("Failed to read {path}: {error}"))?,
+                )
+            }
+            None => None,
+        };
+        contents.push((path, current.map(|(_, mode)| mode), bytes));
+    }
+    // The draft files change first. If this stops before the records below are
+    // saved, such a file shows as a proposal equal to the project, which is
+    // harmless; the other order would propose undoing the user's edit.
+    let mut written = StoredFiles::new();
+    for (path, mode, bytes) in contents {
+        let target = root.join(safe_relative_path(path)?);
+        match bytes {
+            Some(bytes) => {
+                // Record what is written, also if the file changed since it was listed.
+                let stored = store_file(&repo, &bytes, mode)?;
+                fs::create_dir_all(target.parent().ok_or("Path has no parent")?)
+                    .map_err(|e| e.to_string())?;
+                crate::project_files::replace_file_prepared(&target, &bytes, mode, |_| Ok(()))?;
+                written.insert(path.clone(), Some(stored));
+            }
+            None => {
+                if target.exists() {
+                    fs::remove_file(&target).map_err(|e| e.to_string())?;
+                    remove_empty_parent_dirs(&target, &root);
+                }
+                written.insert(path.clone(), None);
+            }
+        }
+    }
+
+    let mut recorded_source = written.clone();
+    recorded_source.extend(recorded);
+    let new_source = advance_commit(
+        &repo,
+        &session.source_commit,
+        &recorded_source,
+        "Project changes outside the proposal",
+    )?;
+    pin(&repo, &session.session_id, "source", new_source)?;
+    session.source_commit = new_source.to_string();
+    if !written.is_empty() {
+        let new_baseline = advance_commit(
+            &repo,
+            &session.baseline_commit,
+            &written,
+            "Project changes outside the proposal",
+        )?;
+        pin(&repo, &session.session_id, "baseline", new_baseline)?;
+        session.baseline_commit = new_baseline.to_string();
+    }
+    session.updated_at = now_millis();
+    save_session(dir, session)?;
+    if !written.is_empty() {
+        checkpoint_with_parent(
+            dir,
+            Some(Oid::from_str(&session.baseline_commit).map_err(|e| e.to_string())?),
+        )?;
+    }
+    Ok(written.into_keys().collect())
+}
+
+/// Persist the approved transition before touching project files.
 pub(super) fn prepare_settlement(
     dir: &Path,
     session: &AgentWorkspaceSession,
@@ -1306,6 +1459,204 @@ mod tests {
         let mut changed = applied.changed_files;
         changed.sort();
         assert_eq!(changed, ["main.tex", "nested/in.tex"]);
+    }
+
+    fn text(dir: &Path, path: &str) -> Option<String> {
+        fs::read_to_string(dir.join(path)).ok()
+    }
+
+    #[test]
+    fn files_the_agent_did_not_change_follow_the_project() {
+        let project = TempDir::new().unwrap();
+        let workspaces = TempDir::new().unwrap();
+        for (name, content) in [("a.tex", "a original\n"), ("b.tex", "b original\n"), ("gone.tex", "gone\n")] {
+            fs::write(project.path().join(name), content).unwrap();
+        }
+        let root = project.path().to_str().unwrap();
+        let started = prepare_workspace_in_root(workspaces.path(), root, "tab", None, "ask", vec![]).unwrap();
+        let dir = workspaces.path().join(&started.session_id);
+        let candidate = dir.join(CANDIDATE_DIR_NAME);
+
+        // The agent changes a.tex. Meanwhile the user edits b.tex, deletes
+        // gone.tex and adds a file in a new folder.
+        fs::write(candidate.join("a.tex"), "a proposed\n").unwrap();
+        fs::write(project.path().join("b.tex"), "b edited by the user\n").unwrap();
+        fs::remove_file(project.path().join("gone.tex")).unwrap();
+        fs::create_dir(project.path().join("sub")).unwrap();
+        fs::write(project.path().join("sub/new.tex"), "new\n").unwrap();
+
+        let mut session = load_session(&dir).unwrap();
+        let followed = follow_project_in_untouched_files(&dir, &mut session).unwrap();
+        assert_eq!(followed, ["b.tex", "gone.tex", "sub/new.tex"]);
+        assert_eq!(text(&candidate, "a.tex").as_deref(), Some("a proposed\n"));
+        assert_eq!(text(&candidate, "b.tex").as_deref(), Some("b edited by the user\n"));
+        assert_eq!(text(&candidate, "gone.tex"), None);
+        assert_eq!(text(&candidate, "sub/new.tex").as_deref(), Some("new\n"));
+
+        // Only the agent's change is a proposal, and the records moved with the project.
+        let records = changes(&dir).unwrap();
+        assert_eq!(records.iter().map(display_path).collect::<Vec<_>>(), ["a.tex"]);
+        assert_eq!(load_session(&dir).unwrap().source_commit, session.source_commit);
+        assert_ne!(session.source_commit, started.source_commit);
+        assert_ne!(session.baseline_commit, started.baseline_commit);
+        for commit in [&session.source_commit, &session.baseline_commit] {
+            let files = snapshot(&dir, commit).unwrap();
+            assert_eq!(files.keys().collect::<Vec<_>>(), ["a.tex", "b.tex", "sub/new.tex"]);
+            assert_eq!(files["a.tex"].bytes, b"a original\n");
+            assert_eq!(files["b.tex"].bytes, b"b edited by the user\n");
+        }
+        let unchanged = session.clone();
+        assert!(follow_project_in_untouched_files(&dir, &mut session).unwrap().is_empty());
+        assert_eq!(session.source_commit, unchanged.source_commit);
+
+        // Typing in that file again in the review builds on the project's
+        // text, so it applies without a clash.
+        fs::write(candidate.join("b.tex"), "b edited by the user\nand again in the review\n").unwrap();
+        let preview = preview_workspace(&dir, session, &[]).unwrap();
+        assert!(preview.conflicts.is_empty());
+        let again = preview.changes.iter().find(|change| change.file_path == "b.tex").unwrap();
+        assert_eq!(again.old_content.as_deref(), Some("b edited by the user\n"));
+        let result = apply_workspace(
+            &dir,
+            root,
+            vec![AgentWorkspaceDecision {
+                change_id: again.id.clone(),
+                accept: true,
+                proposal_revision: Some(again.proposal_revision.clone()),
+                ..Default::default()
+            }],
+            Some(preview.source_revision),
+        )
+        .unwrap();
+        assert!(result.applied && result.conflicts.is_empty());
+        assert_eq!(
+            text(project.path(), "b.tex").as_deref(),
+            Some("b edited by the user\nand again in the review\n")
+        );
+    }
+
+    #[test]
+    fn a_waiting_draft_catches_up_with_changes_accepted_from_another_draft() {
+        let project = TempDir::new().unwrap();
+        let workspaces = TempDir::new().unwrap();
+        let unchanged = "Unchanged line.\n".repeat(8);
+        let shared = |top: &str, bottom: &str| format!("Top: {top}.\n{unchanged}Bottom: {bottom}.\n");
+        fs::write(project.path().join("only-a.tex"), "original a\n").unwrap();
+        fs::write(project.path().join("only-b.tex"), "original b\n").unwrap();
+        fs::write(project.path().join("shared.tex"), shared("original", "original")).unwrap();
+        let root = project.path().to_str().unwrap();
+        // Two drafts start from the same project.
+        let a = prepare_workspace_in_root(workspaces.path(), root, "a", None, "ask", vec![]).unwrap();
+        let b = prepare_workspace_in_root(workspaces.path(), root, "b", None, "ask", vec![]).unwrap();
+        let (dir_a, dir_b) = (workspaces.path().join(&a.session_id), workspaces.path().join(&b.session_id));
+        fs::write(dir_a.join("candidate/only-a.tex"), "proposed by a\n").unwrap();
+        fs::write(dir_a.join("candidate/shared.tex"), shared("changed by a", "original")).unwrap();
+        fs::write(dir_b.join("candidate/only-b.tex"), "proposed by b\n").unwrap();
+        fs::write(dir_b.join("candidate/shared.tex"), shared("original", "changed by b")).unwrap();
+
+        // Both agents finish; nothing to follow yet.
+        let mut waiting = load_session(&dir_b).unwrap();
+        assert!(follow_project_in_untouched_files(&dir_b, &mut waiting).unwrap().is_empty());
+
+        // Draft A is accepted in full while B waits.
+        let preview = preview_workspace(&dir_a, a, &[]).unwrap();
+        let decisions = preview
+            .changes
+            .iter()
+            .map(|change| AgentWorkspaceDecision {
+                change_id: change.id.clone(),
+                accept: true,
+                proposal_revision: Some(change.proposal_revision.clone()),
+                ..Default::default()
+            })
+            .collect();
+        assert!(apply_workspace(&dir_a, root, decisions, Some(preview.source_revision)).unwrap().applied);
+
+        // B's review is about to open: the file only A changed catches up.
+        let mut waiting = load_session(&dir_b).unwrap();
+        assert_eq!(follow_project_in_untouched_files(&dir_b, &mut waiting).unwrap(), ["only-a.tex"]);
+        assert_eq!(text(&dir_b.join("candidate"), "only-a.tex").as_deref(), Some("proposed by a\n"));
+        // The file both changed is still B's proposal, merged with A's accepted part.
+        assert_eq!(
+            text(&dir_b.join("candidate"), "shared.tex"),
+            Some(shared("original", "changed by b"))
+        );
+        let preview = preview_workspace(&dir_b, waiting, &[]).unwrap();
+        assert!(preview.conflicts.is_empty());
+        let mut pending: Vec<_> = preview.changes.iter().map(|change| change.file_path.as_str()).collect();
+        pending.sort();
+        assert_eq!(pending, ["only-b.tex", "shared.tex"]);
+        let merged = preview.changes.iter().find(|change| change.file_path == "shared.tex").unwrap();
+        assert_eq!(
+            preview.merged_contents[&merged.id],
+            Some(shared("changed by a", "changed by b"))
+        );
+    }
+
+    #[test]
+    fn files_the_agent_changed_keep_the_agents_version() {
+        let (p, _w, started, dir) = fixture();
+        let candidate = dir.join(CANDIDATE_DIR_NAME);
+        // Both the agent and the user changed a.tex; the agent deleted b.tex,
+        // which the user edited.
+        fs::write(candidate.join("a.tex"), "a proposed\n").unwrap();
+        fs::remove_file(candidate.join("b.tex")).unwrap();
+        fs::write(p.path().join("a.tex"), "a edited by the user\n").unwrap();
+        fs::write(p.path().join("b.tex"), "b edited by the user\n").unwrap();
+
+        let mut session = load_session(&dir).unwrap();
+        assert!(follow_project_in_untouched_files(&dir, &mut session).unwrap().is_empty());
+        assert_eq!(text(&candidate, "a.tex").as_deref(), Some("a proposed\n"));
+        assert_eq!(text(&candidate, "b.tex"), None);
+        assert_eq!(session.source_commit, started.source_commit);
+        assert_eq!(session.baseline_commit, started.baseline_commit);
+        // They still go through the three-way review.
+        let mut paths: Vec<_> = changes(&dir).unwrap().iter().map(display_path).collect();
+        paths.sort();
+        assert_eq!(paths, ["a.tex", "b.tex"]);
+    }
+
+    #[test]
+    fn an_unsaved_buffer_captured_at_the_start_is_not_replaced() {
+        let project = TempDir::new().unwrap();
+        let workspaces = TempDir::new().unwrap();
+        fs::write(project.path().join("a.tex"), "a original\n").unwrap();
+        fs::write(project.path().join("b.tex"), "b on disk\n").unwrap();
+        let root = project.path().to_str().unwrap();
+        // The draft starts from the user's unsaved text in b.tex.
+        let started = prepare_workspace_in_root(
+            workspaces.path(),
+            root,
+            "tab",
+            None,
+            "ask",
+            vec![DirtyBuffer { relative_path: "b.tex".into(), content: "b unsaved\n".into() }],
+        )
+        .unwrap();
+        let dir = workspaces.path().join(&started.session_id);
+        let candidate = dir.join(CANDIDATE_DIR_NAME);
+        assert_eq!(text(&candidate, "b.tex").as_deref(), Some("b unsaved\n"));
+        let mut session = load_session(&dir).unwrap();
+
+        // The project still has the old disk text: nothing to follow.
+        assert!(follow_project_in_untouched_files(&dir, &mut session).unwrap().is_empty());
+        assert_eq!(session.source_commit, started.source_commit);
+
+        // A third version in the project is not merged into the draft here.
+        fs::write(project.path().join("b.tex"), "b third version\n").unwrap();
+        assert!(follow_project_in_untouched_files(&dir, &mut session).unwrap().is_empty());
+        assert_eq!(text(&candidate, "b.tex").as_deref(), Some("b unsaved\n"));
+        assert_eq!(session.source_commit, started.source_commit);
+
+        // Once the user saves that buffer, the project equals the draft: only
+        // the recorded project state moves, and no proposal appears.
+        fs::write(project.path().join("b.tex"), "b unsaved\n").unwrap();
+        assert!(follow_project_in_untouched_files(&dir, &mut session).unwrap().is_empty());
+        assert_ne!(session.source_commit, started.source_commit);
+        assert_eq!(session.baseline_commit, started.baseline_commit);
+        assert_eq!(snapshot(&dir, &session.source_commit).unwrap()["b.tex"].bytes, b"b unsaved\n");
+        assert_eq!(text(&candidate, "b.tex").as_deref(), Some("b unsaved\n"));
+        assert!(changes(&dir).unwrap().is_empty());
     }
 
     #[test]

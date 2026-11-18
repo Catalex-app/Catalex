@@ -221,6 +221,11 @@ fn source_revision(source_root: &Path, records: &[ChangeRecord]) -> Result<Strin
     Ok(format!("{:x}", hash.finalize()))
 }
 
+/// Builds the review of a draft against the project as it is now. Every file
+/// is the three-way merge of the project when the draft started, the project
+/// now, and the draft. For a file the agent changed that is the merge below.
+/// For a file it did not change the agent's side adds nothing, so the result
+/// is the project's current version, and the draft takes it here first.
 pub fn preview_agent_workspace(
     app: ServiceContext,
     project_root: String,
@@ -233,7 +238,18 @@ pub fn preview_agent_workspace(
     let _history = crate::history::lock_history_operations();
     let storage = project_storage::resolve_project_storage(&app, &project_root)?;
     let session_dir = session_dir(&storage.agent_workspaces_dir, &session_id)?;
-    let session = load_project_session(&session_dir, &project_root, &storage)?;
+    let mut session = load_project_session(&session_dir, &project_root, &storage)?;
+    // Never while the agent is writing its draft. The review still opens if
+    // this fails; those files then show the version the draft has.
+    if session.status != "active" {
+        if let Err(error) =
+            git_storage::follow_project_in_untouched_files(&session_dir, &mut session)
+        {
+            session.warnings.push(format!(
+                "Files the agent did not change may show an older version: {error}"
+            ));
+        }
+    }
     preview_workspace(&session_dir, session, &decisions.unwrap_or_default())
 }
 
