@@ -602,7 +602,12 @@ test("Stop supports keyboard activation and the compilation menu", async ({
   await idle(page);
   await page.getByRole("button", { name: "Recompile", exact: true }).click();
   await expect(stop).toBeEnabled();
-  await openOptions(page);
+  const autoCompile = await openOptions(page);
+  await expect(autoCompile.locator("+ *")).toHaveText("Stop compilation");
+  await page.screenshot({
+    path: test.info().outputPath("compilation-stop-menu.png"),
+    animations: "disabled",
+  });
   await page
     .getByRole("menuitem", { name: "Stop compilation", exact: true })
     .click();

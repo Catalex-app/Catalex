@@ -377,3 +377,22 @@ test("editor selection popup uses the same stationary fade", async ({
   expect(await toolbar.boundingBox()).toEqual(before);
   await page.screenshot({ path: "test-results/selection-popup-fade.png" });
 });
+
+test("workspace accepts input after a dialog hosting a text menu disappears", async ({
+  page,
+}) => {
+  await page.goto("/?debug=context-menu");
+  await page.getByRole("button", { name: "Open dialog" }).click();
+  await page.getByLabel("Dialog input").click({ button: "right" });
+  await expect(page.getByRole("menu")).toBeVisible();
+
+  // Close the host independently of the menu, as a workspace update can do.
+  await page.locator('[data-slot="dialog-close"]').dispatchEvent("click");
+  await expect(page.locator('[data-slot="dialog-content"]')).toHaveCount(0);
+  const input = page.getByLabel("Text input", { exact: true });
+  await input.click({ timeout: 3000 });
+  await page.keyboard.type("restored");
+  await expect(input).toHaveValue(/restored/);
+  await input.click({ button: "right" });
+  await expect(page.getByRole("menu")).toBeVisible();
+});

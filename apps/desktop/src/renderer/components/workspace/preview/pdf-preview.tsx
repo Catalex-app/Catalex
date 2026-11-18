@@ -2806,18 +2806,6 @@ export function PdfPreview({
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="center" className="w-64">
-              {isCompiling && (
-                <>
-                  <DropdownMenuItem
-                    onSelect={handleStopCompilation}
-                    disabled={isStoppingCompilation}
-                  >
-                    <SquareIcon className="size-3.5" />
-                    {isStoppingCompilation ? "Stopping..." : "Stop compilation"}
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                </>
-              )}
               <DropdownMenuLabel>
                 <span className="inline-flex items-center gap-1.5">
                   {/* Material Design Icons engine-outline; see public/licenses/material-design-icons.txt. */}
@@ -2864,6 +2852,7 @@ export function PdfPreview({
                     >
                       <DropdownMenuRadioItem
                         value=""
+                        onSelect={(event) => event.preventDefault()}
                         indicatorPosition="end"
                         indicator={<CheckIcon className="size-4" />}
                       >
@@ -2873,6 +2862,7 @@ export function PdfPreview({
                         <DropdownMenuRadioItem
                           key={folder}
                           value={folder}
+                          onSelect={(event) => event.preventDefault()}
                           indicatorPosition="end"
                           indicator={<CheckIcon className="size-4" />}
                         >
@@ -2909,6 +2899,7 @@ export function PdfPreview({
                     >
                       <DropdownMenuRadioItem
                         value=""
+                        onSelect={(event) => event.preventDefault()}
                         indicatorPosition="end"
                         indicator={<CheckIcon className="size-4" />}
                       >
@@ -2918,6 +2909,7 @@ export function PdfPreview({
                         <DropdownMenuRadioItem
                           key={file.id}
                           value={file.id}
+                          onSelect={(event) => event.preventDefault()}
                           indicatorPosition="end"
                           indicator={<CheckIcon className="size-4" />}
                         >
@@ -2987,6 +2979,15 @@ export function PdfPreview({
                 <span>Auto compile</span>
                 <SettingsSwitch checked={autoCompile} size="sm" indicatorOnly />
               </DropdownMenuCheckboxItem>
+              {isCompiling && (
+                <DropdownMenuItem
+                  onSelect={handleStopCompilation}
+                  disabled={isStoppingCompilation}
+                >
+                  {isStoppingCompilation ? "Stopping..." : "Stop compilation"}
+                  <SquareIcon className="ml-auto size-3.5" />
+                </DropdownMenuItem>
+              )}
             </DropdownMenuContent>
           </DropdownMenu>
         </ButtonGroup>

@@ -9,7 +9,7 @@ import {
   LinkIcon,
   type LucideIcon,
 } from "lucide-react";
-import { Fragment, useEffect, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { toast } from "sonner";
 import { getContextMenuCoordinator } from "@/lib/context-menu-coordinator";
@@ -53,6 +53,27 @@ export function AppContextMenu() {
   const [revision, setRevision] = useState(0);
   const activeRequest = useRef<ContextMenuRequest | null>(null);
   const trigger = useRef<HTMLSpanElement>(null);
+  const [open, setOpen] = useState(false);
+  const dismiss = useCallback(() => {
+    activeRequest.current = null;
+    setOpen(false);
+    setRequest(null);
+    setRevision((value) => value + 1);
+  }, []);
+  const host = request?.portalContainer;
+  useEffect(() => {
+    if (!open || !host) return;
+    // Dialogs can unmount independently of this window-level menu.
+    if (!host.isConnected) {
+      dismiss();
+      return;
+    }
+    const observer = new MutationObserver(() => {
+      if (!host.isConnected) dismiss();
+    });
+    observer.observe(host.ownerDocument, { childList: true, subtree: true });
+    return () => observer.disconnect();
+  }, [open, host, dismiss]);
   useEffect(() => {
     const remove = installContextMenus(document);
     const show = (event: Event) => {
@@ -93,10 +114,6 @@ export function AppContextMenu() {
           });
       }
     };
-    const dismiss = () => {
-      activeRequest.current = null;
-      setRevision((value) => value + 1);
-    };
     window.addEventListener(CONTEXT_MENU_EVENT, show);
     window.addEventListener(CONTEXT_MENU_DISMISS_EVENT, dismiss);
     return () => {
@@ -105,13 +122,14 @@ export function AppContextMenu() {
       window.removeEventListener(CONTEXT_MENU_EVENT, show);
       window.removeEventListener(CONTEXT_MENU_DISMISS_EVENT, dismiss);
     };
-  }, []);
+  }, [dismiss]);
   return (
     <ContextMenu
       key={revision}
       modal={false}
-      onOpenChange={(open) => {
-        if (!open) activeRequest.current = null;
+      onOpenChange={(nextOpen) => {
+        setOpen(nextOpen);
+        if (!nextOpen) activeRequest.current = null;
       }}
     >
       <ContextMenuTrigger asChild>

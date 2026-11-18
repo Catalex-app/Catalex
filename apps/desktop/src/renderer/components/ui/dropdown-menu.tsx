@@ -256,11 +256,14 @@ function DropdownMenuSubTrigger({
 
 function DropdownMenuSubContent({
   className,
+  // Clear the parent menu’s 4px padding and 1px border, then leave a 4px gap.
+  sideOffset = 9,
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.SubContent>) {
   return (
     <DropdownMenuPrimitive.SubContent
       data-slot="dropdown-menu-sub-content"
+      sideOffset={sideOffset}
       className={cn(
         "z-50 min-w-[8rem] origin-(--radix-dropdown-menu-content-transform-origin) overflow-hidden",
         popupSurfaceClassName,

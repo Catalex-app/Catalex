@@ -53,7 +53,9 @@ test("LaTeX project pickers show defaults, scope files, persist, and flag missin
   });
   await page.getByRole("menuitem", { name: /^LaTeX root/ }).hover();
   await page.getByRole("menuitemradio", { name: "paper", exact: true }).click();
-  await open();
+  await expect(
+    page.getByRole("menuitemradio", { name: "paper", exact: true }),
+  ).toBeChecked();
   await page.getByRole("menuitem", { name: /^Main file/ }).hover();
   await expect(
     page.getByRole("menuitemradio", { name: "article.tex", exact: true }),
@@ -68,7 +70,9 @@ test("LaTeX project pickers show defaults, scope files, persist, and flag missin
   await page
     .getByRole("menuitemradio", { name: "article.tex", exact: true })
     .click();
-  await open();
+  await expect(
+    page.getByRole("menuitemradio", { name: "article.tex", exact: true }),
+  ).toBeChecked();
   await expect(
     page.getByRole("menuitem", { name: "Main file paper/article.tex" }),
   ).toBeVisible();
@@ -92,3 +96,34 @@ test("LaTeX project pickers show defaults, scope files, persist, and flag missin
     }),
   ).toBeVisible();
 });
+
+for (const side of ["right", "left"] as const) {
+  test(`dropdown submenus leave a gap when opening to the ${side}`, async ({
+    page,
+  }) => {
+    await page.goto("/?debug=pdf-preview");
+    const options = page.getByRole("button", { name: "Compilation options" });
+    if (side === "left") {
+      // Place the trigger near the viewport edge to exercise collision handling.
+      await options.evaluate((button) =>
+        Object.assign(button.style, {
+          position: "fixed",
+          top: "80px",
+          right: "240px",
+        }),
+      );
+    }
+    await options.press("ArrowDown");
+    const parent = page.getByRole("menu", { name: "Compilation options" });
+    await parent.getByRole("menuitem", { name: /^Main file/ }).hover();
+    const submenu = page.locator('[data-slot="dropdown-menu-sub-content"]');
+    await expect(submenu).toHaveAttribute("data-side", side);
+    const outer = (await parent.boundingBox())!;
+    const inner = (await submenu.boundingBox())!;
+    const gap =
+      side === "left"
+        ? outer.x - (inner.x + inner.width)
+        : inner.x - (outer.x + outer.width);
+    expect(gap).toBeCloseTo(4, 0);
+  });
+}

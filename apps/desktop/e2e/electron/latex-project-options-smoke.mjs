@@ -115,13 +115,14 @@ try {
     .click();
   await page.getByRole("menuitem", { name: /^LaTeX root/ }).hover();
   await page.getByRole("menuitemradio", { name: "paper", exact: true }).click();
-  await page
-    .getByRole("button", { name: "Compilation options", exact: true })
-    .click();
   await page.getByRole("menuitem", { name: /^Main file/ }).hover();
   await page
     .getByRole("menuitemradio", { name: "article.tex", exact: true })
     .click();
+  await page.keyboard.press("Escape");
+  await expect(
+    page.getByRole("menu", { name: "Compilation options" }),
+  ).toBeHidden();
   assert.deepEqual(await choices(), {
     rootFolder: "paper",
     mainFile: "paper/article.tex",
