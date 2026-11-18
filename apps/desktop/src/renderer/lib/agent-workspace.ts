@@ -88,6 +88,55 @@ export interface AgentWorkspacePreview extends AgentWorkspaceReconciliation {
   conflictContents?: Record<string, AgentMergeSegment[]>;
 }
 
+/** Whether the project differs from the one a review was built on. */
+export function reviewedProjectChanged(
+  fresh: AgentWorkspacePreview,
+  reviewed: AgentWorkspacePreview,
+) {
+  // The whole-project revision is exact. The per-change revision also varies
+  // with the set of draft changes, which the user's own edits can extend.
+  return fresh.projectRevision && reviewed.projectRevision
+    ? fresh.projectRevision !== reviewed.projectRevision
+    : fresh.sourceRevision !== reviewed.sourceRevision;
+}
+
+/** Accepts the draft changes that exist only because the user edited a file
+ * outside the reviewed proposal. They are the user's own text, saved to the
+ * project without a review. Anything but a plain text edit stays a proposal,
+ * and so does an edit that clashes with the project's current text: it is
+ * left pending for a manual choice and must not block the other decisions. */
+export function ownEditDecisions(
+  fresh: AgentWorkspacePreview,
+  reviewed: AgentWorkspacePreview,
+): AgentWorkspaceDecision[] {
+  const proposed = new Set(
+    reviewed.changes.flatMap((change) => [
+      change.filePath,
+      ...(change.oldFilePath ? [change.oldFilePath] : []),
+      ...(change.newFilePath ? [change.newFilePath] : []),
+    ]),
+  );
+  const clashing = new Set(fresh.conflicts.map((item) => item.changeId));
+  return fresh.changes.flatMap((change) =>
+    change.kind === "modified" &&
+    !change.binary &&
+    change.newContent != null &&
+    !clashing.has(change.id) &&
+    !proposed.has(change.filePath)
+      ? [
+          {
+            changeId: change.id,
+            accept: true,
+            ...(change.proposalRevision
+              ? { proposalRevision: change.proposalRevision }
+              : {}),
+            content: change.newContent,
+          },
+        ]
+      : [],
+  );
+}
+
 export function readReviewProjectState(projectRoot: string) {
   return invoke<{ revision: string; gitPending: boolean }>(
     "review_project_state",

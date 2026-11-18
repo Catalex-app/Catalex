@@ -16,7 +16,9 @@ import {
   resumeAgentWorkspace,
   reconcileAgentWorkspace,
   applyAgentWorkspace,
+  ownEditDecisions,
   readReviewProjectState,
+  reviewedProjectChanged,
 } from "@/lib/agent-workspace";
 import { writeTexFileContent } from "@/lib/project-files";
 import { useDocumentStore } from "./document-store";
@@ -91,6 +93,26 @@ function reviewChanges(
     }));
 }
 
+/** Put each proposed text into its draft file's editor buffer. With
+ * `keepEdits`, a buffer edited since its proposal was read is left as it is. */
+function showProposedContents(
+  changes: ReturnType<typeof reviewChanges>,
+  keepEdits = false,
+) {
+  useDocumentStore.setState((state) => ({
+    files: state.files.map((file) => {
+      const change = changes.find(
+        (item) => (item.newFilePath ?? item.filePath) === file.relativePath,
+      );
+      if (change?.newContent == null) return file;
+      const content = normalizeDocumentText(change.newContent);
+      return keepEdits && file.isDirty && file.content !== content
+        ? file
+        : { ...file, content, isDirty: false };
+    }),
+  }));
+}
+
 function changeVersion(change: AgentWorkspacePreview["changes"][number]) {
   // Older backends cannot safely preserve binary approvals.
   return (
@@ -125,7 +147,12 @@ export const useAgentReviewQueueStore = create<{
   recoverRefinement: (sessionId: string) => Promise<void>;
   enqueue: (session: AgentWorkspaceSession) => Promise<void>;
   advance: (projectRoot: string) => Promise<void>;
-  show: (sessionId: string) => Promise<void>;
+  /** `options`: a decision that left files to review is still finishing.
+   * `decidedPaths`: it kept this draft open. */
+  show: (
+    sessionId: string,
+    options?: { decidedPaths?: readonly string[] },
+  ) => Promise<void>;
   finish: (sessionId: string) => Promise<void>;
   recheck: (sessionId: string) => Promise<void>;
   checkProject: (sessionId: string) => Promise<boolean>;
@@ -344,14 +371,17 @@ export const useAgentReviewQueueStore = create<{
             entry.session.projectRoot,
             sessionId,
           );
-          if (fresh.sourceRevision !== review.sourceRevision) {
+          if (reviewedProjectChanged(fresh, entry.preview)) {
             sourceNeedsCheck = true;
             throw new Error(
               "The source project changed since this review. Check the draft again before refining.",
             );
           }
           assertCurrentDraft();
-          const partialDecisions = fresh.changes.flatMap((change) => {
+          // Text the user typed in a file outside the proposal is saved to the
+          // project with the inline decisions, before the agent resumes.
+          const ownEdits = ownEditDecisions(fresh, entry.preview);
+          const inlineDecisions = fresh.changes.flatMap((change) => {
             const previous = review.originalChanges.find(
               (item) => item.filePath === change.filePath,
             );
@@ -371,6 +401,7 @@ export const useAgentReviewQueueStore = create<{
               },
             ];
           });
+          const partialDecisions = [...inlineDecisions, ...ownEdits];
           if (partialDecisions.length) {
             const applied = await applyAgentWorkspace(
               entry.session.projectRoot,
@@ -682,7 +713,7 @@ export const useAgentReviewQueueStore = create<{
         if (!get().entries.some((entry) => entry.session.sessionId === id))
           await get().advance(projectRoot);
       },
-      show: async (sessionId) => {
+      show: async (sessionId, options) => {
         const entry = get().entries.find(
           (entry) => entry.session.sessionId === sessionId,
         );
@@ -692,6 +723,9 @@ export const useAgentReviewQueueStore = create<{
           return;
         const changes = reviewChanges(preview, entry.editedContents);
         const doc = useDocumentStore.getState();
+        const keptOpen =
+          options?.decidedPaths !== undefined &&
+          doc.agentWorkspaceSessionId === sessionId;
         if (doc.agentWorkspaceSessionId !== sessionId) {
           if (!doc.agentWorkspaceRoot)
             await doc.saveAllFiles({ requireClean: true });
@@ -711,21 +745,7 @@ export const useAgentReviewQueueStore = create<{
             useDocumentStore.getState().agentWorkspaceSessionId !== sessionId
           )
             return;
-          useDocumentStore.setState((state) => ({
-            files: state.files.map((file) => {
-              const change = changes.find(
-                (change) =>
-                  (change.newFilePath ?? change.filePath) === file.relativePath,
-              );
-              return change?.newContent != null
-                ? {
-                    ...file,
-                    content: normalizeDocumentText(change.newContent),
-                    isDirty: false,
-                  }
-                : file;
-            }),
-          }));
+          showProposedContents(changes);
         }
         // Returning from refinement must reload disk, including unchanged files
         // edited by the agent outside the original proposal set.
@@ -734,21 +754,7 @@ export const useAgentReviewQueueStore = create<{
           await useDocumentStore
             .getState()
             .addAgentWorkspaceReviewFiles(changes);
-          useDocumentStore.setState((state) => ({
-            files: state.files.map((file) => {
-              const change = changes.find(
-                (item) =>
-                  (item.newFilePath ?? item.filePath) === file.relativePath,
-              );
-              return change?.newContent != null
-                ? {
-                    ...file,
-                    content: normalizeDocumentText(change.newContent),
-                    isDirty: false,
-                  }
-                : file;
-            }),
-          }));
+          showProposedContents(changes);
         }
         useDocumentStore.getState().setAgentWorkspaceReadOnly(false);
         // Refresh the editor's proposal text from captured review edits while
@@ -761,6 +767,45 @@ export const useAgentReviewQueueStore = create<{
             preview.sourceRevision,
             preview.conflictContents,
           );
+        // The decision that leads here is still finishing. Keep the new review
+        // marked as applying until it does: its controls are not offered while
+        // a click on them would be ignored, and the editor stays read-only.
+        if (options)
+          useProposedChangesStore.setState((state) =>
+            state.workspaceReview?.session.sessionId === sessionId
+              ? {
+                  workspaceReview: {
+                    ...state.workspaceReview,
+                    isApplying: true,
+                  },
+                }
+              : {},
+          );
+        if (keptOpen) {
+          // Decided files now hold what the draft has on disk: the accepted
+          // text, or the original after a rejection. Reload after the review
+          // lists only the remaining files, so settled entries are dropped.
+          const decided = new Set(options?.decidedPaths);
+          const inDraft = () =>
+            useDocumentStore.getState().projectRoot === session.projectRoot &&
+            useDocumentStore.getState().agentWorkspaceSessionId === sessionId;
+          useDocumentStore.setState((state) => ({
+            files: state.files.map((file) =>
+              decided.has(file.relativePath) && file.isDirty
+                ? { ...file, isDirty: false }
+                : file,
+            ),
+          }));
+          await useDocumentStore.getState().refreshFiles();
+          if (!inDraft()) return;
+          await useDocumentStore
+            .getState()
+            .addAgentWorkspaceReviewFiles(changes);
+          if (!inDraft()) return;
+          // The draft stayed on screen, so an edit made since the decision
+          // started is newer than this proposal text. Keep it.
+          showProposedContents(changes, true);
+        }
         if (entry.refinementDecisions) {
           useProposedChangesStore.setState((state) => {
             const review = state.workspaceReview;

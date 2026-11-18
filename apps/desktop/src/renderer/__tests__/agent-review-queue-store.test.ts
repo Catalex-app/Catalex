@@ -1,6 +1,7 @@
 import { retireAgentDraft } from "@/lib/retire-agent-draft";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { invoke } from "@/lib/desktop/core";
+import * as projectFiles from "@/lib/project-files";
 import * as workspaceStorage from "@/lib/workspace-state-storage";
 import { useAgentReviewQueueStore } from "@/stores/agent-review-queue-store";
 import { useAgentChatStore } from "@/stores/agent-chat-store";
@@ -106,6 +107,7 @@ beforeEach(() => {
         agentWorkspaceRoot: root,
       });
     }),
+    refreshSourceViewSnapshot: vi.fn(async () => {}),
     addAgentWorkspaceReviewFiles: vi.fn(async () => {}),
   });
   vi.mocked(invoke).mockImplementation(async (command, args: any) =>
@@ -423,14 +425,17 @@ describe("agent draft queue", () => {
   });
 
   it.each([
-    true,
-    false,
-  ])("applies only an explicit file decision and keeps the remaining draft open (accept=%s)", async (accept) => {
+    [true, false],
+    [false, false],
+    [true, true],
+  ])("applies only an explicit file decision and keeps the remaining draft open (accept=%s, edit during reload=%s)", async (accept, lateEdit) => {
     const result = preview("a");
     const second = {
       ...result.changes[0],
       id: "second",
       filePath: "second.tex",
+      oldFilePath: "second.tex",
+      newFilePath: "second.tex",
       newContent: "My edited draft",
     };
     result.changes.push(second);
@@ -450,18 +455,84 @@ describe("agent draft queue", () => {
         };
     });
     await useAgentReviewQueueStore.getState().enqueue(session("a"));
+    // The decided file was edited in the draft. So was the remaining one;
+    // its edit is already part of the proposal the review shows.
+    useDocumentStore.setState({
+      files: [
+        ["main.tex", "edited in review"],
+        ["second.tex", "My edited draft"],
+      ].map(([path, content]) => ({
+        id: path,
+        name: path,
+        relativePath: path,
+        absolutePath: `/a/candidate/${path}`,
+        type: "tex" as const,
+        content,
+        isDirty: true,
+      })),
+    });
+    vi.mocked(useDocumentStore.getState().refreshFiles).mockImplementation(
+      async () => {
+        const doc = useDocumentStore.getState();
+        // The review controls stay disabled, and the editor read-only, while
+        // the decision finishes.
+        expect(
+          useProposedChangesStore.getState().workspaceReview?.isApplying,
+        ).toBe(true);
+        // The reload sees the review of the remaining files only, and may
+        // replace the decided file because it is no longer marked edited.
+        expect(
+          useProposedChangesStore
+            .getState()
+            .workspaceReview?.originalChanges.map((change) => change.id),
+        ).toEqual(["second"]);
+        expect(doc.files.map((file) => file.isDirty)).toEqual([false, true]);
+        if (lateEdit)
+          // An edit that arrives while the draft reloads, bypassing the lock.
+          useDocumentStore.setState((state) => ({
+            files: state.files.map((file) =>
+              file.id === "second.tex"
+                ? { ...file, content: "edited during the reload" }
+                : file,
+            ),
+          }));
+      },
+    );
     if (accept) await useProposedChangesStore.getState().keepChange("a-change");
     else await useProposedChangesStore.getState().undoChange("a-change");
+    // The draft stays open: no switch to the source view and back.
+    expect(
+      useDocumentStore.getState().refreshSourceViewSnapshot,
+    ).toHaveBeenCalledExactlyOnceWith(accept ? ["main.tex"] : []);
     expect(
       useDocumentStore.getState().restoreSourceWorkspace,
-    ).toHaveBeenCalledWith(accept ? ["main.tex"] : [], {
-      preserveSelection: true,
-      pendingReviewPaths: ["second.tex"],
-    });
+    ).not.toHaveBeenCalled();
+    expect(
+      useDocumentStore.getState().activateAgentWorkspace,
+    ).toHaveBeenCalledOnce();
+    expect(useDocumentStore.getState().agentWorkspaceSessionId).toBe("a");
+    expect(useDocumentStore.getState().refreshFiles).toHaveBeenCalledOnce();
+    expect(useDocumentStore.getState().isAgentWorkspaceReadOnly).toBe(false);
+    expect(useProposedChangesStore.getState().workspaceReview?.isApplying).toBe(
+      false,
+    );
+    expect(
+      useDocumentStore.getState().addAgentWorkspaceReviewFiles,
+    ).toHaveBeenLastCalledWith([expect.objectContaining({ id: "second" })]);
+    // The remaining file shows its proposal, unless it was edited meanwhile.
+    expect(useDocumentStore.getState().files[1]).toMatchObject(
+      lateEdit
+        ? { content: "edited during the reload", isDirty: true }
+        : { content: "My edited draft", isDirty: false },
+    );
     expect(invoke).toHaveBeenCalledWith(
       "apply_agent_workspace",
       expect.objectContaining({
-        decisions: [{ changeId: "a-change", accept }],
+        decisions: [
+          accept
+            ? { changeId: "a-change", accept, content: "edited in review" }
+            : { changeId: "a-change", accept },
+        ],
         expectedSourceRevision: result.sourceRevision,
       }),
     );
@@ -480,6 +551,188 @@ describe("agent draft queue", () => {
       useAgentChatStore.getState().tabs.find((tab) => tab.id === "a")
         ?.agentWorkspace?.sessionId,
     ).toBe("a");
+  });
+
+  it("switches to the source view and back when the saved source view cannot be refreshed", async () => {
+    const result = preview("a");
+    const second = {
+      ...result.changes[0],
+      id: "second",
+      filePath: "second.tex",
+    };
+    result.changes.push(second);
+    vi.mocked(invoke).mockImplementation(async (command) => {
+      if (command === "preview_agent_workspace") return result;
+      if (command === "apply_agent_workspace")
+        return {
+          applied: true,
+          changedPaths: ["main.tex"],
+          conflicts: [],
+          remainingPreview: { ...result, changes: [second] },
+        };
+    });
+    await useAgentReviewQueueStore.getState().enqueue(session("a"));
+    vi.mocked(
+      useDocumentStore.getState().refreshSourceViewSnapshot,
+    ).mockRejectedValue(new Error("unreadable"));
+    await useProposedChangesStore.getState().keepChange("a-change");
+    expect(
+      useDocumentStore.getState().restoreSourceWorkspace,
+    ).toHaveBeenCalledWith(["main.tex"], {
+      preserveSelection: true,
+      pendingReviewPaths: ["second.tex"],
+    });
+    expect(
+      useDocumentStore.getState().activateAgentWorkspace,
+    ).toHaveBeenCalledTimes(2);
+    expect(useDocumentStore.getState().agentWorkspaceSessionId).toBe("a");
+    expect(useProposedChangesStore.getState().changes).toMatchObject([
+      { id: "second" },
+    ]);
+    expect(useAgentReviewQueueStore.getState().entries[0].phase).toBe("review");
+    expect(useProposedChangesStore.getState().workspaceReview?.isApplying).toBe(
+      false,
+    );
+  });
+
+  it.each([
+    "unchanged",
+    "changed",
+  ] as const)("saves text typed outside the review with the next file decision when the project is %s", async (project) => {
+    const reviewed = { ...preview("a"), projectRevision: "project-1" };
+    const second = {
+      ...reviewed.changes[0],
+      id: "second",
+      filePath: "second.tex",
+      oldFilePath: "second.tex",
+      newFilePath: "second.tex",
+    };
+    reviewed.changes.push(second);
+    const note = {
+      ...reviewed.changes[0],
+      id: "note",
+      filePath: "notes.tex",
+      oldFilePath: "notes.tex",
+      newFilePath: "notes.tex",
+      oldContent: "",
+      newContent: "my note",
+      proposalRevision: "note-1",
+    };
+    const write = vi
+      .spyOn(projectFiles, "writeTexFileContent")
+      .mockResolvedValue();
+    try {
+      vi.mocked(invoke).mockImplementation(async (command) => {
+        if (command === "review_project_state")
+          return { revision: "project-1", gitPending: false };
+        if (command === "preview_agent_workspace")
+          // Once the note is in the draft, it is one more draft change.
+          return write.mock.calls.length
+            ? {
+                ...reviewed,
+                sourceRevision: "covers-the-note-too",
+                projectRevision:
+                  project === "changed" ? "project-2" : "project-1",
+                changes: [...reviewed.changes, note],
+              }
+            : reviewed;
+        if (command === "apply_agent_workspace")
+          return {
+            applied: true,
+            changedPaths: ["main.tex", "notes.tex"],
+            conflicts: [],
+            remainingPreview: { ...reviewed, changes: [second] },
+          };
+      });
+      await useAgentReviewQueueStore.getState().enqueue(session("a"));
+      const draft = (path: string, content: string, isDirty: boolean) => ({
+        id: path,
+        name: path,
+        relativePath: path,
+        absolutePath: `/a/candidate/${path}`,
+        type: "tex" as const,
+        content,
+        isDirty,
+      });
+      useDocumentStore.setState({
+        files: [
+          draft("main.tex", "a", false),
+          draft("second.tex", "a", false),
+          // Typed by the user in a file the agent did not touch.
+          draft("notes.tex", "my note", true),
+        ],
+      });
+      await useProposedChangesStore.getState().keepChange("a-change");
+      expect(write).toHaveBeenCalledExactlyOnceWith(
+        "/a/candidate/notes.tex",
+        "my note",
+      );
+      const note_file = () =>
+        useDocumentStore
+          .getState()
+          .files.find((file) => file.id === "notes.tex");
+      if (project === "changed") {
+        expect(invoke).not.toHaveBeenCalledWith(
+          "apply_agent_workspace",
+          expect.anything(),
+        );
+        expect(useAgentReviewQueueStore.getState().entries[0]).toMatchObject({
+          phase: "question",
+          error: expect.stringContaining("The source project changed"),
+        });
+        // The text is still in the editor for a retry.
+        expect(note_file()).toMatchObject({
+          content: "my note",
+          isDirty: true,
+        });
+        return;
+      }
+      expect(invoke).toHaveBeenCalledWith(
+        "apply_agent_workspace",
+        expect.objectContaining({
+          decisions: [
+            { changeId: "a-change", accept: true, content: "a" },
+            {
+              changeId: "note",
+              accept: true,
+              proposalRevision: "note-1",
+              content: "my note",
+            },
+          ],
+          expectedSourceRevision: "covers-the-note-too",
+          expectedProjectRevision: "project-1",
+        }),
+      );
+      expect(
+        useDocumentStore.getState().refreshSourceViewSnapshot,
+      ).toHaveBeenCalledExactlyOnceWith(["main.tex", "notes.tex"]);
+      // Saved, so the draft copy is no longer marked edited.
+      expect(note_file()).toMatchObject({ content: "my note", isDirty: false });
+      expect(useProposedChangesStore.getState().changes).toMatchObject([
+        { id: "second" },
+      ]);
+    } finally {
+      write.mockRestore();
+    }
+  });
+
+  it("returns to the source view after the last file decision", async () => {
+    const result = preview("a");
+    vi.mocked(invoke).mockImplementation(async (command) => {
+      if (command === "preview_agent_workspace") return result;
+      if (command === "apply_agent_workspace")
+        return { applied: true, changedPaths: ["main.tex"], conflicts: [] };
+    });
+    await useAgentReviewQueueStore.getState().enqueue(session("a"));
+    await useProposedChangesStore.getState().keepChange("a-change");
+    expect(
+      useDocumentStore.getState().refreshSourceViewSnapshot,
+    ).not.toHaveBeenCalled();
+    expect(
+      useDocumentStore.getState().restoreSourceWorkspace,
+    ).toHaveBeenCalledWith(["main.tex"], { preserveSelection: true });
+    expect(useDocumentStore.getState().agentWorkspaceSessionId).toBeNull();
+    expect(useAgentReviewQueueStore.getState().entries).toEqual([]);
   });
 
   it("rechecks safe-only choices and excludes newly conflicting files", async () => {

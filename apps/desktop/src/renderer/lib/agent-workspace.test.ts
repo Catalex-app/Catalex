@@ -1,7 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { invoke } from "@/lib/desktop/core";
 import {
+  ownEditDecisions,
   recoverLatestAgentWorkspace,
+  reviewedProjectChanged,
+  type AgentWorkspaceChange,
+  type AgentWorkspacePreview,
   type AgentWorkspaceSession,
 } from "@/lib/agent-workspace";
 
@@ -366,4 +370,101 @@ it("keeps a settled pending checkpoint out of the review queue", async () => {
     "A history checkpoint could not be saved. Reopen the project to retry.",
     expect.anything(),
   );
+});
+
+describe("edits outside the reviewed proposal", () => {
+  const change = (
+    path: string,
+    patch: Partial<AgentWorkspaceChange> = {},
+  ): AgentWorkspaceChange => ({
+    id: `id:${path}`,
+    kind: "modified",
+    filePath: path,
+    oldFilePath: path,
+    newFilePath: path,
+    sourceAbsolutePath: `/project/${path}`,
+    candidateAbsolutePath: `/draft/${path}`,
+    oldContent: "before",
+    newContent: `text of ${path}`,
+    binary: false,
+    sourceChanged: false,
+    proposalRevision: `rev:${path}`,
+    ...patch,
+  });
+  const preview = (
+    changes: AgentWorkspaceChange[],
+    patch: Partial<AgentWorkspacePreview> = {},
+  ) =>
+    ({
+      changes,
+      conflicts: [],
+      sourceRevision: "source-1",
+      projectRevision: "project-1",
+      mergedContents: {},
+      currentContents: {},
+      ...patch,
+    }) as AgentWorkspacePreview;
+
+  it("accepts only plain text edits to files the proposal does not contain", () => {
+    const reviewed = preview([
+      change("proposed.tex"),
+      change("moved.tex", { kind: "renamed", oldFilePath: "old-name.tex" }),
+    ]);
+    const fresh = preview([
+      ...reviewed.changes,
+      change("notes.tex"),
+      change("old-name.tex"),
+      change("figure.png", { binary: true, newContent: null }),
+      change("created.tex", { kind: "added", oldFilePath: null }),
+      change("removed.tex", { kind: "deleted", newContent: null }),
+    ]);
+    expect(ownEditDecisions(fresh, reviewed)).toEqual([
+      {
+        changeId: "id:notes.tex",
+        accept: true,
+        proposalRevision: "rev:notes.tex",
+        content: "text of notes.tex",
+      },
+    ]);
+    expect(ownEditDecisions(reviewed, reviewed)).toEqual([]);
+    // An edit that clashes with the project's text is left for a manual choice.
+    expect(
+      ownEditDecisions(
+        {
+          ...fresh,
+          conflicts: [
+            {
+              changeId: "id:notes.tex",
+              filePath: "notes.tex",
+              reason: "Concurrent edits overlap",
+            },
+          ],
+        },
+        reviewed,
+      ),
+    ).toEqual([]);
+  });
+
+  it("judges a project change by the whole-project revision", () => {
+    const reviewed = preview([change("proposed.tex")]);
+    // The per-change revision also varies with the set of draft changes.
+    expect(
+      reviewedProjectChanged(
+        preview([], { sourceRevision: "source-2" }),
+        reviewed,
+      ),
+    ).toBe(false);
+    expect(
+      reviewedProjectChanged(
+        preview([], { projectRevision: "project-2" }),
+        reviewed,
+      ),
+    ).toBe(true);
+    // Older services report only the per-change revision.
+    const old = preview([], { projectRevision: undefined });
+    expect(reviewedProjectChanged(old, reviewed)).toBe(false);
+    expect(
+      reviewedProjectChanged({ ...old, sourceRevision: "source-2" }, reviewed),
+    ).toBe(true);
+  });
 });

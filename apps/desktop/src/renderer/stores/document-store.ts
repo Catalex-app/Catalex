@@ -308,6 +308,9 @@ export interface DocumentState {
       pendingReviewPaths?: readonly string[];
     },
   ) => Promise<void>;
+  /** Bring the saved source view up to date after a review decision wrote
+   * these source files while the draft stays open. */
+  refreshSourceViewSnapshot: (changedPaths: readonly string[]) => Promise<void>;
   /** Load content for a file that was skipped during project open (large file). */
   loadFileContent: (id: string) => Promise<void>;
 
@@ -2812,6 +2815,64 @@ export const useDocumentStore = create<DocumentState>()((set, get) => ({
       )
         set({ sourceViewSnapshot: null, isAgentWorkspaceReadOnly: false });
     }
+  },
+
+  refreshSourceViewSnapshot: async (changedPaths) => {
+    const { projectRoot, agentWorkspaceRoot, sourceViewSnapshot } = get();
+    if (!projectRoot || !agentWorkspaceRoot || !sourceViewSnapshot)
+      throw new Error("The source view is not saved.");
+    if (changedPaths.length === 0) return;
+    const changed = new Set(
+      changedPaths.map((path) => path.replace(/\\/g, "/")),
+    );
+    const { files, folders } = await loadProjectTree(projectRoot);
+    const current = get();
+    const snapshot = current.sourceViewSnapshot;
+    if (
+      current.projectRoot !== projectRoot ||
+      current.agentWorkspaceRoot !== agentWorkspaceRoot ||
+      !snapshot
+    )
+      throw new Error("The workspace changed while the source view refreshed.");
+    // Written paths take their state on disk, including additions and
+    // deletions. Every other file keeps its entry untouched.
+    const known = new Map(
+      snapshot.files.map((file) => [file.relativePath, file]),
+    );
+    const onDisk = new Set(files.map((file) => file.relativePath));
+    const merged = [
+      ...files.map((file) =>
+        changed.has(file.relativePath)
+          ? file
+          : (known.get(file.relativePath) ?? file),
+      ),
+      ...snapshot.files.filter(
+        (file) =>
+          !onDisk.has(file.relativePath) && !changed.has(file.relativePath),
+      ),
+    ];
+    const ids = new Set(merged.map((file) => file.id));
+    set({
+      sourceViewSnapshot: {
+        ...snapshot,
+        files: merged,
+        folders: [
+          ...new Set([
+            ...folders,
+            ...merged.flatMap((file) => {
+              const parts = file.relativePath.split("/");
+              return parts
+                .slice(0, -1)
+                .map((_, index) => parts.slice(0, index + 1).join("/"));
+            }),
+          ]),
+        ],
+        activeFileId: ids.has(snapshot.activeFileId)
+          ? snapshot.activeFileId
+          : (merged[0]?.id ?? ""),
+        openFileIds: snapshot.openFileIds.filter((id) => ids.has(id)),
+      },
+    });
   },
 
   loadFileContent: async (id) => {

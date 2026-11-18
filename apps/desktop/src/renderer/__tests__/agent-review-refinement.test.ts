@@ -294,6 +294,93 @@ describe("review refinement lifecycle", () => {
     ).toHaveBeenCalledWith(["pending.tex"], { preserveSelection: true });
   });
 
+  it.each([
+    "unchanged",
+    "changed",
+  ] as const)("saves an edit outside the proposal before the agent resumes when the project is %s", async (project) => {
+    const original = vi.mocked(invoke).getMockImplementation()!;
+    vi.mocked(invoke).mockImplementation(async (command, args: any) => {
+      if (command === "review_project_state")
+        return { revision: "project-1", gitPending: false };
+      if (command === "preview_agent_workspace") {
+        const fresh = {
+          ...preview(args.sessionId),
+          projectRevision: "project-1",
+        };
+        if (!candidate.has("notes.tex")) return fresh;
+        // Once the note is in the draft, it is one more draft change.
+        fresh.sourceRevision = "covers-the-note-too";
+        if (project === "changed") fresh.projectRevision = "project-2";
+        fresh.changes.push({
+          ...fresh.changes[0],
+          id: "a:notes.tex",
+          filePath: "notes.tex",
+          oldFilePath: "notes.tex",
+          newFilePath: "notes.tex",
+          oldContent: "",
+          newContent: candidate.get("notes.tex")!,
+          proposalRevision: "note-1",
+        });
+        return fresh;
+      }
+      if (command === "apply_agent_workspace") {
+        expect(args.decisions).toEqual([
+          {
+            changeId: "a:notes.tex",
+            accept: true,
+            proposalRevision: "note-1",
+            content: "my note",
+          },
+        ]);
+        expect(args.expectedSourceRevision).toBe("covers-the-note-too");
+        const remaining = {
+          ...preview("a"),
+          projectRevision: "project-1-with-note",
+        };
+        return {
+          applied: true,
+          conflicts: [],
+          changedPaths: ["notes.tex"],
+          remainingPreview: remaining,
+        };
+      }
+      return original(command, args);
+    });
+    await openReview();
+    // The user typed in a draft file the agent did not touch.
+    useDocumentStore.setState((state) => ({
+      files: [
+        ...state.files,
+        {
+          id: "notes.tex",
+          name: "notes.tex",
+          relativePath: "notes.tex",
+          absolutePath: "/a/candidate/notes.tex",
+          type: "tex" as const,
+          content: "my note",
+          isDirty: true,
+        },
+      ],
+    }));
+    const refining = useAgentReviewQueueStore.getState().beginRefinement("a");
+    const commands = () =>
+      vi.mocked(invoke).mock.calls.map(([command]) => command);
+    if (project === "changed") {
+      await expect(refining).rejects.toThrow("The source project changed");
+      expect(commands()).not.toContain("apply_agent_workspace");
+      expect(commands()).not.toContain("resume_agent_workspace");
+      return;
+    }
+    await refining;
+    expect(candidate.get("notes.tex")).toBe("my note");
+    expect(commands().indexOf("apply_agent_workspace")).toBeLessThan(
+      commands().indexOf("resume_agent_workspace"),
+    );
+    expect(
+      useDocumentStore.getState().restoreSourceWorkspace,
+    ).toHaveBeenCalledWith(["notes.tex"], { preserveSelection: true });
+  });
+
   it("keeps inline decisions retryable and does not launch refinement when their transaction fails", async () => {
     await openReview();
     useProposedChangesStore

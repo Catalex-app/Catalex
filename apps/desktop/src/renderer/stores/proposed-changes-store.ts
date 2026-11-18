@@ -24,7 +24,9 @@ import {
   type AgentMergeSegment,
   type AgentWorkspaceSession,
   applyAgentWorkspace,
+  ownEditDecisions,
   previewAgentWorkspace,
+  reviewedProjectChanged,
 } from "@/lib/agent-workspace";
 
 const log = createLogger("proposed-changes");
@@ -346,9 +348,6 @@ async function applyWorkspaceReview(
     (change) =>
       !review.decisions[change.id] && change.reviewedContent !== undefined,
   );
-  const hasAcceptedChange =
-    inlineChanges.length > 0 ||
-    settlementDecisions.some((decision) => decision.accept);
   let historyInitializationError: string | null = null;
   const { useAgentReviewQueueStore } = await import(
     "./agent-review-queue-store"
@@ -379,6 +378,34 @@ async function applyWorkspaceReview(
   )
     return;
   if (useDocumentStore.getState().projectRoot !== projectRoot) return;
+  // Text the user typed in a draft file outside this review is their own edit.
+  // It is saved to the project with this decision instead of being discarded.
+  const reviewedPaths = new Set(
+    review.originalChanges.flatMap((change) => [
+      change.filePath,
+      ...(change.oldFilePath ? [change.oldFilePath] : []),
+      ...(change.newFilePath ? [change.newFilePath] : []),
+    ]),
+  );
+  const draftView = useDocumentStore.getState();
+  const ownEditPaths =
+    !automatic &&
+    queued?.preview &&
+    draftView.agentWorkspaceSessionId === workspaceSessionId
+      ? draftView.files
+          .filter(
+            (file) =>
+              file.isDirty &&
+              file.content != null &&
+              !file.isBinary &&
+              !reviewedPaths.has(file.relativePath),
+          )
+          .map((file) => file.relativePath)
+      : [];
+  const hasAcceptedChange =
+    inlineChanges.length > 0 ||
+    ownEditPaths.length > 0 ||
+    settlementDecisions.some((decision) => decision.accept);
   if (queued)
     useAgentReviewQueueStore.setState((state) => ({
       entries: state.entries.map((entry) =>
@@ -436,18 +463,44 @@ async function applyWorkspaceReview(
           encodeDocumentText(file.content, file.diskContent ?? ""),
         );
       }
+      for (const path of ownEditPaths) {
+        const file = draftDoc.files.find((item) => item.relativePath === path);
+        if (file?.content == null) continue;
+        if (
+          file.externalChange ||
+          !file.absolutePath.startsWith(`${review.session.candidateRoot}/`)
+        )
+          throw new Error(
+            `Resolve the draft change in ${path} before applying another file.`,
+          );
+        await writeTexFileContent(
+          file.absolutePath,
+          encodeDocumentText(file.content, file.diskContent ?? ""),
+        );
+      }
     }
     // Applying another file also refreshes the review. Commit inline baselines
     // in the same transaction so that refresh cannot discard those decisions.
-    if (inlineChanges.length) {
+    let expectedSourceRevision = review.sourceRevision;
+    if (inlineChanges.length || ownEditPaths.length) {
       const fresh = await previewAgentWorkspace(
         projectRoot,
         workspaceSessionId,
       );
-      if (fresh.sourceRevision !== review.sourceRevision)
+      const reviewed = queued?.preview;
+      if (
+        ownEditPaths.length && reviewed
+          ? reviewedProjectChanged(fresh, reviewed)
+          : fresh.sourceRevision !== review.sourceRevision
+      )
         throw new Error(
           "The source project changed. Check the draft again before applying.",
         );
+      if (ownEditPaths.length && reviewed) {
+        settlementDecisions.push(...ownEditDecisions(fresh, reviewed));
+        // The user's edits add draft changes, which this revision also covers.
+        expectedSourceRevision = fresh.sourceRevision;
+      }
       for (const previous of inlineChanges) {
         const change = fresh.changes.find(
           (item) => item.filePath === previous.filePath,
@@ -492,7 +545,7 @@ async function applyWorkspaceReview(
         projectRoot,
         review.session.sessionId,
         settlementDecisions,
-        review.sourceRevision,
+        expectedSourceRevision,
         queued?.preview?.projectRevision,
       );
     } else {
@@ -500,7 +553,7 @@ async function applyWorkspaceReview(
         projectRoot,
         review.session.sessionId,
         settlementDecisions,
-        review.sourceRevision,
+        expectedSourceRevision,
         queued?.preview?.projectRevision,
       );
     }
@@ -625,12 +678,40 @@ async function applyWorkspaceReview(
   const postApplyErrors: string[] = [];
   const sourceUpdated = result.changedPaths.length > 0;
   const documentStore = useDocumentStore.getState();
+  const remainingPreview = result.remainingPreview;
+  // With files left to review, keep the draft open: bring the saved source
+  // view up to date for the written files instead of switching to it and back.
+  let keptDraftOpen = false;
   if (
+    !automatic &&
+    queued &&
+    remainingPreview?.changes.length &&
+    !remainingPreview.conflicts.some(
+      (conflict) => !remainingPreview.conflictContents?.[conflict.changeId],
+    ) &&
     documentStore.projectRoot === projectRoot &&
-    (!documentStore.agentWorkspaceSessionId ||
-      documentStore.agentWorkspaceSessionId === review.session.sessionId)
+    documentStore.agentWorkspaceSessionId === review.session.sessionId
+  )
+    keptDraftOpen = await documentStore
+      .refreshSourceViewSnapshot(result.changedPaths)
+      .then(
+        () => true,
+        (error) => {
+          log.warn("Reopening the draft after refreshing the source view", {
+            error: String(error),
+          });
+          return false;
+        },
+      );
+  if (
+    !keptDraftOpen &&
+    useDocumentStore.getState().projectRoot === projectRoot &&
+    (!useDocumentStore.getState().agentWorkspaceSessionId ||
+      useDocumentStore.getState().agentWorkspaceSessionId ===
+        review.session.sessionId)
   ) {
-    await documentStore
+    await useDocumentStore
+      .getState()
       .restoreSourceWorkspace(result.changedPaths, {
         preserveSelection: true,
         ...(result.remainingPreview
@@ -733,7 +814,24 @@ async function applyWorkspaceReview(
       )
     )
       useProposedChangesStore.getState().clearWorkspaceReview(projectRoot);
-    else await useAgentReviewQueueStore.getState().show(workspaceSessionId);
+    else
+      await useAgentReviewQueueStore.getState().show(
+        workspaceSessionId,
+        keptDraftOpen
+          ? {
+              decidedPaths: [
+                ...ownEditPaths,
+                ...review.originalChanges
+                  .filter((change) => review.decisions[change.id])
+                  .flatMap((change) => [
+                    change.filePath,
+                    ...(change.oldFilePath ? [change.oldFilePath] : []),
+                    ...(change.newFilePath ? [change.newFilePath] : []),
+                  ]),
+              ],
+            }
+          : {},
+      );
     await flushWorkspaceState();
     return;
   }

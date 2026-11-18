@@ -418,6 +418,95 @@ describe("useDocumentStore", () => {
         isDirty: true,
       });
     });
+    it("updates only the written files in the saved source view while a draft is open", async () => {
+      const source = (path: string, content: string) =>
+        makeFile({
+          id: path,
+          name: path,
+          relativePath: path,
+          absolutePath: `/project/${path}`,
+          content,
+          diskContent: content,
+        });
+      const untouched = source("untouched.tex", "kept in memory");
+      const snapshot = {
+        files: [
+          source("main.tex", "before"),
+          untouched,
+          source("removed.tex", "gone"),
+        ],
+        folders: [],
+        activeFileId: "removed.tex",
+        openFileIds: ["main.tex", "removed.tex"],
+        pdfBytesCache: new Map(),
+        currentPdfRootId: null,
+        compileError: null,
+        compileErrorCache: new Map(),
+        compileDiagnosticsCache: new Map(),
+        lastCompiledGenerations: new Map(),
+      };
+      const draft = [makeFile({ id: "draft.tex", relativePath: "draft.tex" })];
+      useDocumentStore.setState({
+        projectRoot: "/project",
+        agentWorkspaceRoot: "/draft/candidate",
+        agentWorkspaceSessionId: "draft",
+        sourceViewSnapshot: snapshot,
+        files: draft,
+      });
+      const scan = vi.spyOn(fsLib, "scanProjectFolder").mockResolvedValue({
+        files: ["main.tex", "untouched.tex", "sections/added.tex"].map(
+          (relativePath) => ({
+            relativePath,
+            absolutePath: `/project/${relativePath}`,
+            type: "tex" as const,
+            fileSize: 10,
+          }),
+        ),
+        folders: ["sections"],
+      });
+      vi.spyOn(fsLib, "readTexFileContent").mockImplementation(
+        async (path) => `disk ${path}`,
+      );
+
+      // A rejection writes nothing: nothing is read.
+      await useDocumentStore.getState().refreshSourceViewSnapshot([]);
+      expect(scan).not.toHaveBeenCalled();
+      expect(useDocumentStore.getState().sourceViewSnapshot).toBe(snapshot);
+
+      await useDocumentStore
+        .getState()
+        .refreshSourceViewSnapshot([
+          "main.tex",
+          "removed.tex",
+          "sections/added.tex",
+        ]);
+      const state = useDocumentStore.getState();
+      expect(scan).toHaveBeenCalledExactlyOnceWith("/project");
+      expect(state.sourceViewSnapshot?.files).toMatchObject([
+        { relativePath: "main.tex", content: "disk /project/main.tex" },
+        { relativePath: "untouched.tex", content: "kept in memory" },
+        {
+          relativePath: "sections/added.tex",
+          content: "disk /project/sections/added.tex",
+        },
+      ]);
+      expect(state.sourceViewSnapshot?.files[1]).toBe(untouched);
+      expect(state.sourceViewSnapshot?.folders).toEqual(["sections"]);
+      expect(state.sourceViewSnapshot?.activeFileId).toBe("main.tex");
+      expect(state.sourceViewSnapshot?.openFileIds).toEqual(["main.tex"]);
+      // The open draft is not touched.
+      expect(state.files).toBe(draft);
+      expect(state.agentWorkspaceSessionId).toBe("draft");
+
+      useDocumentStore.setState({
+        agentWorkspaceRoot: null,
+        agentWorkspaceSessionId: null,
+        sourceViewSnapshot: null,
+      });
+      await expect(
+        useDocumentStore.getState().refreshSourceViewSnapshot(["main.tex"]),
+      ).rejects.toThrow("The source view is not saved.");
+    });
     it("retains a pending draft-only selection made while source is being scanned", async () => {
       let finish!: (
         tree: Awaited<ReturnType<typeof fsLib.scanProjectFolder>>,
