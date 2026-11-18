@@ -21,6 +21,7 @@ import {
   loadProjectInlineComments,
   loadProjectCommentSnapshot,
   invalidateProjectCommentSnapshot,
+  beginProjectCommentRefresh,
   saveProjectInlineComments,
 } from "./inline-comment-storage";
 
@@ -126,6 +127,25 @@ describe("app-managed comment patches", () => {
     expect(await old).toEqual(fresh);
     const { isCommentDetached } = await import("./comment-paths");
     expect(isCommentDetached(root, human.id)).toBe(false);
+  });
+
+  it("reuses a settled refresh only until a newer action on the project", async () => {
+    const root = "/settled-refresh";
+    const change = new Event("refresh");
+    const edited = { ...human, text: "Edited after refresh" };
+    vi.mocked(invoke)
+      .mockResolvedValueOnce({ files: { "main.tex": [human] } })
+      .mockResolvedValueOnce({ files: { "main.tex": [edited] } });
+
+    beginProjectCommentRefresh(root, change);
+    const first = await loadProjectCommentSnapshot(root, false, change);
+    beginProjectCommentRefresh(root, change);
+    expect(await loadProjectCommentSnapshot(root, false, change)).toBe(first);
+
+    invalidateProjectCommentSnapshot(root);
+    const fresh = await loadProjectCommentSnapshot(root, false, change);
+    expect(fresh.files["main.tex"]).toEqual([edited]);
+    expect(invoke).toHaveBeenCalledTimes(2);
   });
 
   it("shares pending snapshots and releases successful and failed reads", async () => {

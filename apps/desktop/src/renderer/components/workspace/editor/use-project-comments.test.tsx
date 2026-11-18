@@ -96,6 +96,44 @@ it("shares an initial pending snapshot between mounted views", async () => {
   expect(views[1][0]["main.tex"]).toEqual([human]);
 });
 
+it("reloads every mounted view with the one read that synchronizes anchors", async () => {
+  const { synchronizeProjectCommentAnchors } = await import(
+    "./inline-comment-storage"
+  );
+  const views: ReturnType<typeof useProjectComments>[] = [];
+  function View({ index }: { index: number }) {
+    views[index] = useProjectComments("/project");
+    return null;
+  }
+  await act(async () =>
+    root.render(
+      <>
+        <View index={0} />
+        <View index={1} />
+        <View index={2} />
+      </>,
+    ),
+  );
+  const moved = { ...human, from: 10, to: 14 };
+  vi.mocked(invoke)
+    .mockClear()
+    .mockResolvedValue({
+      files: { "main.tex": [moved] },
+      sources: {},
+      counters: [8, 3],
+    });
+  // React flushes the views' effects after the synchronizing read has settled.
+  await act(async () => {
+    await synchronizeProjectCommentAnchors("/project");
+  });
+  expect(
+    vi
+      .mocked(invoke)
+      .mock.calls.filter(([cmd]) => cmd === "read_project_comments_anchored"),
+  ).toHaveLength(1);
+  for (const view of views) expect(view[0]["main.tex"]).toEqual([moved]);
+});
+
 it("preserves an empty local draft during a native manager refresh", async () => {
   const { clearCommentDraftHistory } = await import("./comment-draft-history");
   try {

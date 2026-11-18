@@ -40,6 +40,7 @@ import {
   warnSkippedCommentReplay,
   loadProjectCommentSnapshot,
   invalidateProjectCommentSnapshot,
+  beginProjectCommentRefresh,
   saveProjectInlineComments,
   flushProjectCommentWrites,
   getUnsavedCommentFiles,
@@ -60,7 +61,7 @@ export function useProjectComments(
   onChangeRef.current = onChange;
   const [files, setFiles] = useState<InlineCommentsByFile>({});
   const [disconnected, setDisconnected] = useState<InlineCommentsByFile>({});
-  const [reload, setReload] = useState(0);
+  const [reload, setReload] = useState<object>({});
   const [draftRevision, refreshDrafts] = useState(0);
   useEffect(() => {
     const stop = listen<{ projectRoot: string }>(
@@ -114,23 +115,26 @@ export function useProjectComments(
     counters: number[];
   } | null>(null);
 
-  const refreshComments = useCallback(() => {
-    if (!projectRoot) return;
-    invalidateProjectCommentSnapshot(projectRoot);
-    const snapshot = current.current;
-    // Empty local drafts have not necessarily entered the shared typing store.
-    if (snapshot?.root === projectRoot)
-      for (const [filePath, comments] of Object.entries(snapshot.files))
-        for (const comment of comments) {
-          const scope = { root: projectRoot, filePath };
-          if (comment.isEditing && !getCommentDraft(scope, comment.id))
-            setCommentDraft(scope, comment.id, {
-              comment,
-              text: comment.draftText ?? comment.text,
-            });
-        }
-    setReload((value) => value + 1);
-  }, [projectRoot]);
+  const refreshComments = useCallback(
+    (change: object) => {
+      if (!projectRoot) return;
+      beginProjectCommentRefresh(projectRoot, change);
+      const snapshot = current.current;
+      // Empty local drafts have not necessarily entered the shared typing store.
+      if (snapshot?.root === projectRoot)
+        for (const [filePath, comments] of Object.entries(snapshot.files))
+          for (const comment of comments) {
+            const scope = { root: projectRoot, filePath };
+            if (comment.isEditing && !getCommentDraft(scope, comment.id))
+              setCommentDraft(scope, comment.id, {
+                comment,
+                text: comment.draftText ?? comment.text,
+              });
+          }
+      setReload(change);
+    },
+    [projectRoot],
+  );
 
   useEffect(() => {
     const resolved = (event: Event) => {
@@ -166,11 +170,11 @@ export function useProjectComments(
       ).detail;
       const snapshot = current.current;
       if (!snapshot || snapshot.root !== root) return;
-      invalidateProjectCommentSnapshot(root);
+      beginProjectCommentRefresh(root, event);
       snapshot.files = remapCommentFiles(snapshot.files, changes);
       setFiles(snapshot.files);
       refreshDrafts((n) => n + 1);
-      setReload((n) => n + 1);
+      setReload(event);
     };
     window.addEventListener(COMMENT_PATHS_CHANGED_EVENT, moved);
     return () => window.removeEventListener(COMMENT_PATHS_CHANGED_EVENT, moved);
@@ -182,7 +186,7 @@ export function useProjectComments(
       "catalex-comments-reconnected",
       ({ payload }) => {
         if (payload.projectRoot === projectRoot) {
-          refreshComments();
+          refreshComments(payload);
         }
       },
     );
@@ -199,9 +203,9 @@ export function useProjectComments(
       )
         return;
       current.current = null;
-      if (projectRoot) invalidateProjectCommentSnapshot(projectRoot);
+      if (projectRoot) beginProjectCommentRefresh(projectRoot, event);
       setFiles({});
-      setReload((value) => value + 1);
+      setReload(event);
     };
     window.addEventListener(COMMENTS_RESTORED_EVENT, restored);
     return () => window.removeEventListener(COMMENTS_RESTORED_EVENT, restored);
@@ -214,7 +218,7 @@ export function useProjectComments(
       ).detail;
       const snapshot = current.current;
       if (!snapshot || snapshot.root !== root) return;
-      invalidateProjectCommentSnapshot(root);
+      beginProjectCommentRefresh(root, event);
       snapshot.files = Object.fromEntries(
         Object.entries(snapshot.files).map(([path, comments]) => [
           path,
@@ -223,7 +227,7 @@ export function useProjectComments(
       );
       snapshot.counters[agent ? 1 : 0] = 0;
       setFiles(snapshot.files);
-      setReload((value) => value + 1);
+      setReload(event);
     };
     window.addEventListener(COMMENTS_CLEARED_EVENT, clear);
     return () => window.removeEventListener(COMMENTS_CLEARED_EVENT, clear);
@@ -240,7 +244,7 @@ export function useProjectComments(
     const refresh = (event: Event) => {
       const requestedRoot = (event as CustomEvent<{ projectRoot: string }>)
         .detail.projectRoot;
-      if (requestedRoot === projectRoot) refreshComments();
+      if (requestedRoot === projectRoot) refreshComments(event);
     };
     window.addEventListener(PROJECT_COMMENTS_REFRESH_EVENT, refresh);
     return () =>
@@ -317,6 +321,7 @@ export function useProjectComments(
         const loaded = await loadProjectCommentSnapshot(
           projectRoot,
           includeDisconnected,
+          reload,
         );
         // Number previews mutate this view's counters, not the shared read.
         loadedCounters = [...loaded.counters];
@@ -328,7 +333,7 @@ export function useProjectComments(
         // File-map identity is the revision: updates replace it, typing stays
         // in the shared draft store. Never install a read over a newer action.
         if (current.current === snapshot && snapshot.files !== beforeRead) {
-          setReload((value) => value + 1);
+          setReload({});
           return;
         }
         snapshot.counters = loadedCounters;
@@ -347,17 +352,23 @@ export function useProjectComments(
           toast.error(`Comments could not be loaded: ${String(error)}`, {
             action: {
               label: "Retry",
-              onClick: () => setReload((value) => value + 1),
+              onClick: () => setReload({}),
             },
           });
       });
     return () => {
       cancelled = true;
-      // Reopening this root must not join a request from the closed view.
-      invalidateProjectCommentSnapshot(projectRoot);
       stop?.();
     };
   }, [projectRoot, reload, includeDisconnected]);
+
+  // Reopening this root must not join a request from the closed view. A reload
+  // of the same root is different: whatever caused it has already invalidated
+  // older reads, and doing so again here would cancel a read other views share.
+  useEffect(() => {
+    if (!projectRoot) return;
+    return () => invalidateProjectCommentSnapshot(projectRoot);
+  }, [projectRoot]);
 
   useEffect(() => {
     const record = (event: Event) => {
@@ -405,7 +416,7 @@ export function useProjectComments(
           if (current.current !== snapshot) return;
           snapshot.blocked = false;
           toast.dismiss(`comment-save:${snapshot.root}`);
-          setReload((value) => value + 1);
+          setReload({});
         })
         .catch((error) =>
           showCommentSaveError(snapshot.root, error, () =>
@@ -510,7 +521,7 @@ export function useProjectComments(
           id: "comment-replay-unavailable",
           action: {
             label: "Reload comments",
-            onClick: () => setReload((value) => value + 1),
+            onClick: () => setReload({}),
           },
         },
       );

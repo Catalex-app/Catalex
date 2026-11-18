@@ -257,6 +257,26 @@ const snapshotReads = new Map<
   string,
   Map<boolean, Promise<ProjectCommentSnapshot>>
 >();
+// Listeners for the same change can run after the first read has settled.
+const refreshReads = new WeakMap<
+  object,
+  {
+    root: string;
+    revision: number;
+    reads: Map<boolean, Promise<ProjectCommentSnapshot>>;
+  }
+>();
+
+export function beginProjectCommentRefresh(root: string, change: object) {
+  if (refreshReads.has(change)) return;
+  invalidateProjectCommentSnapshot(root);
+  refreshReads.set(change, {
+    root,
+    revision: snapshotRevisions.get(root)!,
+    reads: new Map(),
+  });
+}
+
 export function invalidateProjectCommentSnapshot(projectRoot: string) {
   snapshotReads.delete(projectRoot);
   // Removing sharing alone cannot revoke a response already in flight. The
@@ -276,7 +296,19 @@ export async function loadProjectInlineComments(
 export function loadProjectCommentSnapshot(
   projectRoot: string,
   includeDisconnected = false,
+  change?: object,
 ): Promise<ProjectCommentSnapshot> {
+  const refresh = change && refreshReads.get(change);
+  if (
+    refresh?.root === projectRoot &&
+    refresh.revision === snapshotRevisions.get(projectRoot)
+  ) {
+    const shared = refresh.reads.get(includeDisconnected);
+    if (shared) return shared;
+    const read = loadProjectCommentSnapshot(projectRoot, includeDisconnected);
+    refresh.reads.set(includeDisconnected, read);
+    return read;
+  }
   const reads = snapshotReads.get(projectRoot) ?? new Map();
   const existing = reads.get(includeDisconnected);
   if (existing) return existing;
@@ -1263,12 +1295,12 @@ async function anchorRevision(text: string): Promise<string> {
 export async function synchronizeProjectCommentAnchors(
   projectRoot: string,
 ): Promise<void> {
-  await loadProjectInlineComments(projectRoot);
-  window.dispatchEvent(
-    new CustomEvent("catalex:project-comments-refresh", {
-      detail: { projectRoot },
-    }),
-  );
+  const change = new CustomEvent(PROJECT_COMMENTS_REFRESH_EVENT, {
+    detail: { projectRoot },
+  });
+  beginProjectCommentRefresh(projectRoot, change);
+  window.dispatchEvent(change);
+  await loadProjectCommentSnapshot(projectRoot, false, change);
 }
 
 export function receiveCommentsCleared(projectRoot: string, agent: boolean) {
