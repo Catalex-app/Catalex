@@ -222,3 +222,133 @@ test("an agent edit to another file joins that file's history", async ({
     )
     .toBe("Define SSL on first use.");
 });
+
+test("a LaTeX document with 20 comments stays editable after delete-all and paste", async ({
+  page,
+  context,
+}) => {
+  const storage = "catalex-harness-comments:/tmp/comment-harness";
+  await page.addInitScript((key) => {
+    const comments = Array.from({ length: 20 }, (_, i) => ({
+      id: String(i),
+      number: i + 1,
+      from: i * 12,
+      to: i * 12 + 4,
+      line: 1,
+      text: "Review passage",
+    }));
+    localStorage.setItem(key, JSON.stringify({ "main.tex": comments }));
+  }, storage);
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  await page.goto("/?debug=editor-comments");
+  const content = page.locator(".cm-content");
+  await expect(content.locator(".cm-inlineCommentCard").first()).toBeVisible();
+  const doc = () =>
+    page.evaluate(() => window.__editorCommentsHarness?.getState?.().docText);
+  await page.evaluate(() =>
+    navigator.clipboard.writeText("Replacement manuscript"),
+  );
+  await content.focus();
+  await page.keyboard.press("ControlOrMeta+a");
+  await page.keyboard.press("Backspace");
+  await expect.poll(doc).toBe("");
+  await page.keyboard.press("ControlOrMeta+v");
+  await page.keyboard.type(" continues");
+  await expect.poll(doc).toBe("Replacement manuscript continues");
+  await expect
+    .poll(() =>
+      page.evaluate((key) => {
+        const comments = JSON.parse(localStorage.getItem(key)!)["main.tex"];
+        return comments.filter(
+          (c: { positionReset?: boolean; from: number; to: number }) =>
+            c.positionReset &&
+            c.from === "Replacement manuscript continues".length &&
+            c.to === c.from,
+        ).length;
+      }, storage),
+    )
+    .toBe(20);
+  // Collapsed handles share a caret. An idle view should not measure it
+  // once per comment on every animation frame.
+  const reads = await content.evaluate(async (element) => {
+    // @ts-expect-error Vite browser module
+    const { EditorView } = await import("/@id/@codemirror/view");
+    const view = EditorView.findFromDOM(element);
+    const original = view.coordsAtPos;
+    let count = 0;
+    view.coordsAtPos = function (position: number, side?: number) {
+      count++;
+      return original.call(this, position, side);
+    };
+    try {
+      for (let frame = 0; frame < 8; frame++)
+        await new Promise(requestAnimationFrame);
+      return count;
+    } finally {
+      view.coordsAtPos = original;
+    }
+  });
+  expect(reads).toBeLessThan(20);
+});
+
+test("a point comment handle follows its text while a card above changes height", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    localStorage.setItem(
+      "catalex-harness-comments:/tmp/comment-harness",
+      JSON.stringify({
+        "main.tex": [
+          { id: "a", number: 1, from: 80, to: 94, line: 5, text: "Range" },
+          { id: "b", number: 2, from: 200, to: 200, line: 13, text: "Point" },
+        ],
+      }),
+    );
+  });
+  await page.goto("/?debug=editor-comments");
+  const card = page.locator(".cm-inlineCommentCard").first();
+  await expect(card).toBeVisible();
+  await expect(
+    page.locator('[data-comment-range-handle="point"]'),
+  ).toBeVisible();
+  // Distance between the handle and the caret position it marks.
+  const offset = () =>
+    page.evaluate(async () => {
+      // @ts-expect-error Vite browser module
+      const { EditorView } = await import("/@id/@codemirror/view");
+      const view = EditorView.findFromDOM(document.querySelector(".cm-editor"));
+      // Read once this frame's updates have all run, in whatever order.
+      for (let frame = 0; frame < 3; frame++)
+        await new Promise(requestAnimationFrame);
+      await new Promise((resolve) => setTimeout(resolve));
+      return Math.round(
+        document
+          .querySelector('[data-comment-range-handle="point"]')!
+          .getBoundingClientRect().top - view.coordsAtPos(200, 1).top,
+      );
+    });
+  expect(await offset()).toBe(0);
+  const before = await page.evaluate(async () => {
+    // @ts-expect-error Vite browser module
+    const { EditorView } = await import("/@id/@codemirror/view");
+    const view = EditorView.findFromDOM(document.querySelector(".cm-editor"));
+    return view.coordsAtPos(200, 1).top;
+  });
+  // The card grows on its own: no edit, no scroll, no editor transaction.
+  await card.evaluate((element) => {
+    element.style.transition = "padding-bottom 400ms linear";
+    element.style.paddingBottom = "120px";
+  });
+  const during: number[] = [];
+  for (let sample = 0; sample < 6; sample++) during.push(await offset());
+  expect(during).toEqual([0, 0, 0, 0, 0, 0]);
+  await page.waitForTimeout(500);
+  expect(await offset()).toBe(0);
+  const after = await page.evaluate(async () => {
+    // @ts-expect-error Vite browser module
+    const { EditorView } = await import("/@id/@codemirror/view");
+    const view = EditorView.findFromDOM(document.querySelector(".cm-editor"));
+    return view.coordsAtPos(200, 1).top;
+  });
+  expect(after - before).toBeGreaterThan(100);
+});

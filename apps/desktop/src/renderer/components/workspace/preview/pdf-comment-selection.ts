@@ -3,6 +3,7 @@ import {
   normalizePdfCommentText as normalize,
   pdfCommentVisibleText,
   projectVisibleText,
+  sourceLineLookup,
 } from "./pdf-comment-text";
 
 export interface PdfCommentRange {
@@ -32,31 +33,34 @@ interface PdfCommentCandidate {
   approximate: boolean;
 }
 
-// Endpoint mapping asks about many rendered lines from the same document.
-// Retain only a small, bounded set of immutable source snapshots, never every
-// edit made during a long-running session. Oversized documents remain uncached.
+// Endpoint mapping asks about many rendered lines from the same document, so
+// the document in use is always indexed once, however long it is: building
+// the index again for each line makes a long paper unusable. Retain a bounded
+// amount of immutable source snapshots, never every edit made during a
+// long-running session.
 const sourceIndexes = new Map<string, ReturnType<typeof buildSourceIndex>>();
-const MAX_INDEXED_SOURCE_LENGTH = 250_000;
+const MAX_INDEXED_CHARACTERS = 1_000_000;
 function buildSourceIndex(source: string) {
   const projection = projectVisibleText(source);
   return {
     haystack: normalize(source),
+    lineAt: sourceLineLookup(source),
     projection,
     visible: projection ? normalize(projection.text) : null,
   };
 }
 function sourceIndex(source: string) {
-  const cached = sourceIndexes.get(source);
-  if (cached) {
-    sourceIndexes.delete(source);
-    sourceIndexes.set(source, cached);
-    return cached;
-  }
-  const index = buildSourceIndex(source);
-  if (source.length <= MAX_INDEXED_SOURCE_LENGTH) {
-    sourceIndexes.set(source, index);
-    if (sourceIndexes.size > 2)
-      sourceIndexes.delete(sourceIndexes.keys().next().value!);
+  const index = sourceIndexes.get(source) ?? buildSourceIndex(source);
+  // Most recently used last. The newest source stays even when it alone
+  // exceeds the limit.
+  sourceIndexes.delete(source);
+  sourceIndexes.set(source, index);
+  let retained = 0;
+  for (const key of sourceIndexes.keys()) retained += key.length;
+  for (const key of sourceIndexes.keys()) {
+    if (retained <= MAX_INDEXED_CHARACTERS || key === source) break;
+    sourceIndexes.delete(key);
+    retained -= key.length;
   }
   return index;
 }
@@ -70,7 +74,7 @@ function pdfCommentCandidates(
 ): PdfCommentCandidate[] {
   const needle = normalize(selected).value;
   if (needle.length < 2) return [];
-  const { haystack, projection, visible } = sourceIndex(source);
+  const { haystack, lineAt, projection, visible } = sourceIndex(source);
   if (!projection || !visible) return [];
   const candidates: { from: number; to: number; line: number }[] = [];
   const add = (start: number, end: number) => {
@@ -90,7 +94,7 @@ function pdfCommentCandidates(
       candidates.push({
         from,
         to,
-        line: source.slice(0, from).split("\n").length,
+        line: lineAt(from),
       });
   };
   if (projection) {
@@ -109,7 +113,7 @@ function pdfCommentCandidates(
         candidates.push({
           from,
           to,
-          line: source.slice(0, from).split("\n").length,
+          line: lineAt(from),
         });
       }
       index = visible.value.indexOf(needle, index + 1);
@@ -128,8 +132,15 @@ function pdfCommentCandidates(
     const suffix = needle.slice(-3);
     let start = visible.value.indexOf(prefix);
     while (start >= 0) {
-      let end = visible.value.indexOf(suffix, start + 3);
-      while (end >= 0 && end + 3 - start <= needle.length) {
+      // Look for the closing edge only within the selection's length. A
+      // search to the end of the document for every start is quadratic.
+      const limit = start + needle.length;
+      const within = (from: number) => {
+        const at = visible.value.slice(from, limit).indexOf(suffix);
+        return at < 0 ? -1 : from + at;
+      };
+      let end = within(start + 3);
+      while (end >= 0) {
         const span = visible.value.slice(start, end + 3);
         const parts = span.split(PDF_TEXT_GAP);
         const literalLength = parts.join("").length;
@@ -148,7 +159,7 @@ function pdfCommentCandidates(
           const last = visible.ends[end + 2] - 1;
           const from = projection.starts[first];
           const to = projection.ends[last];
-          const line = source.slice(0, from).split("\n").length;
+          const line = lineAt(from);
           const lastLine = line + source.slice(from, to).split("\n").length - 1;
           if (
             !(first > 0 && projection.starts[first - 1] === from) &&
@@ -163,7 +174,7 @@ function pdfCommentCandidates(
             candidates.push({ from, to, line });
           }
         }
-        end = visible.value.indexOf(suffix, end + 1);
+        end = within(end + 1);
       }
       start = visible.value.indexOf(prefix, start + 1);
     }

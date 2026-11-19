@@ -120,6 +120,28 @@ const DECLARATIONS = new Set([
   "Large",
 ]);
 
+/** One-based line of an offset. Newline offsets are found once per document. */
+export function sourceLineLookup(content: string) {
+  const newlines: number[] = [];
+  for (
+    let at = content.indexOf("\n");
+    at !== -1;
+    at = content.indexOf("\n", at + 1)
+  ) {
+    newlines.push(at);
+  }
+  return (offset: number) => {
+    let low = 0;
+    let high = newlines.length;
+    while (low < high) {
+      const middle = (low + high) >>> 1;
+      if (newlines[middle] < offset) low = middle + 1;
+      else high = middle;
+    }
+    return low + 1;
+  };
+}
+
 export function pdfCommentVisibleText(source: string): string | null {
   if (visibleTextCache.has(source)) return visibleTextCache.get(source)!;
   const result = projectVisibleText(source)?.text ?? null;

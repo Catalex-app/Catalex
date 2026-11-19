@@ -1,4 +1,4 @@
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 import {
   findPdfCommentRange,
   matchPdfCommentRange,
@@ -314,4 +314,38 @@ it.each([
 
 it("keeps en dashes and em dashes distinct", () => {
   expect(findPdfCommentRange("Before -- after.", "Before — after.")).toBeNull();
+});
+
+it("bounds the generated-text search in a long repetitive paper", () => {
+  const source = Array.from(
+    { length: 6000 },
+    (_, i) =>
+      String.raw`Passage ${i}: Lorem ipsum dolor sit amet~\cite{key${i}}, with \textbf{bold} text.`,
+  ).join("\n");
+  expect(
+    matchPdfCommentRange(
+      source,
+      "Passage 4321: Lorem ipsum dolor sit amet [12], with bold text.",
+      4322,
+    ),
+  ).toMatchObject({ status: "matched", range: { line: 4322 } });
+  // This line begins like every source line and ends with text the paper
+  // never contains. Each of the 6000 starts may look for that ending within
+  // the length of the line, never through the rest of the paper.
+  const line = "Passage 7: Lorem ipsum dolor sit amet [12], page 7 of 40 §";
+  const search = String.prototype.indexOf;
+  let searched = 0;
+  const indexOf = vi
+    .spyOn(String.prototype, "indexOf")
+    .mockImplementation(function (this: string, value, position) {
+      if (value === "40§") searched += this.length - (position ?? 0);
+      return search.call(this, value, position);
+    });
+  try {
+    expect(matchPdfCommentRange(source, line, 8).status).toBe("unmatched");
+  } finally {
+    indexOf.mockRestore();
+  }
+  expect(searched).toBeGreaterThan(0);
+  expect(searched).toBeLessThanOrEqual(6000 * line.length);
 });

@@ -49,19 +49,38 @@ it("reuses document math parsing across seven comment endpoint lookups", () => {
 
 it("uses fresh offsets after edits and evicts old document indexes", () => {
   const render = vi.spyOn(katex, "renderToString");
-  const first = "Original phrase. $q_1$";
-  const second = "Second phrase. $q_2$";
-  const third = "Third phrase. $q_3$";
+  // Three documents together exceed what the index retains.
+  const filler = "Filler sentence without any mathematics. ".repeat(10_000);
+  const first = `Original phrase. $q_1$\n${filler}`;
+  const second = `Second phrase. $q_2$\n${filler}`;
+  const third = `Third phrase. $q_3$\n${filler}`;
   try {
     expect(pdfCommentEndpoint(first, line("Original phrase."), 0, 1)).toBe(0);
     expect(pdfCommentEndpoint(second, line("Second phrase."), 0, 1)).toBe(0);
     expect(pdfCommentEndpoint(third, line("Third phrase."), 0, 1)).toBe(0);
     render.mockClear();
+    expect(pdfCommentEndpoint(third, line("Third phrase."), 0, 1)).toBe(0);
+    expect(pdfCommentEndpoint(second, line("Second phrase."), 0, 1)).toBe(0);
+    expect(render).not.toHaveBeenCalled();
     expect(pdfCommentEndpoint(first, line("Original phrase."), 0, 1)).toBe(0);
     expect(render).toHaveBeenCalledTimes(1);
     expect(
       pdfCommentEndpoint(`Inserted.\n${first}`, line("Original phrase."), 0, 2),
     ).toBe(10);
+  } finally {
+    render.mockRestore();
+  }
+});
+
+it("indexes a document longer than the retained total once", () => {
+  const source = `Opening phrase. $q_1$\n${"Filler sentence without any mathematics. ".repeat(30_000)}`;
+  const render = vi.spyOn(katex, "renderToString");
+  try {
+    expect(pdfCommentEndpoint(source, line("Opening phrase."), 0, 1)).toBe(0);
+    render.mockClear();
+    for (let repeat = 0; repeat < 5; repeat++)
+      expect(pdfCommentEndpoint(source, line("Opening phrase."), 8, 1)).toBe(8);
+    expect(render).not.toHaveBeenCalled();
   } finally {
     render.mockRestore();
   }

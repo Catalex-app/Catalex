@@ -29,6 +29,17 @@ export function commentRangeExtension(
       destroyed = false;
       overlay = document.createElement("div");
       frame = 0;
+      measure?: () => void;
+      scheduleMeasure = () => {
+        if (!this.measure || this.frame || this.destroyed) return;
+        this.frame = requestAnimationFrame(() => {
+          this.frame = 0;
+          this.measure?.();
+        });
+      };
+      // A comment card can change height without an edit or a scroll, for
+      // example while it opens. Text below it then moves with every frame.
+      resize = new ResizeObserver(this.scheduleMeasure);
       cancelDrag?: () => void;
       preview: CommentRange | null = null;
       active: string | null = null;
@@ -51,6 +62,10 @@ export function commentRangeExtension(
         view.dom.addEventListener("pointerdown", this.focus, true);
         view.dom.addEventListener("click", this.focus, true);
         view.dom.addEventListener("focusin", this.focus, true);
+        view.scrollDOM.addEventListener("scroll", this.scheduleMeasure, {
+          passive: true,
+        });
+        this.resize.observe(view.contentDOM);
 
         this.render();
       }
@@ -82,11 +97,16 @@ export function commentRangeExtension(
           update.transactions.some((transaction) => transaction.effects.length)
         )
           this.render();
+        if (update.geometryChanged || update.viewportChanged || this.cancelDrag)
+          this.scheduleMeasure();
       }
       render() {
         // Keep the captured pointer target alive while its preview changes.
-        if (this.cancelDrag) return;
-        cancelAnimationFrame(this.frame);
+        if (this.cancelDrag) {
+          this.scheduleMeasure();
+          return;
+        }
+        this.measure = undefined;
         this.overlay.replaceChildren();
         const { comments, actions } = read();
         const handles: {
@@ -193,10 +213,17 @@ export function commentRangeExtension(
           }
         }
         if (!handles.length) return;
-        const measure = () => {
+        this.measure = () => {
           const origin = this.view.dom.getBoundingClientRect();
           const viewport = this.view.scrollDOM.getBoundingClientRect();
-          for (const { handle, comment, edge, point } of handles) {
+          // A whole-file deletion can collapse every comment to one offset.
+          // Read each caret rectangle once before writing any handle styles.
+          const starts = new Map<
+            number,
+            ReturnType<EditorView["coordsAtPos"]>
+          >();
+          const ends = new Map<number, ReturnType<EditorView["coordsAtPos"]>>();
+          const placements = handles.map(({ comment, edge, point }) => {
             const range =
               comment.id === this.active ? (this.preview ?? comment) : comment;
             const position =
@@ -205,10 +232,16 @@ export function commentRangeExtension(
                   ? range.from
                   : range.to
                 : range[edge];
-            const rect = this.view.coordsAtPos(
-              position,
-              edge === "from" ? 1 : -1,
-            );
+            const rectangles = edge === "from" ? starts : ends;
+            if (!rectangles.has(position))
+              rectangles.set(
+                position,
+                this.view.coordsAtPos(position, edge === "from" ? 1 : -1),
+              );
+            return rectangles.get(position);
+          });
+          for (const [index, { handle, comment, point }] of handles.entries()) {
+            const rect = placements[index];
             handle.style.display = rect ? "block" : "none";
             if (point) {
               const tip = handle.firstElementChild as HTMLElement;
@@ -230,14 +263,15 @@ export function commentRangeExtension(
                 height: `${rect.bottom - rect.top}px`,
               });
           }
-          this.frame = requestAnimationFrame(measure);
         };
-        this.frame = requestAnimationFrame(measure);
+        this.scheduleMeasure();
       }
       destroy() {
         this.destroyed = true;
         this.cancelDrag?.();
         cancelAnimationFrame(this.frame);
+        this.view.scrollDOM.removeEventListener("scroll", this.scheduleMeasure);
+        this.resize.disconnect();
         this.overlay.remove();
         this.view.dom.removeEventListener("pointerdown", this.focus, true);
         this.view.dom.removeEventListener("click", this.focus, true);

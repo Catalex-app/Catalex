@@ -32,6 +32,7 @@ import {
   PDF_TEXT_GAP,
   pdfCommentVisibleText,
   normalizePdfCommentText as normalized,
+  sourceLineLookup,
 } from "./pdf-comment-text";
 import {
   PDF_COMMENT_LAYOUT_EVENT,
@@ -72,28 +73,6 @@ export interface PdfCommentTarget {
   sourceContent?: string;
   sourceBefore: string;
   sourceAfter: string;
-}
-
-// Newline offsets are shared by all targets in this file for this calculation.
-function sourceLineLookup(content: string) {
-  const newlines: number[] = [];
-  for (
-    let at = content.indexOf("\n");
-    at !== -1;
-    at = content.indexOf("\n", at + 1)
-  ) {
-    newlines.push(at);
-  }
-  return (offset: number) => {
-    let low = 0;
-    let high = newlines.length;
-    while (low < high) {
-      const middle = (low + high) >>> 1;
-      if (newlines[middle] < offset) low = middle + 1;
-      else high = middle;
-    }
-    return low + 1;
-  };
 }
 
 export function pdfCommentTargets(
