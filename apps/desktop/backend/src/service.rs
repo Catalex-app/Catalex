@@ -795,6 +795,7 @@ async fn dispatch(
                 argument(&args, "author")?,
                 argument(&args, "action")?,
                 argument(&args, "target")?,
+                argument::<Option<_>>(&args, "pdfAnchors")?.unwrap_or_default(),
                 argument(&args, "preview")?,
             )
             .await,

@@ -282,9 +282,135 @@ try {
   await expect(
     main.getByRole("dialog", { name: "PDF comment", exact: true }),
   ).toHaveCount(0);
+  // Relinking. An identical copy elsewhere in the project is found by content.
+  const manager = main.getByRole("dialog", {
+    name: "Manage comments",
+    exact: true,
+  });
+  const openManager = async () => {
+    await main.evaluate(async () => {
+      const { OPEN_COMMENT_MANAGER_EVENT } = await import(
+        "/src/renderer/lib/workspace-events.ts"
+      );
+      const { useDocumentStore } = await import(
+        "/src/renderer/stores/document-store.ts"
+      );
+      window.dispatchEvent(
+        new CustomEvent(OPEN_COMMENT_MANAGER_EVENT, {
+          detail: { projectRoot: useDocumentStore.getState().projectRoot },
+        }),
+      );
+    });
+    await expect(manager).toBeVisible();
+  };
+  const selectGroup = (file) =>
+    manager
+      .getByRole("checkbox", {
+        name: `Select disconnected file ${file}`,
+        exact: true,
+      })
+      .check();
+  const before = snapshot.disconnected["a/paper.pdf"];
+  await fs.mkdir(path.join(project, "c"));
+  await fs.writeFile(path.join(project, "c/moved.pdf"), bytes);
+  await openManager();
+  const autoRelink = async (message) => {
+    await selectGroup("a/paper.pdf");
+    await manager.getByText("Auto-relink selected", { exact: true }).click();
+    await manager
+      .getByRole("button", { name: "Continue", exact: true })
+      .click();
+    await expect(manager.getByText(message)).toBeVisible();
+  };
+  // b/paper.pdf has the same bytes, so the match is not unique yet.
+  await autoRelink("0 comments relinked. 2 remain disconnected.");
+  await fs.rm(path.join(project, "b/paper.pdf"));
+  await expect
+    .poll(
+      async () => (await stored(main)).disconnected?.["b/paper.pdf"]?.length,
+    )
+    .toBe(1);
+  await autoRelink("2 comments relinked. 0 remain disconnected.");
+  snapshot = await stored(main);
+  assert.deepEqual(snapshot.files["c/moved.pdf"], before);
+  assert.equal(snapshot.disconnected["a/paper.pdf"], undefined);
+
+  // A revised file has other bytes: comments return where their text is found.
+  const revised = Buffer.concat([bytes, Buffer.from("\n% revised\n")]);
+  await fs.writeFile(path.join(project, "c/moved.pdf"), revised);
+  await expect
+    .poll(
+      async () => (await stored(main)).disconnected?.["c/moved.pdf"]?.length,
+    )
+    .toBe(2);
+  await selectGroup("c/moved.pdf");
+  await manager
+    .getByText("Reconnect comments to file", { exact: true })
+    .click();
+  const target = manager.getByRole("combobox", {
+    name: "Target file",
+    exact: true,
+  });
+  await target.fill("c/moved.pdf");
+  await main.getByRole("option", { name: "c/moved.pdf", exact: true }).click();
+  await expect(manager.getByText("Ready to relink.")).toBeVisible();
+  await main.screenshot({
+    path: path.join(artifacts, "native-pdf-comment-relink.png"),
+  });
+  await manager.getByRole("button", { name: "Continue", exact: true }).click();
+  await expect(
+    manager.getByText("Comments linked to c/moved.pdf."),
+  ).toBeVisible();
+  snapshot = await stored(main);
+  assert.equal(snapshot.disconnected["c/moved.pdf"], undefined);
+  const relinked = snapshot.files["c/moved.pdf"];
+  assert.deepEqual(
+    relinked.map((comment) => [comment.id, comment.text, comment.pdf.text]),
+    before.map((comment) => [comment.id, comment.text, comment.pdf.text]),
+  );
+  for (const [index, comment] of relinked.entries()) {
+    assert.notEqual(comment.pdf.fingerprint, first.pdf.fingerprint);
+    assert.equal(comment.pdf.regions[0].page, 1);
+    assert.ok(
+      Math.abs(comment.pdf.regions[0].x - before[index].pdf.regions[0].x) < 1,
+    );
+  }
+  // A text file is refused, and the PDF shows its comments again.
+  await fs.writeFile(path.join(project, "notes.txt"), "Plain text\n");
+  await assert.rejects(
+    main.evaluate(
+      async ({ projectRoot, ids }) => {
+        const { invoke } = await import("/src/renderer/lib/desktop/core.ts");
+        return invoke("manage_comment_files", {
+          projectRoot,
+          selection: [{ path: "c/moved.pdf", disconnected: false, ids }],
+          author: "all",
+          action: "relink",
+          target: "notes.txt",
+          preview: true,
+        });
+      },
+      { projectRoot: project, ids: relinked.map((comment) => comment.id) },
+    ),
+    /PDF comments can only be reconnected to a PDF/,
+  );
+  await manager.getByRole("button", { name: "Close", exact: true }).click();
+  await main.evaluate(async () => {
+    const { useDocumentStore } = await import(
+      "/src/renderer/stores/document-store.ts"
+    );
+    await useDocumentStore.getState().refreshFiles?.();
+    useDocumentStore.getState().setActiveFile("c/moved.pdf");
+  });
+  await expect(
+    main.locator("[data-pdf-comment-highlight]").first(),
+  ).toBeVisible();
+  await main.screenshot({
+    path: path.join(artifacts, "native-pdf-comment-relinked.png"),
+  });
   assert.deepEqual(errors, []);
   console.log(
-    "Native PDF comments, resize undo/redo, selection badges, same-name isolation, immutable files, pop-out sharing, restart persistence and replacement disconnection passed.",
+    "Native PDF comments, resize undo/redo, selection badges, same-name isolation, immutable files, pop-out sharing, restart persistence, replacement disconnection, and relinking to a moved or revised PDF passed.",
   );
 } catch (error) {
   if (app)

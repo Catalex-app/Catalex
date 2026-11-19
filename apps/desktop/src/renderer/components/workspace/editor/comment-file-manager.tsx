@@ -17,12 +17,13 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { invoke } from "@/lib/desktop/core";
 import { open } from "@/lib/desktop/dialog";
+import { relocatePdfComments } from "@/lib/pdf-comment-relink";
 import { PROJECT_COMMENTS_REFRESH_EVENT } from "@/lib/workspace-events";
 import { useDocumentStore } from "@/stores/document-store";
 import { ActionSelector } from "../action-selector";
 import { setCommentDraft } from "./comment-draft-history";
 import { reconnectTrackedComments } from "./comment-paths";
-import { commentLabel } from "./inline-comments";
+import { commentLabel, type PdfCommentAnchor } from "./inline-comments";
 import {
   withCommentPathMutation,
   type InlineCommentsByFile,
@@ -67,6 +68,7 @@ export function CommentFileManager({
     key: string;
     result?: Result;
     error?: string;
+    pdfAnchors?: Record<string, PdfCommentAnchor>;
   } | null>(null);
   useEffect(() => {
     onBusyChange?.(busy);
@@ -155,18 +157,36 @@ export function CommentFileManager({
     let active = true;
     setValidation(null);
     const args = JSON.parse(validationKey);
-    invoke<Result>("manage_comment_files", { ...args, preview: true }).then(
-      (result) => {
-        if (active) setValidation({ key: validationKey, result });
-      },
-      (error) => {
-        if (active) setValidation({ key: validationKey, error: String(error) });
-      },
-    );
+    const group = args.selection[0];
+    // A replaced PDF keeps a comment only where its quoted text is found again.
+    const located = /\.pdf$/i.test(target)
+      ? relocatePdfComments(
+          /^([a-z]:)?[\\/]/i.test(target) ? target : `${root}/${target}`,
+          (group?.disconnected ? groups : files)[group?.path] ?? [],
+        ).catch(() => ({}))
+      : Promise.resolve({});
+    located
+      .then(async (pdfAnchors) => ({
+        pdfAnchors,
+        result: await invoke<Result>("manage_comment_files", {
+          ...args,
+          pdfAnchors,
+          preview: true,
+        }),
+      }))
+      .then(
+        (checked) => {
+          if (active) setValidation({ key: validationKey, ...checked });
+        },
+        (error) => {
+          if (active)
+            setValidation({ key: validationKey, error: String(error) });
+        },
+      );
     return () => {
       active = false;
     };
-  }, [validationKey, action, selected.length, target, groups]);
+  }, [validationKey, action, selected.length, target, root, files, groups]);
   const changeSelection = (paths: string[]) => {
     setSelected(paths);
     setTarget("");
@@ -185,7 +205,7 @@ export function CommentFileManager({
         multiple: false,
         filters: [
           {
-            name: "Text documents",
+            name: "Documents",
             extensions: [
               "tex",
               "md",
@@ -197,8 +217,12 @@ export function CommentFileManager({
               "ltx",
               "rnw",
               "rmd",
+              "typ",
+              "pdf",
             ],
           },
+          // Any other text file can hold comments too.
+          { name: "All files", extensions: ["*"] },
         ],
       });
       if (path) {
@@ -230,6 +254,7 @@ export function CommentFileManager({
       const result = await withCommentPathMutation(root, async () => {
         const result = await invoke<Result>("manage_comment_files", {
           ...request,
+          pdfAnchors: action === "relink" ? validation?.pdfAnchors : undefined,
           preview: false,
         });
         if (action === "clear") {
@@ -261,7 +286,7 @@ export function CommentFileManager({
           ? `${result.cleared} ${author === "all" ? "" : `${author} `}comments cleared.`
           : action === "auto-relink"
             ? `${result.linked ?? 0} comments relinked. ${result.remaining ?? 0} remain disconnected.`
-            : `Comments linked to ${result.newPath}.${result.unplaced ? ` ${result.unplaced} need their positions reviewed.` : ""}`,
+            : `Comments linked to ${result.newPath}.${result.unplaced ? ` ${result.unplaced} need their positions reviewed.` : ""}${result.remaining ? ` ${result.remaining} were not found there and did not move.` : ""}`,
       );
       setSelected([]);
       setTarget("");
@@ -517,11 +542,12 @@ export function CommentFileManager({
                       options={projectFiles
                         .filter(
                           (file) =>
-                            !targetQuery ||
-                            targetQuery === target ||
-                            file.relativePath
-                              .toLowerCase()
-                              .includes(targetQuery.toLowerCase()),
+                            file.type !== "image" &&
+                            (!targetQuery ||
+                              targetQuery === target ||
+                              file.relativePath
+                                .toLowerCase()
+                                .includes(targetQuery.toLowerCase())),
                         )
                         .map((file) => ({
                           value: file.relativePath,
@@ -570,6 +596,9 @@ export function CommentFileManager({
               Ready to relink.
               {validation.result?.unplaced
                 ? " Comment positions will need review."
+                : ""}
+              {validation.result?.remaining
+                ? ` ${validation.result.remaining} not found in this file will not move.`
                 : ""}
             </p>
           )}

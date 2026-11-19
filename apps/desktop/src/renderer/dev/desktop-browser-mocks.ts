@@ -356,8 +356,8 @@ export function ensureDesktopBrowserMocks() {
           .files.find((file) => file.relativePath === newPath);
         if (!file)
           throw new Error("Choose an existing file inside this project.");
-        if (!/\.(tex|md|markdown|txt|bib|sty|cls|ltx|rnw|rmd)$/i.test(newPath))
-          throw new Error("Choose a supported text document.");
+        if (file.type === "image")
+          throw new Error("Choose a text document or a PDF.");
         if (files[newPath]?.length)
           throw new Error(
             "This file already has comments. Choose a file without comments.",

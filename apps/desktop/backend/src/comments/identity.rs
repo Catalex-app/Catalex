@@ -299,23 +299,17 @@ pub(super) fn read_both(root: &Path, storage: &Path) -> Result<[AuthorSnapshot; 
         validate_author_snapshot(root, storage, true, agent)?,
     ])
 }
-fn supported(path: &Path) -> bool {
-    matches!(
-        path.extension()
-            .and_then(|s| s.to_str())
-            .unwrap_or("")
-            .to_lowercase()
-            .as_str(),
-        "tex" | "md" | "markdown" | "txt" | "bib" | "sty" | "cls" | "ltx" | "rnw" | "rmd"
-    )
-}
+type PdfAnchors = BTreeMap<String, PdfCommentAnchor>;
 
-// Only user-requested auto-relink scans the project. Size-filter before reading.
+// Only user-requested auto-relink scans the project. Any text document can hold
+// comments, so candidates are chosen by size, not by extension. PDFs are
+// identified by their bytes and are hashed only when a PDF group is selected.
 fn scan(
     root: &Path,
     dir: &Path,
     sizes: &[(u64, u64)],
-    found: &mut BTreeMap<FileRevision, Vec<String>>,
+    pdfs: bool,
+    found: &mut BTreeMap<(bool, FileRevision), Vec<String>>,
     count: &mut usize,
 ) -> Result<(), String> {
     for entry in fs::read_dir(dir).map_err(|e| e.to_string())? {
@@ -334,16 +328,23 @@ fn scan(
             continue;
         }
         if kind.is_dir() {
-            scan(root, &path, sizes, found, count)?;
-        } else if kind.is_file() && supported(&path) {
-            let length = entry.metadata().map_err(|e| e.to_string())?.len();
-            let index = sizes.partition_point(|(start, _)| *start <= length);
-            if index == 0 || length > sizes[index - 1].1 { continue; }
-            let name = relative.to_string_lossy().replace('\\', "/");
+            scan(root, &path, sizes, pdfs, found, count)?;
+        } else if kind.is_file() {
             // The directory entry already supplies the exact spelling. Avoid
             // enumerating its parent again for every candidate in a large folder.
-            let source = read_document(root, relative)?;
-            found.entry(revision(&source)).or_default().push(name);
+            // A file that cannot be read is not a candidate; it never stops the scan.
+            let source = if is_pdf(&path) {
+                if !pdfs { continue; }
+                pdf_source(&path).ok()
+            } else {
+                let length = entry.metadata().map_err(|e| e.to_string())?.len();
+                let index = sizes.partition_point(|(start, _)| *start <= length);
+                if index == 0 || length > sizes[index - 1].1 { continue; }
+                read_document(root, relative).ok()
+            };
+            let Some(source) = source else { continue };
+            let name = relative.to_string_lossy().replace('\\', "/");
+            found.entry((is_pdf(&path), revision(&source))).or_default().push(name);
         }
     }
     Ok(())
@@ -641,6 +642,7 @@ pub async fn manage_comment_files(
     author: String,
     action: String,
     target: String,
+    pdf_anchors: PdfAnchors,
     preview: bool,
 ) -> Result<Value, String> {
     let _guard = window.service.comments.lock_project(&project_root).await?;
@@ -658,6 +660,7 @@ pub async fn manage_comment_files(
             &work_action,
             &target,
             &author,
+            &pdf_anchors,
         )
     })
     .await
@@ -715,13 +718,47 @@ fn relink_target(root: &Path, target: &str) -> Result<(String, String), String> 
     let relative = canonical
         .strip_prefix(root)
         .map_err(|_| "Choose a file inside this project.")?;
-    if !canonical.is_file() || !supported(&canonical) {
-        return Err("Choose a supported text document.".into());
+    if !canonical.is_file() {
+        return Err("Choose a regular file inside this project.".into());
     }
     let path = relative.to_string_lossy().replace('\\', "/");
-    let source =
-        project_source(root, &path)?.ok_or("Choose a regular file inside this project.")?;
+    // Comments live on text documents and PDFs; anything else cannot be read here.
+    let source = project_source(root, &path)
+        .map_err(|_| "Choose a text document or a PDF.")?
+        .ok_or("Choose a regular file inside this project.")?;
     Ok((path, source))
+}
+
+fn group_comments<'a>(sides: &'a [AuthorSnapshot; 2], group: &'a FileCommentSelection) -> impl Iterator<Item = &'a Comment> {
+    sides
+        .iter()
+        .filter_map(|s| if group.disconnected { s.orphaned.get(&group.path) } else { s.files.get(&group.path) })
+        .flatten()
+}
+
+// PDF comments hold page geometry and text comments hold source offsets, so a
+// group only moves to a file of its own kind.
+fn same_kind(sides: &[AuthorSnapshot; 2], group: &FileCommentSelection, target: &str) -> bool {
+    let pdf = is_pdf(Path::new(target));
+    group_comments(sides, group).all(|c| c.pdf.is_some() == pdf)
+}
+
+// PDF geometry belongs to one exact file version. It moves unchanged to an
+// identical copy. For any other PDF the app must have found the same quoted
+// text again; otherwise the comment stays where it was.
+fn relink_pdf(comment: &Comment, fingerprint: &str, anchors: &PdfAnchors) -> Option<Comment> {
+    let pdf = comment.pdf.as_ref()?;
+    if pdf.fingerprint == fingerprint {
+        return Some(comment.clone());
+    }
+    let anchor = anchors
+        .get(&comment.id)
+        .filter(|anchor| anchor.fingerprint == fingerprint && anchor.text == pdf.text)?;
+    let mut moved = comment.clone();
+    moved.line = anchor.regions.first()?.page;
+    moved.pdf = Some(anchor.clone());
+    validate(&moved).ok()?;
+    Some(moved)
 }
 
 fn can_relink(sides: &[AuthorSnapshot; 2], group: &FileCommentSelection, target: &str) -> bool {
@@ -749,10 +786,12 @@ fn relink_group(
     group: &FileCommentSelection,
     target: &str,
     source: &str,
+    anchors: &PdfAnchors,
 ) -> (Vec<String>, usize) {
     let mut ids = Vec::new();
     let mut unplaced = 0;
     let rev = revision(source);
+    let fingerprint = source.strip_prefix("pdf:").filter(|_| is_pdf(Path::new(target)));
     for side in sides {
         let comments = if group.disconnected {
             side.orphaned.remove(&group.path)
@@ -764,15 +803,27 @@ fn relink_group(
         };
         let mut recovery = AnchorRecovery::new(&side.sources, source, &rev.0);
         let mut mappings = BTreeMap::new();
+        let mut kept = Vec::new();
         for comment in comments {
-            let recovered = recovery.recover_edit(&comment, &mut mappings, false);
+            let recovered = if let Some(fingerprint) = fingerprint {
+                let Some(moved) = relink_pdf(&comment, fingerprint, anchors) else {
+                    kept.push(comment);
+                    continue;
+                };
+                moved
+            } else {
+                recovery.recover_edit(&comment, &mut mappings, false)
+            };
             if recovered.position_reset {
                 unplaced += 1;
             }
             ids.push(recovered.id.clone());
             side.files.entry(target.into()).or_default().push(recovered);
         }
-        if !group.disconnected {
+        if !kept.is_empty() {
+            let groups = if group.disconnected { &mut side.orphaned } else { &mut side.files };
+            groups.insert(group.path.clone(), kept);
+        } else if !group.disconnected {
             side.revisions.remove(&group.path);
         }
         if side.files.contains_key(target) {
@@ -790,6 +841,7 @@ fn prepare_file_groups(
     action: &str,
     target: &str,
     author: &str,
+    anchors: &PdfAnchors,
 ) -> Result<([AuthorSnapshot; 2], Value), String> {
     if selection.is_empty() {
         return Err("Select at least one file.".into());
@@ -812,18 +864,7 @@ fn prepare_file_groups(
         if !seen.insert((group.disconnected, group.path.clone())) {
             return Err("Duplicate file selection.".into());
         }
-        let ids: BTreeSet<_> = sides
-            .iter()
-            .filter_map(|s| {
-                if group.disconnected {
-                    s.orphaned.get(&group.path)
-                } else {
-                    s.files.get(&group.path)
-                }
-            })
-            .flatten()
-            .map(|c| c.id.clone())
-            .collect();
+        let ids: BTreeSet<_> = group_comments(&sides, group).map(|c| c.id.clone()).collect();
         if ids.is_empty() || ids != group.ids.iter().cloned().collect() {
             return Err("Comments changed. Refresh your selection and try again.".into());
         }
@@ -858,7 +899,18 @@ fn prepare_file_groups(
         if !can_relink(&sides, group, &target) {
             return Err("This file already has comments. Choose a file without comments.".into());
         }
-        let (ids, count) = relink_group(&mut sides, group, &target, &source);
+        if !same_kind(&sides, group, &target) {
+            return Err(if is_pdf(Path::new(&target)) {
+                "Only PDF comments can be reconnected to a PDF."
+            } else {
+                "PDF comments can only be reconnected to a PDF."
+            }
+            .into());
+        }
+        let (ids, count) = relink_group(&mut sides, group, &target, &source, anchors);
+        if ids.is_empty() {
+            return Err("The commented text was not found in this PDF.".into());
+        }
         new_path = target.clone();
         unplaced = count;
         links.push(json!({"oldPath":group.path,"newPath":target,"ids":ids}));
@@ -873,8 +925,18 @@ fn prepare_file_groups(
         };
         let mut wanted = Vec::new();
         let mut reference_hashes = BTreeMap::new();
+        let mut pdfs = false;
         for group in selection {
             let mut revisions = BTreeSet::new();
+            // A PDF group matches only PDFs, and a text group only text documents.
+            let mut pdf_group = false;
+            for comment in group_comments(&sides, group) {
+                if let Some(pdf) = &comment.pdf {
+                    revisions.insert(revision(&format!("pdf:{}", pdf.fingerprint)));
+                    pdf_group = true;
+                }
+            }
+            pdfs |= pdf_group;
             for side in &sides {
                 for r in side
                     .orphaned_revisions
@@ -901,10 +963,10 @@ fn prepare_file_groups(
                     }
                 }
             }
-            wanted.push(revisions);
+            wanted.push((pdf_group, revisions));
         }
         let mut found = BTreeMap::new();
-        if !sizes.is_empty() {
+        if !sizes.is_empty() || pdfs {
             // Merge size intervals once; each directory entry needs one lookup.
             let mut sizes: Vec<_> = sizes.into_values().collect();
             sizes.sort_unstable();
@@ -914,14 +976,14 @@ fn prepare_file_groups(
                     last.1 = last.1.max(end);
                 } else { merged.push((start, end)); }
             }
-            scan(root, root, &merged, &mut found, &mut 0)?;
+            scan(root, root, &merged, pdfs, &mut found, &mut 0)?;
         }
         let targets: Vec<_> = wanted
             .iter()
-            .map(|revisions| {
+            .map(|(pdf_group, revisions)| {
                 let matches: BTreeSet<_> = revisions
                     .iter()
-                    .filter_map(|r| found.get(r))
+                    .filter_map(|r| found.get(&(*pdf_group, r.clone())))
                     .flatten()
                     .cloned()
                     .collect();
@@ -944,6 +1006,7 @@ fn prepare_file_groups(
                 .count()
                 != 1
                 || !can_relink(&sides, group, target)
+                || !same_kind(&sides, group, target)
             {
                 continue;
             }
@@ -952,6 +1015,7 @@ fn prepare_file_groups(
             if !sides.iter().any(|s| {
                 s.orphaned.get(&group.path).into_iter().flatten().any(|c| {
                     c.anchor_revision.as_ref().and_then(|r| s.sources.get(r)) == Some(&source)
+                        || c.pdf.as_ref().is_some_and(|pdf| source.strip_prefix("pdf:") == Some(pdf.fingerprint.as_str()))
                 }) || s
                     .orphaned_revisions
                     .get(&group.path)
@@ -961,7 +1025,7 @@ fn prepare_file_groups(
             }) {
                 continue;
             }
-            let (ids, count) = relink_group(&mut sides, group, target, &source);
+            let (ids, count) = relink_group(&mut sides, group, target, &source, anchors);
             unplaced += count;
             if !ids.is_empty() {
                 links.push(json!({"oldPath":group.path,"newPath":target,"ids":ids}));
@@ -976,10 +1040,10 @@ fn prepare_file_groups(
         .filter_map(|v| v["ids"].as_array())
         .map(Vec::len)
         .sum();
-    let remaining: usize = if action == "auto-relink" {
-        selection.iter().map(|g| g.ids.len()).sum::<usize>() - linked
-    } else {
+    let remaining: usize = if action == "clear" {
         0
+    } else {
+        selection.iter().map(|g| g.ids.len()).sum::<usize>() - linked
     };
     Ok((
         sides,
@@ -1004,7 +1068,7 @@ fn prepare_file_action(
             ids: ids.clone(),
         })
         .collect();
-    prepare_file_groups(root, storage, &groups, action, target, "all")
+    prepare_file_groups(root, storage, &groups, action, target, "all", &PdfAnchors::new())
 }
 
 #[cfg(test)]
@@ -1023,7 +1087,7 @@ fn reconnect(
         disconnected: true,
         ids: expected_ids.to_vec(),
     }];
-    let (sides, _) = prepare_file_groups(&root, storage, &groups, "relink", new, "all")?;
+    let (sides, _) = prepare_file_groups(&root, storage, &groups, "relink", new, "all", &PdfAnchors::new())?;
     commit(storage, &sides)
 }
 
@@ -1104,7 +1168,7 @@ fn reconnect(
             },
         ];
         let (planned, result) =
-            prepare_file_groups(&root, storage.path(), &selection, "clear", "", "human").unwrap();
+            prepare_file_groups(&root, storage.path(), &selection, "clear", "", "human", &PdfAnchors::new()).unwrap();
         assert_eq!(result["cleared"], 2);
         assert!(planned[0].files.is_empty() && planned[0].orphaned.is_empty());
         assert_eq!(planned[1].files["old.tex"][0].id, "A-1");
@@ -1116,7 +1180,7 @@ fn reconnect(
             1
         );
         let (agent_only, result) =
-            prepare_file_groups(&root, storage.path(), &selection, "clear", "", "agent").unwrap();
+            prepare_file_groups(&root, storage.path(), &selection, "clear", "", "agent", &PdfAnchors::new()).unwrap();
         assert_eq!(result["cleared"], 2);
         assert_eq!(agent_only[0].files["old.tex"][0].id, "H-1");
         assert!(agent_only[1].files.is_empty() && agent_only[1].orphaned.is_empty());
@@ -1126,11 +1190,12 @@ fn reconnect(
             &selection,
             "relink",
             "next.md",
-            "all"
+            "all",
+            &PdfAnchors::new()
         )
         .is_err());
         let (all, _) =
-            prepare_file_groups(&root, storage.path(), &selection, "clear", "", "all").unwrap();
+            prepare_file_groups(&root, storage.path(), &selection, "clear", "", "all", &PdfAnchors::new()).unwrap();
         commit(storage.path(), &all).unwrap();
         assert!(read_both(&root, storage.path())
             .unwrap()
@@ -1628,5 +1693,118 @@ fn reconnect(
             prepare_file_action(&root, storage.path(), true, &selection, "auto-relink", "")
                 .unwrap();
         assert_eq!(result["links"][0]["newPath"], "OLD.tex");
+    }
+
+    fn pdf_fixture() -> (tempfile::TempDir, tempfile::TempDir, PathBuf, String) {
+        let temp = tempfile::tempdir().unwrap();
+        let storage = tempfile::tempdir().unwrap();
+        let root = fs::canonicalize(temp.path()).unwrap();
+        let bytes = b"%PDF-1.7\noriginal \xff\x00";
+        fs::write(root.join("paper.pdf"), bytes).unwrap();
+        let fingerprint = format!("{:x}", Sha1::digest(bytes));
+        let comment = |id: &str, number: u64, text: &str| json!({"id":id,"number":number,"from":0,"to":0,"line":2,"text":"feedback",
+            "pdf":{"fingerprint":fingerprint,"text":text,"regions":[{"page":2,"x":40.0,"y":80.0,"width":90.0,"height":12.0}]}});
+        crate::comments::test_write(
+            storage.path().join("human.json"),
+            json!({"version":1,"counter":2,"files":{"paper.pdf":[comment("H-1", 1, "First passage"), comment("H-2", 2, "Second passage")]}}).to_string(),
+        )
+        .unwrap();
+        reconcile(&root, storage.path()).unwrap();
+        (temp, storage, root, fingerprint)
+    }
+    fn pdf_ids() -> BTreeMap<String, Vec<String>> {
+        BTreeMap::from([("paper.pdf".into(), vec!["H-1".into(), "H-2".into()])])
+    }
+
+    #[test]
+    fn moved_pdf_reconnects_with_its_geometry_by_auto_and_manual_relink() {
+        let (_temp, storage, root, fingerprint) = pdf_fixture();
+        fs::create_dir(root.join("papers")).unwrap();
+        fs::rename(root.join("paper.pdf"), root.join("papers/moved.pdf")).unwrap();
+        // Text and unrelated PDFs of any size are never mistaken for the file.
+        fs::write(root.join("other.pdf"), b"%PDF-1.7\nunrelated").unwrap();
+        fs::write(root.join("notes.typ"), format!("pdf:{fingerprint}")).unwrap();
+        reconcile(&root, storage.path()).unwrap();
+        let before = read_both(&root, storage.path()).unwrap()[0].orphaned["paper.pdf"].clone();
+        for (action, target) in [("auto-relink", ""), ("relink", "papers/moved.pdf")] {
+            let (sides, result) =
+                prepare_file_action(&root, storage.path(), true, &pdf_ids(), action, target).unwrap();
+            assert_eq!(result["links"][0]["newPath"], "papers/moved.pdf");
+            assert_eq!((&result["linked"], &result["remaining"], &result["unplaced"]), (&json!(2), &json!(0), &json!(0)));
+            assert_eq!(sides[0].files["papers/moved.pdf"], before);
+            assert!(sides[0].orphaned.is_empty() && sides[0].orphaned_revisions.is_empty());
+            if action == "relink" {
+                commit(storage.path(), &sides).unwrap();
+            }
+        }
+        // The reconnected file stays connected on the next read.
+        let reopened = read_both(&root, storage.path()).unwrap();
+        assert!(reconcile(&root, storage.path()).unwrap().is_empty());
+        assert_eq!(reopened[0].files["papers/moved.pdf"], before);
+    }
+
+    #[test]
+    fn replaced_pdf_reconnects_only_comments_whose_text_was_found_again() {
+        let (_temp, storage, root, _) = pdf_fixture();
+        let bytes = b"%PDF-1.7\nrevised";
+        fs::write(root.join("paper.pdf"), bytes).unwrap();
+        fs::write(root.join("notes.txt"), "plain text").unwrap();
+        reconcile(&root, storage.path()).unwrap();
+        let relink = |target: &str, anchors: &PdfAnchors| {
+            let groups = [FileCommentSelection { path: "paper.pdf".into(), disconnected: true, ids: pdf_ids().remove("paper.pdf").unwrap() }];
+            prepare_file_groups(&root, storage.path(), &groups, "relink", target, "all", anchors)
+        };
+        // Without a new position nothing can be placed, and kinds never mix.
+        assert!(relink("paper.pdf", &PdfAnchors::new()).err().unwrap().contains("not found"));
+        assert!(relink("notes.txt", &PdfAnchors::new()).err().unwrap().contains("PDF comments"));
+        let (auto, result) = prepare_file_action(&root, storage.path(), true, &pdf_ids(), "auto-relink", "").unwrap();
+        assert_eq!((&result["linked"], &result["remaining"]), (&json!(0), &json!(2)));
+        assert_eq!(auto[0].orphaned["paper.pdf"].len(), 2);
+
+        let anchor = |fingerprint: String, text: &str| PdfCommentAnchor {
+            fingerprint,
+            text: text.into(),
+            regions: vec![PdfCommentRegion { page: 5, x: 1.0, y: 2.0, width: 3.0, height: 4.0 }],
+        };
+        let current = format!("{:x}", Sha1::digest(bytes));
+        let anchors = PdfAnchors::from([
+            ("H-1".into(), anchor(current.clone(), "First passage")),
+            // A position for other text, or for another file version, is refused.
+            ("H-2".into(), anchor(current.clone(), "Different passage")),
+        ]);
+        let (sides, result) = relink("paper.pdf", &anchors).unwrap();
+        assert_eq!((&result["linked"], &result["remaining"]), (&json!(1), &json!(1)));
+        assert_eq!(result["links"][0]["ids"], json!(["H-1"]));
+        let moved = &sides[0].files["paper.pdf"][0];
+        assert_eq!((moved.id.as_str(), moved.line, moved.text.as_str()), ("H-1", 5, "feedback"));
+        assert_eq!(moved.pdf, Some(anchor(current, "First passage")));
+        assert_eq!(sides[0].orphaned["paper.pdf"][0].id, "H-2");
+        commit(storage.path(), &sides).unwrap();
+        let reopened = read_both(&root, storage.path()).unwrap();
+        assert!(reconcile(&root, storage.path()).unwrap().is_empty());
+        assert_eq!(reopened[0].files["paper.pdf"].len(), 1);
+        assert_eq!(reopened[0].orphaned["paper.pdf"].len(), 1);
+        let stale = PdfAnchors::from([("H-2".into(), anchor("0".repeat(40), "Second passage"))]);
+        let groups = [FileCommentSelection { path: "paper.pdf".into(), disconnected: true, ids: vec!["H-2".into()] }];
+        assert!(prepare_file_groups(&root, storage.path(), &groups, "relink", "paper.pdf", "all", &stale).is_err());
+    }
+
+    #[test]
+    fn any_text_document_can_be_relinked_and_unreadable_files_do_not_stop_the_scan() {
+        let (root, storage) = fixture();
+        let root = fs::canonicalize(root.path()).unwrap();
+        fs::rename(root.join("old.tex"), root.join("moved.typ")).unwrap();
+        // Same size as the commented text, but not a text document.
+        fs::write(root.join("data.bin"), b"\xff\xfe\xfd\xfc\xfb\xfa\xf9\xf8\xf7\xf6\xf5").unwrap();
+        reconcile(&root, storage.path()).unwrap();
+        let selection = BTreeMap::from([("old.tex".into(), vec!["H-1".into(), "A-1".into()])]);
+        let (_, result) = prepare_file_action(&root, storage.path(), true, &selection, "auto-relink", "").unwrap();
+        assert_eq!(result["links"][0]["newPath"], "moved.typ");
+        let (sides, result) = prepare_file_action(&root, storage.path(), true, &selection, "relink", "moved.typ").unwrap();
+        assert_eq!(result["unplaced"], 0);
+        assert!(sides.iter().all(|side| side.files["moved.typ"].len() == 1));
+        assert!(prepare_file_action(&root, storage.path(), true, &selection, "relink", "data.bin")
+            .err().unwrap()
+            .contains("text document"));
     }
 }
