@@ -5,6 +5,7 @@
 - File selection: Keep five recent files in stable rows above the remaining alphabetical list, with project-specific history preserved across windows and restarts.
 - Markdown selections: Show preview text in the existing chat context badge, update and clear live selections, and retain pinned passages with their source file.
 - Agent drafts: No longer compile every finished draft before review or automatic apply. Compile errors appear in the preview as usual, and a failed compile no longer replaces the chat input. The agent can still compile with its own tool.
+- Agent comments: An agent can ask for a comment to be resolved once you accept the text it proposes for that file, instead of leaving it open after the review. It can also list the comments of the whole project in one call.
 - LaTeX root: A section file compiles with the root that includes it, and a non-LaTeX active file uses the project root instead of the first `.tex` file in the list.
 
 ## [0.3.0]

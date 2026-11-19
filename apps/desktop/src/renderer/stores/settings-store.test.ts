@@ -6,7 +6,7 @@ import {
   normalizeCatCustomText,
   useSettingsStore,
 } from "./settings-store";
-import { DEFAULT_AGENT_MD } from "@/lib/default-agent-md";
+import { DEFAULT_AGENT_MD, RETIRED_AGENT_MD } from "@/lib/default-agent-md";
 import {
   DEFAULT_PROMPT_LIBRARY,
   visiblePromptLibrary,
@@ -410,6 +410,34 @@ describe("settings-store cat display settings", () => {
     expect(useSettingsStore.getState().globalAgentPrompt).toBe(
       DEFAULT_AGENT_MD,
     );
+  });
+
+  it("saves only customised global instructions, so the default follows the app", async () => {
+    const saved = () =>
+      JSON.parse(localStorage.getItem("catalex-settings")!).state
+        .globalAgentPrompt;
+    const reload = async (prompt: string | undefined) => {
+      const stored = JSON.parse(localStorage.getItem("catalex-settings")!);
+      stored.state.globalAgentPrompt = prompt;
+      localStorage.setItem("catalex-settings", JSON.stringify(stored));
+      await useSettingsStore.persist.rehydrate();
+      return useSettingsStore.getState().globalAgentPrompt;
+    };
+    useSettingsStore.getState().setGlobalAgentPrompt("Use ~/cite.");
+    expect(saved()).toBe("Use ~/cite.");
+    useSettingsStore.getState().resetGlobalAgentPrompt();
+    expect(saved()).toBeUndefined();
+    // Nothing saved and the copy saved by earlier releases both mean the default.
+    expect(await reload(undefined)).toBe(DEFAULT_AGENT_MD);
+    expect(RETIRED_AGENT_MD[0]).toContain("wait for its decision");
+    expect(RETIRED_AGENT_MD[0]).not.toBe(DEFAULT_AGENT_MD);
+    expect(await reload(RETIRED_AGENT_MD[0])).toBe(DEFAULT_AGENT_MD);
+    // Written instructions, including cleared ones, stay as written.
+    expect(await reload(`${RETIRED_AGENT_MD[0]}\nMine.`)).toBe(
+      `${RETIRED_AGENT_MD[0]}\nMine.`,
+    );
+    expect(await reload("")).toBe("");
+    useSettingsStore.getState().resetGlobalAgentPrompt();
   });
 
   it("migrates, updates, unassigns, and resets keyboard shortcuts", () => {

@@ -24,7 +24,7 @@ import {
   normalizePromptLibrary,
   type LibraryPrompt,
 } from "@/lib/prompt-library";
-import { DEFAULT_AGENT_MD } from "@/lib/default-agent-md";
+import { DEFAULT_AGENT_MD, RETIRED_AGENT_MD } from "@/lib/default-agent-md";
 import {
   DEFAULT_MODE_THEMES,
   normalizeModeThemes,
@@ -434,8 +434,12 @@ function normalizeAgentExecutionMode(
   return fallback;
 }
 
+// Only instructions the user wrote are saved. Nothing saved, or a saved copy
+// of an earlier default, means the current default.
 function normalizeGlobalAgentPrompt(value: unknown): string {
-  return typeof value === "string" ? value : DEFAULT_AGENT_MD;
+  return typeof value === "string" && !RETIRED_AGENT_MD.includes(value)
+    ? value
+    : DEFAULT_AGENT_MD;
 }
 
 function normalizeBoolean(value: unknown, fallback: boolean): boolean {
@@ -1222,6 +1226,11 @@ export const useSettingsStore = create<SettingsState>()(
       name: "catalex-settings",
       version: 27,
       migrate: migrateSettingsState,
+      partialize: (state) => {
+        if (state.globalAgentPrompt !== DEFAULT_AGENT_MD) return state;
+        const { globalAgentPrompt: _default, ...saved } = state;
+        return saved as typeof state;
+      },
       merge: (persisted, current) => {
         const saved = persisted as
           | (Partial<SettingsState> & { skippedUpdateVersion?: unknown })
@@ -1245,6 +1254,9 @@ export const useSettingsStore = create<SettingsState>()(
               : "katex",
           markdownMathEnginesByFile: normalizeMarkdownMathEngines(
             saved?.markdownMathEnginesByFile,
+          ),
+          globalAgentPrompt: normalizeGlobalAgentPrompt(
+            saved?.globalAgentPrompt,
           ),
           promptLibrary: normalizePromptLibrary(saved?.promptLibrary),
           keepMiniPromptsOpen: normalizeBoolean(

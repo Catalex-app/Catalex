@@ -1,6 +1,7 @@
 //! One PoloDB store for both comment authors. UI edits are per-comment compare-and-set
 //! patches, so an old editor snapshot cannot erase a concurrent agent addition.
 mod paths;
+pub(crate) mod pending;
 mod store;
 mod text_changes;
 #[cfg(test)]
@@ -1112,29 +1113,83 @@ fn comment_revision(comment: &Comment) -> String {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct ManageComment {
+    #[serde(default)]
     file_path: String,
     id: Option<String>,
     revision: Option<String>,
     text: Option<String>,
     resolved: Option<bool>,
+    when: Option<String>,
 }
 
+// A whole-project listing stays small enough for one tool reply. Files past the
+// limit report their count; the agent lists those one at a time.
+const LISTED_COMMENTS: usize = 300;
+
+#[cfg(test)]
 fn manage_comment(
     root: &Path,
     storage: &Path,
     tool: &str,
     args: Value,
 ) -> Result<(Value, Option<CommentPatch>), String> {
+    manage_comment_in(root, storage, None, tool, args)
+}
+
+/// `session` is the agent's draft, where its resolve-on-acceptance requests are kept.
+fn manage_comment_in(
+    root: &Path,
+    storage: &Path,
+    session: Option<&Path>,
+    tool: &str,
+    args: Value,
+) -> Result<(Value, Option<CommentPatch>), String> {
     let input: ManageComment =
         serde_json::from_value(args).map_err(|e| format!("invalid_arguments: {e}"))?;
+    let waiting: std::collections::BTreeSet<String> =
+        session.map(pending::read).unwrap_or_default().into_iter().map(|item| item.id).collect();
+    let listed = |comment: &Comment| {
+        let mut entry = json!({"comment":comment,"revision":comment_revision(comment)});
+        if waiting.contains(&comment.id) {
+            entry["resolvesOnAcceptance"] = json!(true);
+        }
+        entry
+    };
+    if tool == "list_comments" && input.file_path.is_empty() {
+        if input.id.is_some() || input.revision.is_some() || input.text.is_some() || input.resolved.is_some() || input.when.is_some() {
+            return Err("invalid_arguments: listing accepts only filePath".into());
+        }
+        let ([human, agent], _) = paths::read_reconciled(root, storage)?;
+        let mut files = human.files;
+        for (path, comments) in agent.files {
+            files.entry(path).or_default().extend(comments);
+        }
+        let mut shown = 0;
+        let files: Vec<_> = files
+            .iter()
+            .filter(|(_, comments)| !comments.is_empty())
+            .map(|(path, comments)| {
+                shown += comments.len();
+                if shown > LISTED_COMMENTS {
+                    json!({"filePath":path,"count":comments.len()})
+                } else {
+                    json!({"filePath":path,"comments":comments.iter().map(&listed).collect::<Vec<_>>()})
+                }
+            })
+            .collect();
+        return Ok((json!({"files":files,"truncated":shown > LISTED_COMMENTS}), None));
+    }
+    if input.file_path.is_empty() {
+        return Err("invalid_arguments: filePath is required".into());
+    }
     relative_path(&input.file_path)?;
     if is_sidecar(&input.file_path) {
         return Err("invalid_path: comment snapshots are app-managed metadata".into());
     }
     paths::recover_pending(root, storage)?;
-    store::transaction(storage, |db| manage_comment_on(root, storage, db, tool, input))
+    store::transaction(storage, |db| manage_comment_on(root, storage, db, session, &listed, tool, input))
 }
-fn manage_comment_on(root: &Path, storage: &Path, db: &store::Connection, tool: &str, input: ManageComment) -> Result<(Value, Option<CommentPatch>), String> {
+fn manage_comment_on(root: &Path, storage: &Path, db: &store::Connection, session: Option<&Path>, listed: &dyn Fn(&Comment) -> Value, tool: &str, input: ManageComment) -> Result<(Value, Option<CommentPatch>), String> {
     let sides = identity::load_for_write_on(root, storage, db, [(input.file_path.clone(), None)])?;
     let comments: Vec<_> = sides
         .iter()
@@ -1151,13 +1206,12 @@ fn manage_comment_on(root: &Path, storage: &Path, db: &store::Connection, tool: 
             || input.revision.is_some()
             || input.text.is_some()
             || input.resolved.is_some()
+            || input.when.is_some()
         {
             return Err("invalid_arguments: listing accepts only filePath".into());
         }
         return Ok((
-            json!({"filePath":input.file_path,"comments":comments.iter().map(|comment|
-            json!({"comment":comment,"revision":comment_revision(comment)})
-        ).collect::<Vec<_>>()}),
+            json!({"filePath":input.file_path,"comments":comments.iter().map(listed).collect::<Vec<_>>()}),
             None,
         ));
     }
@@ -1167,9 +1221,14 @@ fn manage_comment_on(root: &Path, storage: &Path, db: &store::Connection, tool: 
     if (tool == "edit_comment") != input.text.is_some() {
         return Err("invalid_arguments: text is required only for edit_comment".into());
     }
-    if tool != "resolve_comment" && input.resolved.is_some() {
-        return Err("invalid_arguments: resolved is only accepted by resolve_comment".into());
+    if tool != "resolve_comment" && (input.resolved.is_some() || input.when.is_some()) {
+        return Err("invalid_arguments: resolved and when are only accepted by resolve_comment".into());
     }
+    let on_acceptance = match input.when.as_deref() {
+        None | Some("now") => false,
+        Some("accepted") => true,
+        Some(_) => return Err("invalid_arguments: when is \"now\" or \"accepted\"".into()),
+    };
     let id = input.id.ok_or("invalid_arguments: id is required")?;
     let revision = input
         .revision
@@ -1188,12 +1247,33 @@ fn manage_comment_on(root: &Path, storage: &Path, db: &store::Connection, tool: 
                 .into(),
         );
     }
+    if on_acceptance {
+        // The comment itself is unchanged until the user settles the draft.
+        let session = session.ok_or("stale_session: no draft is active for this request")?;
+        let cancel = input.resolved == Some(false);
+        if !cancel && before.resolved {
+            return Err("invalid_arguments: this comment is already resolved".into());
+        }
+        pending::set(session, &input.file_path, &id, (!cancel).then_some(before.text.as_str()))?;
+        return Ok((
+            json!({"status":if cancel { "acceptance_cancelled" } else { "resolves_on_acceptance" },
+            "filePath":input.file_path,"id":id,"comment":before,"revision":revision}),
+            None,
+        ));
+    }
     let mut after = before.clone();
     if let Some(text) = input.text {
         after.text = text;
     }
     if tool == "resolve_comment" {
         after.resolved = input.resolved.unwrap_or(true);
+    }
+    if let Some(session) = session {
+        // A direct decision replaces an earlier request. An edit keeps it.
+        let waiting = pending::read(session).iter().any(|item| item.id == id);
+        if waiting {
+            pending::set(session, &input.file_path, &id, (tool == "edit_comment").then_some(after.text.as_str()))?;
+        }
     }
     let change = apply_patch_on(
         root,
@@ -1239,7 +1319,9 @@ pub async fn manage_agent_comment(
     let _project_guard = lock.lock().map_err(|_| "Project lock unavailable")?;
     let source = fs::canonicalize(source_root).map_err(|e| e.to_string())?;
     let storage = comment_directory(&window.service, source_root)?;
-    let (payload, change) = manage_comment(&source, &storage, tool, args)?;
+    // validate_comment_scope established that the draft sits inside its session.
+    let session = Path::new(draft_root).parent();
+    let (payload, change) = manage_comment_in(&source, &storage, session, tool, args)?;
     if let Some(change) = change {
         if let Err(error) = window.service.emit(
             "catalex-comments-changed",
@@ -2175,6 +2257,75 @@ mod tests {
             text: "Clarify this".into(),
             reviewed_paragraph: None,
         }
+    }
+
+    #[test]
+    fn agent_lists_the_project_and_requests_resolution_on_acceptance() {
+        let root = TempDir::new().unwrap();
+        let storage = TempDir::new().unwrap();
+        let session = TempDir::new().unwrap();
+        let project = fs::canonicalize(root.path()).unwrap();
+        for file in ["a.tex", "b.tex"] {
+            fs::write(project.join(file), "hello world").unwrap();
+            let mut item = comment(file, false);
+            item.id = format!("id-{file}");
+            apply_patch(&project, storage.path(), &CommentPatch { file_path: file.into(), id: item.id.clone(), before: None, after: Some(item) }, false).unwrap();
+        }
+        let call = |tool: &str, args: Value| manage_comment_in(&project, storage.path(), Some(session.path()), tool, args);
+        let (all, _) = call("list_comments", json!({})).unwrap();
+        assert_eq!(all["truncated"], false);
+        assert_eq!(all["files"].as_array().unwrap().iter().map(|file| file["filePath"].as_str().unwrap()).collect::<Vec<_>>(), ["a.tex", "b.tex"]);
+        let listed = &all["files"][0]["comments"][0];
+        assert!(listed["resolvesOnAcceptance"].is_null());
+        let request = |extra: Value| {
+            let mut args = json!({"filePath":"a.tex","id":"id-a.tex","revision":listed["revision"]});
+            args.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+            args
+        };
+        assert!(call("resolve_comment", request(json!({"when":"later"}))).is_err());
+        assert!(call("edit_comment", request(json!({"when":"accepted","text":"x"}))).is_err());
+        assert!(manage_comment(&project, storage.path(), "resolve_comment", request(json!({"when":"accepted"}))).unwrap_err().contains("stale_session"));
+
+        // The request leaves the comment open and is visible in both listings.
+        let (result, change) = call("resolve_comment", request(json!({"when":"accepted"}))).unwrap();
+        assert_eq!(result["status"], "resolves_on_acceptance");
+        assert!(change.is_none());
+        let (one, _) = call("list_comments", json!({"filePath":"a.tex"})).unwrap();
+        assert_eq!(one["comments"][0]["comment"]["resolved"], false);
+        assert_eq!(one["comments"][0]["resolvesOnAcceptance"], true);
+        assert_eq!(one["comments"][0]["revision"], listed["revision"]);
+        let (all, _) = call("list_comments", json!({})).unwrap();
+        assert_eq!(all["files"][0]["comments"][0]["resolvesOnAcceptance"], true);
+        assert!(all["files"][1]["comments"][0]["resolvesOnAcceptance"].is_null());
+
+        // An edit keeps the request for the new text; withdrawing or deciding now ends it.
+        let (edited, _) = call("edit_comment", request(json!({"text":"Reworded"}))).unwrap();
+        assert_eq!(pending::read(session.path())[0].text, "Reworded");
+        let current = json!({"filePath":"a.tex","id":"id-a.tex","revision":edited["revision"]});
+        let with = |extra: Value| {
+            let mut args = current.clone();
+            args.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+            args
+        };
+        let (result, _) = call("resolve_comment", with(json!({"when":"accepted","resolved":false}))).unwrap();
+        assert_eq!(result["status"], "acceptance_cancelled");
+        assert!(pending::read(session.path()).is_empty());
+        call("resolve_comment", with(json!({"when":"accepted"}))).unwrap();
+        let (result, change) = call("resolve_comment", with(json!({"when":"now"}))).unwrap();
+        assert_eq!(result["status"], "resolved");
+        assert!(change.unwrap().after.unwrap().resolved);
+        assert!(pending::read(session.path()).is_empty());
+        let resolved = json!({"filePath":"a.tex","id":"id-a.tex","revision":result["revision"],"when":"accepted"});
+        assert!(call("resolve_comment", resolved).unwrap_err().contains("already resolved"));
+
+        // An accepted request resolves only a comment still as the agent saw it.
+        let item = |id: &str, text: &str| pending::PendingResolution { file_path: "b.tex".into(), id: id.into(), text: text.into(), candidate_path: None, proposal: None };
+        assert!(pending::resolve(&project, storage.path(), &[item("id-b.tex", "Other text"), item("missing", "Feedback")]).is_empty());
+        let text = all["files"][1]["comments"][0]["comment"]["text"].as_str().unwrap();
+        let patches = pending::resolve(&project, storage.path(), &[item("id-b.tex", text)]);
+        assert_eq!(patches.len(), 1);
+        assert!(patches[0].after.as_ref().unwrap().resolved);
+        assert!(pending::resolve(&project, storage.path(), &[item("id-b.tex", text)]).is_empty());
     }
 
     #[test]

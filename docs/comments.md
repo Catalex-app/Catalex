@@ -18,7 +18,9 @@ Comment text, passage anchors, author information, and resolved state are kept t
 
 Agents can read, create, edit, resolve, and delete comments through [Catalex's document tools](agents.md#document-tools). Agent feedback records its origin so you can distinguish it from your own notes.
 
-Comment actions are saved directly, separately from accepting a text draft. When an agent comments on a draft passage that no longer matches your source, Catalex can ask how to proceed. Reviewing the proposed text and resolving feedback remain separate decisions.
+Comment actions are saved directly, separately from accepting a text draft. When an agent comments on a draft passage that no longer matches your source, Catalex can ask how to proceed.
+
+When an agent addresses a comment with text it proposes, it can ask for that comment to be resolved on acceptance. The comment stays open while you review. Catalex resolves it once you accept every edit the draft proposes in that file. It stays open if you reject or rewrite one of those edits, or if you edit or resolve the comment yourself first.
 
 ## Save and share
 

@@ -606,6 +606,7 @@ pub fn reconcile_agent_workspace(
     session.updated_at = now_millis();
     save_session(&session_dir, &session)?;
     let records = reconcile_records(&session_dir)?;
+    snapshot_pending_resolutions(&session_dir, &records)?;
     let source_snapshot = git_storage::snapshot_records(&session_dir, &session.source_commit, &records)?;
     let changes = records
         .iter()
@@ -614,6 +615,70 @@ pub fn reconcile_agent_workspace(
         })
         .collect::<Result<Vec<_>, _>>()?;
     Ok(AgentWorkspaceReconciliation { session, changes })
+}
+
+fn record_for<'a>(records: &'a [ChangeRecord], path: &str) -> Option<&'a ChangeRecord> {
+    records
+        .iter()
+        .find(|record| record.old_path.as_deref() == Some(path) || record.new_path.as_deref() == Some(path))
+}
+
+fn candidate_digest(session_dir: &Path, path: &str) -> Result<String, String> {
+    let file = session_dir.join(CANDIDATE_DIR_NAME).join(safe_relative_path(path)?);
+    Ok(match file_bytes(&file)? {
+        Some(bytes) => hex_digest(&bytes),
+        None => "absent".into(),
+    })
+}
+
+// The agent's turn has ended. Remember the version of each file it proposed, so
+// a later rejected or rewritten edit can be told apart from a full acceptance.
+fn snapshot_pending_resolutions(session_dir: &Path, records: &[ChangeRecord]) -> Result<(), String> {
+    let pending = crate::comments::pending::read(session_dir);
+    if pending.is_empty() {
+        return Ok(());
+    }
+    let mut kept = Vec::new();
+    for mut item in pending {
+        let path = record_for(records, &item.file_path)
+            .map(|record| record.new_path.clone().unwrap_or_else(|| item.file_path.clone()));
+        let proposal = match &path {
+            Some(path) => Some(candidate_digest(session_dir, path)?),
+            None => None,
+        };
+        // A file that changed after an earlier turn may hold a rejected edit.
+        // The request ends there; the agent can make it again for its new text.
+        if item.proposal.is_some() && item.proposal != proposal {
+            continue;
+        }
+        item.candidate_path = path;
+        item.proposal = proposal;
+        kept.push(item);
+    }
+    crate::comments::pending::write(session_dir, &kept)
+}
+
+// Accepting an edit leaves the draft's file as the agent wrote it; rejecting or
+// rewriting one changes it. A request survives only while the file is intact and
+// no decision turned its change down.
+fn open_pending_resolutions(
+    session_dir: &Path,
+    records: &[ChangeRecord],
+    decisions: &HashMap<String, AgentWorkspaceDecision>,
+) -> Vec<crate::comments::pending::PendingResolution> {
+    let mut pending = crate::comments::pending::read(session_dir);
+    pending.retain(|item| {
+        let (Some(path), Some(proposal)) = (&item.candidate_path, &item.proposal) else {
+            return true;
+        };
+        if candidate_digest(session_dir, path).ok().as_ref() != Some(proposal) {
+            return false;
+        }
+        record_for(records, &item.file_path)
+            .and_then(|record| decisions.get(&record.id))
+            .is_none_or(|decision| decision.accept && (decision.partial || !decision.resolved_conflict))
+    });
+    pending
 }
 
 pub fn apply_agent_workspace(
@@ -783,6 +848,16 @@ fn apply_workspace_with_comments(
         records = reconcile_records(&session_dir)?;
     }
 
+    let mut pending = open_pending_resolutions(session_dir, &records, &decisions_by_id);
+    // Changes whose accepted text is not the whole proposal: an edit was
+    // reverted or rewritten in the review editor before the file was accepted.
+    let mut rewritten = BTreeSet::new();
+    let same_text = |bytes: Option<&[u8]>, content: &str| {
+        bytes.and_then(text_content).is_some_and(|text| {
+            catalex_document_core::normalize_document_text(&text)
+                == catalex_document_core::normalize_document_text(content)
+        })
+    };
     let source_root = PathBuf::from(&session.project_root);
     let source_snapshot = git_storage::snapshot_records(session_dir, &session.source_commit, &records)?;
     let revision = source_revision(&source_root, &records)?;
@@ -917,6 +992,16 @@ fn apply_workspace_with_comments(
             session_dir,
         ) {
             Ok(mut operation) => {
+                if let Some(content) = &decision.content {
+                    let proposed = if expected_source_revision.is_some() {
+                        operation.write_bytes.as_deref()
+                    } else {
+                        record.candidate.as_ref().map(|file| file.bytes.as_slice())
+                    };
+                    if !same_text(proposed, content) {
+                        rewritten.insert(record.id.clone());
+                    }
+                }
                 if expected_source_revision.is_some() && operation.write_path.is_some() {
                     if let Some(content) = &decision.content {
                         operation.write_bytes = Some(encode_review_content(record, content));
@@ -981,9 +1066,23 @@ fn apply_workspace_with_comments(
     )?;
     let changed_paths = git_storage::apply_settlement_files(&session_dir)?;
     let comment_warning = git_storage::recover_settlement(session_dir, &mut session)?;
-    let comment_patches = before_comments.zip(comment_storage).and_then(|(before, storage)| {
+    let mut comment_patches = before_comments.zip(comment_storage).and_then(|(before, storage)| {
         crate::comments::stored_document_comments(storage, &comment_paths).ok().map(|after| crate::comments::document_comment_notifications(before, after))
     }).unwrap_or_default();
+    pending.retain(|item| record_for(&records, &item.file_path).is_none_or(|record| !rewritten.contains(&record.id)));
+    if !pending.is_empty() || !crate::comments::pending::read(session_dir).is_empty() {
+        // A file with no change left to review had every proposed edit accepted.
+        let remaining = if session.status == "settled" { Vec::new() } else { reconcile_records(session_dir)? };
+        let (ready, waiting): (Vec<_>, Vec<_>) = pending
+            .into_iter()
+            .filter(|item| item.proposal.is_some() || session.status != "settled")
+            .partition(|item| item.proposal.is_some() && record_for(&remaining, &item.file_path).is_none());
+        if let Some(storage) = comment_storage {
+            let root = fs::canonicalize(&source_root).unwrap_or_else(|_| source_root.clone());
+            comment_patches.extend(crate::comments::pending::resolve(&root, storage, &ready));
+        }
+        crate::comments::pending::write(session_dir, &waiting)?;
+    }
     let remaining_preview = if session.status == "settled" {
         None
     } else {
@@ -2285,6 +2384,118 @@ mod tests {
             assert_eq!(saved["files"]["main.tex"][0]["resolved"], true);
             assert_eq!(saved["revisions"]["main.tex"].as_array().unwrap().len(), 1);
         }
+    }
+
+    // Two files, each with one open human comment the agent asked to resolve
+    // once its change is accepted. The agent's turn has ended.
+    fn pending_fixture() -> (TempDir, TempDir, TempDir, AgentWorkspaceSession, PathBuf) {
+        let project = TempDir::new().unwrap();
+        let workspaces = TempDir::new().unwrap();
+        let comments = TempDir::new().unwrap();
+        let comment = |id: &str, number: u64| serde_json::json!({"id":id,"number":number,"from":4,"to":7,"line":2,"text":"Fix this","anchorRevision":"a"});
+        for file in ["main.tex", "other.tex"] {
+            fs::write(project.path().join(file), "one\ntwo\nthree\nfour\nfive\n").unwrap();
+        }
+        crate::comments::test_write(comments.path().join("human.json"), serde_json::json!({"version":1,"counter":2,
+            "files":{"main.tex":[comment("H-1", 1)],"other.tex":[comment("H-2", 2)]},"sources":{"a":"one\ntwo\nthree\nfour\nfive\n"}}).to_string()).unwrap();
+        crate::comments::refresh_revisions(project.path(), comments.path(), &["main.tex".into(), "other.tex".into()]).unwrap();
+        let session = prepare(&project, &workspaces, Vec::new());
+        let dir = workspaces.path().join(&session.session_id);
+        for (file, id) in [("main.tex", "H-1"), ("other.tex", "H-2")] {
+            fs::write(Path::new(&session.candidate_root).join(file), "one\nTWO\nthree\nfour\nfive\n").unwrap();
+            crate::comments::pending::set(&dir, file, id, Some("Fix this")).unwrap();
+        }
+        snapshot_pending_resolutions(&dir, &reconcile_records(&dir).unwrap()).unwrap();
+        (project, workspaces, comments, session, dir)
+    }
+    fn decide(comments: &TempDir, session: &AgentWorkspaceSession, dir: &Path, choices: &[(&str, bool)]) -> AgentWorkspaceApplyResult {
+        let decisions = reconcile_records(dir)
+            .unwrap()
+            .iter()
+            .filter_map(|record| {
+                let accept = choices.iter().find(|(file, _)| display_path(record) == *file)?.1;
+                Some(AgentWorkspaceDecision { change_id: record.id.clone(), accept, ..Default::default() })
+            })
+            .collect();
+        apply_workspace_with_comments(Some(comments.path()), dir, &session.project_root, decisions, None).unwrap()
+    }
+    fn resolved(comments: &TempDir, file: &str) -> bool {
+        let saved: serde_json::Value =
+            serde_json::from_slice(&crate::comments::test_read(comments.path().join("human.json")).unwrap()).unwrap();
+        saved["files"][file][0]["resolved"] == true
+    }
+    fn waiting(dir: &Path) -> Vec<String> {
+        crate::comments::pending::read(dir).into_iter().map(|item| item.id).collect()
+    }
+
+    #[test]
+    fn accepting_a_file_resolves_its_requested_comment_and_rejecting_keeps_it_open() {
+        let (project, _workspaces, comments, session, dir) = pending_fixture();
+        // The user keeps writing elsewhere in the file while the draft waits.
+        fs::write(project.path().join("main.tex"), "one\ntwo\nthree\nfour\nFIVE\n").unwrap();
+        let result = decide(&comments, &session, &dir, &[("main.tex", true)]);
+        assert!(result.applied, "{:?}", result.conflicts);
+        assert_eq!(fs::read_to_string(project.path().join("main.tex")).unwrap(), "one\nTWO\nthree\nfour\nFIVE\n");
+        assert!(resolved(&comments, "main.tex"));
+        let patch = result.comment_patches.iter().find(|patch| patch.id == "H-1" && patch.after.as_ref().is_some_and(|c| c.resolved)).unwrap();
+        assert_eq!(patch.file_path, "main.tex");
+        // The other file is still under review, so its comment waits.
+        assert!(!resolved(&comments, "other.tex"));
+        assert_eq!(waiting(&dir), ["H-2"]);
+        decide(&comments, &session, &dir, &[("other.tex", false)]);
+        assert!(!resolved(&comments, "other.tex"));
+        assert!(waiting(&dir).is_empty());
+    }
+
+    #[test]
+    fn a_rejected_or_rewritten_edit_keeps_the_comment_open_after_acceptance() {
+        let (_project, _workspaces, comments, session, dir) = pending_fixture();
+        // Rejecting one edit in review rewrites the draft's file.
+        fs::write(Path::new(&session.candidate_root).join("main.tex"), "one\nTWO\nthree\nfour\nfive\nsix\n").unwrap();
+        // The user rewrote the other comment after the agent's request.
+        let mut saved: serde_json::Value =
+            serde_json::from_slice(&crate::comments::test_read(comments.path().join("human.json")).unwrap()).unwrap();
+        saved["files"]["other.tex"][0]["text"] = "Fix this differently".into();
+        crate::comments::test_write(comments.path().join("human.json"), saved.to_string()).unwrap();
+        let result = decide(&comments, &session, &dir, &[("main.tex", true), ("other.tex", true)]);
+        assert!(result.applied);
+        assert!(!resolved(&comments, "main.tex"));
+        assert!(!resolved(&comments, "other.tex"));
+        assert!(waiting(&dir).is_empty());
+    }
+
+    #[test]
+    fn accepting_reviewed_text_resolves_only_when_it_is_the_whole_proposal() {
+        for (content, expected) in [("one\nTWO\nthree\nfour\nfive\n", true), ("one\nTWO\nthree\nfour\nfive\nmine\n", false)] {
+            let (_project, _workspaces, comments, session, dir) = pending_fixture();
+            let record = reconcile_records(&dir).unwrap().into_iter().find(|record| display_path(record) == "main.tex").unwrap();
+            let decision = AgentWorkspaceDecision { change_id: record.id.clone(), accept: true, content: Some(content.into()), ..Default::default() };
+            let revision = preview_workspace(&dir, session.clone(), &[]).unwrap().source_revision;
+            let result = apply_workspace_with_comments(Some(comments.path()), &dir, &session.project_root, vec![decision], Some(revision)).unwrap();
+            assert!(result.applied, "{:?}", result.conflicts);
+            assert_eq!(resolved(&comments, "main.tex"), expected);
+            assert_eq!(waiting(&dir), ["H-2"]);
+        }
+    }
+
+    #[test]
+    fn requests_follow_a_rename_and_end_with_a_later_change_to_the_draft() {
+        let (_project, _workspaces, comments, session, dir) = pending_fixture();
+        let candidate = Path::new(&session.candidate_root);
+        // A later turn changes one file again and renames the other.
+        fs::write(candidate.join("main.tex"), "one\nTWO\nTHREE\nfour\nfive\n").unwrap();
+        fs::rename(candidate.join("other.tex"), candidate.join("moved.tex")).unwrap();
+        snapshot_pending_resolutions(&dir, &reconcile_records(&dir).unwrap()).unwrap();
+        assert_eq!(waiting(&dir), ["H-2"]);
+        // The agent asks again for its new text; a request for an untouched file never fires.
+        crate::comments::pending::set(&dir, "main.tex", "H-1", Some("Fix this")).unwrap();
+        crate::comments::pending::set(&dir, "absent.tex", "H-9", Some("Unknown")).unwrap();
+        snapshot_pending_resolutions(&dir, &reconcile_records(&dir).unwrap()).unwrap();
+        let result = decide(&comments, &session, &dir, &[("main.tex", true), ("moved.tex", true)]);
+        assert!(result.applied);
+        assert!(resolved(&comments, "main.tex"));
+        assert!(resolved(&comments, "moved.tex"));
+        assert!(waiting(&dir).is_empty());
     }
 
     #[test]

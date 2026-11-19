@@ -68,9 +68,9 @@ Catalex exposes a local **MCP** connection—the Model Context Protocol—to the
 | `compile`, `diagnostics` | Build the active draft with the document's compiler settings and inspect actual errors |
 | `render_page` | Inspect rendered PDF pages after compilation |
 | `workspace_state` | Read the active document root, compiler choice, and latest build status |
-| Comment tools | Read, create, edit, resolve, or delete passage-specific comments |
+| Comment tools | Read comments for one file or the whole project; create, edit, resolve, or delete passage-specific comments; resolve a comment once its proposed text is accepted |
 | `ask_user` | Ask a question inside the conversation and wait for your answer |
 
-The connection belongs to that chat and active turn. Compilation and page inspection use the draft rather than silently switching to another conversation's document. [Comment actions](comments.md#work-with-an-agent) update the shared comment store separately from text review.
+The connection belongs to that chat and active turn. Compilation and page inspection use the draft rather than silently switching to another conversation's document. [Comment actions](comments.md#work-with-an-agent) update the shared comment store separately from text review, except for comments the agent asked to resolve when its text is accepted.
 
 Draft review is a writing workflow, not an OS security sandbox. Local agents and their extensions retain their own tool permissions, and requests to model services follow the provider's data-handling policies. Catalex's saved conversations and drafts remain local; see [backup and sync boundaries](sync-and-recovery.md#backups-and-local-data).
