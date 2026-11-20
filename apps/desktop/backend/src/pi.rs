@@ -759,8 +759,8 @@ pub async fn start_pi_turn(
     cmd.arg("--skill")
         .arg(crate::builtin_skills::resolve_root(&window)?.join("skills"));
     cmd.arg("--append-system-prompt").arg(format!(
-        "{}\n\nUse the Catalex MCP tools for document compilation, preview inspection, comments, and questions. Use ask_user when you need the user's input.\n\nYour current working directory is {}. Make project edits in this draft for the user to review; do not modify the original project at {} directly. Previous draft paths in the conversation are historical; use the current working directory.",
-        crate::workspace_mcp::comment_guidance(),
+        "{}\n\nYour current working directory is {}. It is the draft: make every edit there. Do not modify the original project at {} directly.",
+        crate::agent_prompt::system_prompt(crate::agent_prompt::Provider::Pi),
         working_directory.display(),
         source_project_path,
     ));

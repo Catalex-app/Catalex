@@ -30,7 +30,11 @@ lines.on("line", (line) => {
       result: {
         data: [
           {
-            skills: ["catalex-verify-latex", "review-document"].map((name) => ({
+            skills: [
+              "catalex-verify-latex",
+              "review-document",
+              "catalex-guide",
+            ].map((name) => ({
               name,
               enabled: true,
               path: path.join(skillsRoot, name, "SKILL.md"),

@@ -19,6 +19,7 @@ import {
   net,
   powerMonitor,
   protocol,
+  screen,
   session,
   shell,
 } from "electron";
@@ -289,8 +290,35 @@ function configureWindowOpening(win: BrowserWindow, ownerId: string) {
       closeHandlers.delete(child.id);
       approvedClose.delete(child.id);
     });
-    child.once("ready-to-show", () => child.show());
+    child.once("ready-to-show", () => presentWindow(child));
   });
+}
+
+// Automated runs set this so the app's windows do not cover the window the
+// person is working in: they open on a secondary display when there is one,
+// and without becoming the active application.
+const backgroundTestWindows =
+  process.env.CATALEX_TEST_BACKGROUND_WINDOWS === "1";
+
+function presentWindow(win: BrowserWindow, maximize = false) {
+  if (!backgroundTestWindows) {
+    if (maximize) win.maximize();
+    win.show();
+    return;
+  }
+  const primary = screen.getPrimaryDisplay().id;
+  const area = screen
+    .getAllDisplays()
+    .find((display) => display.id !== primary)?.workArea;
+  if (area && maximize) win.setBounds(area);
+  else if (area) {
+    const [width, height] = win.getSize();
+    win.setPosition(
+      area.x + Math.max(0, Math.round((area.width - width) / 2)),
+      area.y + Math.max(0, Math.round((area.height - height) / 2)),
+    );
+  } else if (maximize) win.maximize();
+  win.showInactive();
 }
 
 async function openExternal(value: unknown) {
@@ -368,10 +396,7 @@ async function createWindow(id: string, query = "") {
     approvedClose.delete(win.id);
     cleanupWindowProjects(id);
   });
-  win.once("ready-to-show", () => {
-    if (!settings && !debug) win.maximize();
-    win.show();
-  });
+  win.once("ready-to-show", () => presentWindow(win, !settings && !debug));
   await win.loadURL(`${developmentUrl ?? `${APP_PROTOCOL}://app`}/${query}`);
   return win;
 }
@@ -804,7 +829,9 @@ async function hostCommand(
       }
       return { result: null };
     case "desktop:window:show":
-      win.show();
+      // The renderer asks for this once it has started.
+      if (backgroundTestWindows) win.showInactive();
+      else win.show();
       return { result: null };
     case "desktop:window:setBackgroundColor":
       if (

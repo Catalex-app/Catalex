@@ -310,31 +310,7 @@ fn build_augmented_path(program: &str) -> String {
 }
 
 fn codex_system_prompt() -> &'static str {
-    concat!(
-        concat!("You are an AI assistant integrated into a LaTeX document editor (", env!("APP_BRAND_NAME"), "). "),
-        "Follow these rules strictly:\n",
-        "1. PLANNING FIRST: Before making changes, create a step-by-step plan. ",
-        "Break large tasks into small, incremental steps (one section or one logical unit per step).\n",
-        "2. INCREMENTAL EDITS: Make small, targeted changes — one step at a time. ",
-        "NEVER write or rewrite an entire file at once. Always prefer editing existing content over replacing it wholesale.\n",
-        "3. STEP BY STEP: After each edit, mark the todo item as completed, then proceed to the next step. ",
-        "This lets the user review changes incrementally.\n",
-        "4. PRESERVE EXISTING CONTENT: Always read the file first. Keep the existing preamble, packages, ",
-        "and structure intact. Only add or modify what is needed for the current step.\n",
-        "5. LaTeX BEST PRACTICES: Use proper sectioning (\\chapter, \\section, \\subsection), ",
-        "citations (\\cite), cross-references (\\label, \\ref), and BibTeX for bibliographies.\n",
-        "6. SKILLS: Use $catalex-verify-latex for tasks that change LaTeX document sources. ",
-        concat!("It defines ", env!("APP_BRAND_NAME"), "'s bounded compile, repair, render, and inspection workflow. "),
-        "If scientific skills are installed in .claude/skills/, also follow their domain-specific guidelines ",
-        "and use skill-provided LaTeX packages (.sty) and code patterns.",
-        "\n7. VERIFY LATEX: After changing LaTeX sources, call mcp__catalex__compile before finishing. ",
-        "It compiles the editor's resolved root with the user's active compiler settings and returns diagnostics.\n",
-        "8. INSPECT OUTPUT: When visual verification matters, call mcp__catalex__render_page after a successful compile. ",
-        "Request only the one to three pages needed for inspection.\n",
-        concat!("9. REVIEW COMMENTS: When asked to leave document comments, use the ", env!("APP_BRAND_NAME"), " MCP create_comment tool with a relative file path and an exact passage. For standalone PDFs, first use read_pdf and include its page and fingerprint in create_comment.pdf; never invent page coordinates. "),
-        concat!("Use list_comments to read comments and their revisions. Comment changes apply directly; follow the per-turn comment guidance. Comments save immediately after source paragraph validation. Never edit comments.json or comments-agents.json directly. Use the ", env!("APP_BRAND_NAME"), " MCP ask_user tool for user choices instead of native request_user_input. "),
-        "Use $review-document for document reviews and critiques; follow chat-only requests and do not rewrite sources during review-only work."
-    )
+    crate::agent_prompt::system_prompt(crate::agent_prompt::Provider::Codex)
 }
 
 fn is_image_path(path: &std::path::Path) -> bool {
@@ -1062,19 +1038,10 @@ pub(crate) fn codex_mcp_config(settings: &crate::workspace_mcp::ConnectionSettin
             "required": true,
             // Only the app's existing draft-scoped operations are pre-authorized.
             // Do not change the global approval policy or trust future tools implicitly.
-            "tools": {
-                "compile": { "approval_mode": "approve" },
-                "diagnostics": { "approval_mode": "approve" },
-                "render_page": { "approval_mode": "approve" },
-                "read_pdf": { "approval_mode": "approve" },
-                "workspace_state": { "approval_mode": "approve" },
-                "create_comment": { "approval_mode": "approve" },
-                "list_comments": { "approval_mode": "approve" },
-                "edit_comment": { "approval_mode": "approve" },
-                "resolve_comment": { "approval_mode": "approve" },
-                "delete_comment": { "approval_mode": "approve" },
-                "ask_user": { "approval_mode": "approve" }
-            }
+            "tools": crate::workspace_mcp::tool_names()
+                .into_iter()
+                .map(|name| (name.to_string(), json!({ "approval_mode": "approve" })))
+                .collect::<serde_json::Map<_, _>>()
         }
     })
 }
@@ -1415,7 +1382,6 @@ async fn start_codex_app_server_turn(
     let started_at = SystemTime::now()
         .checked_sub(Duration::from_secs(2))
         .unwrap_or(SystemTime::UNIX_EPOCH);
-    let prompt = format!("{}\n\n{}", crate::workspace_mcp::comment_guidance(), prompt);
     let started = if compact {
         start_codex_compaction(&handle, &thread_id).await
     } else { start_loaded_codex_turn(
@@ -2651,8 +2617,7 @@ mod tests {
                     backend: crate::latex::CompilerBackend::Latexmk,
                     engine: crate::latex::TexEngine::LuaLaTeX,
                     auto_engine: false,
-                    root_folder: String::new(),
-                };
+                    root_folder: String::new(), main_file_chosen: false };
                 let mut events = handle.notifications.subscribe();
                 let requests_before = handle.next_request_id.load(Ordering::SeqCst);
                 let (thread_id, access) = prepare_codex_turn(

@@ -34,6 +34,12 @@ pnpm build:native --test
 
 See [desktop setup](../development/setup.md) for native dependencies. Tests use temporary projects and profiles; never point a smoke test at personal app data or manuscripts.
 
+The scripts in `apps/desktop/e2e/electron/` open real application windows. Set `CATALEX_TEST_BACKGROUND_WINDOWS=1` to keep them out of the way: windows open on a secondary display when one is attached, and without becoming the active application. Scripts pass the variable through from the shell. A script that needs a focused window removes it from its own environment or focuses its window itself, so it can still come to the front.
+
+```sh
+CATALEX_TEST_BACKGROUND_WINDOWS=1 node apps/desktop/e2e/electron/panel-review-smoke.mjs
+```
+
 ## Browser harnesses
 
 ```sh

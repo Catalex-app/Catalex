@@ -813,6 +813,8 @@ struct ClaudeAgentTurnRequest {
     model: Option<String>,
     effort: Option<String>,
     system_prompt: &'static str,
+    /// The app's MCP tools, which the bridge allows without a permission prompt.
+    tools: Vec<&'static str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     resume_session_id: Option<String>,
     continue_session: bool,
@@ -826,26 +828,7 @@ struct ClaudeAgentControlRequest {
 }
 
 fn claude_system_prompt() -> &'static str {
-    concat!(
-        concat!("You are an AI assistant integrated into the ", env!("APP_BRAND_NAME"), " LaTeX document editor. "),
-        "Follow these rules strictly:\n",
-        "1. PLANNING FIRST: Before making changes, use TodoWrite to create a step-by-step plan. ",
-        "Break large tasks into small, incremental steps (one section or one logical unit per step).\n",
-        "2. INCREMENTAL EDITS: Use the Edit tool to make small, targeted changes — one step at a time. ",
-        "NEVER write or rewrite an entire file at once. Always prefer editing existing content over replacing it wholesale.\n",
-        "3. STEP BY STEP: After each edit, mark the todo item as completed, then proceed to the next step. ",
-        "This lets the user review changes incrementally.\n",
-        "4. PRESERVE EXISTING CONTENT: Always read the file first. Keep the existing preamble, packages, ",
-        "and structure intact. Only add or modify what is needed for the current step.\n",
-        "5. LATEX BEST PRACTICES: Use proper sectioning, citations, cross-references, and BibTeX where appropriate.\n",
-        "6. SKILLS: If scientific skills are installed in .claude/skills/, follow their guidelines ",
-        "for domain-specific tasks. Use skill-provided LaTeX packages and code patterns.\n",
-        concat!("7. VERIFY LATEX: ", env!("APP_BRAND_NAME"), " Workspace MCP tools are available. After changing LaTeX, call "),
-        "the catalex compile tool before finishing. Use render_page after a successful compile when visual output matters.\n",
-        concat!("8. REVIEW COMMENTS: When asked to leave document comments, use the ", env!("APP_BRAND_NAME"), " MCP create_comment tool with a relative file path and an exact passage. For standalone PDFs, first use read_pdf and include its page and fingerprint in create_comment.pdf; never invent page coordinates. "),
-        concat!("Use list_comments to read comments and their revisions. Comment changes apply directly; follow the per-turn comment guidance. Comments save immediately after source paragraph validation. Never edit comments.json or comments-agents.json directly. Use the ", env!("APP_BRAND_NAME"), " MCP ask_user tool for user choices instead of AskUserQuestion. "),
-        "Use the catalex:review-document skill for document reviews and critiques; follow chat-only requests and do not rewrite sources during review-only work."
-    )
+    crate::agent_prompt::system_prompt(crate::agent_prompt::Provider::Claude)
 }
 
 fn serialize_sidecar_request<T: serde::Serialize>(request: &T) -> Result<Vec<u8>, String> {
@@ -993,8 +976,11 @@ async fn handle_claude_sidecar_events(
 fn claude_turn_prompt(prompt: String, compact: bool) -> String {
     if compact {
         "/compact".into()
+    } else if prompt.trim_start().starts_with('/') {
+        // Only the app starts a native command. Typed text is always a request.
+        format!("[User request]\n{prompt}")
     } else {
-        format!("{}\n\n{}", crate::workspace_mcp::comment_guidance(), prompt)
+        prompt
     }
 }
 
@@ -1050,6 +1036,7 @@ async fn send_claude_agent_turn(
         model,
         effort,
         system_prompt: claude_system_prompt(),
+        tools: crate::workspace_mcp::tool_names(),
         resume_session_id,
         continue_session,
     };
@@ -2135,6 +2122,7 @@ mod tests {
     fn compact_is_a_native_command_without_prompt_prefixes() {
         assert_eq!(claude_turn_prompt(String::new(), true), "/compact");
         assert_ne!(claude_turn_prompt("/compact".into(), false), "/compact");
+        assert_eq!(claude_turn_prompt("Fix this".into(), false), "Fix this");
     }
 
     #[tokio::test]
@@ -2305,6 +2293,7 @@ mod tests {
             model: Some("opus".to_string()),
             effort: Some("medium".to_string()),
             system_prompt: claude_system_prompt(),
+            tools: crate::workspace_mcp::tool_names(),
             resume_session_id: Some("session-1".to_string()),
             continue_session: false,
         };

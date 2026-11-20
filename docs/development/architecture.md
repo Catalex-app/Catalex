@@ -164,10 +164,43 @@ Tectonic still compiles in a separate subprocess to isolate its global C state.
 | `latex`, `compile_diagnostics`, `verification` | Compilation, source/PDF mapping, and agent verification |
 | `project_storage`, `project_files`, `comments` | Project data, file watching, and persisted comments |
 | `agent_workspace`, `shared_sessions`, `agent_questions` | Agent drafts, shared conversation state, and questions |
-| `claude`, `codex`, `workspace_mcp` | Provider processes and the shared MCP service |
+| `claude`, `codex`, `pi`, `workspace_mcp` | Provider processes and the shared MCP service |
+| `agent_prompt` | The session text every provider starts with |
 | `history`, `git_conflicts` | Automatic snapshots and user Git workflows |
 | `builtin_skills`, `skills`, `slash_commands` | Agent skill resources and command discovery |
 | `zotero` | Zotero authorization and integration |
+
+What an agent is told has three layers, each with one home:
+
+- **Session text** (`agent_prompt.rs`): a short note sent at the start of every
+  session, the same for Claude, Codex, and Pi except for names that differ
+  between them (skill syntax, the provider's own question tool). It says what
+  the app is, that edits go to a reviewed draft, the rules for comments, and
+  which skill to read for what. Nothing is prepended to each user message.
+- **Tools** (`workspace_mcp::ToolDef`): each tool is one `ToolDef` (name,
+  description, input schema, handler) in the `TOOLS` list of its area:
+  `verification` (build), `comments::pdf`, `agent_questions`, and `comments`.
+  The MCP catalog and dispatch, Codex's approval list, and the tool names the
+  Claude bridge allows are all derived from these lists. A description says what
+  the tool does and returns; rules for using it belong in the session text or a
+  skill, because the catalog is sent with every turn. A test caps its size.
+- **Skills** (`backend/resources/catalex/skills/`, listed in
+  `builtin_skills::NAMES`): workflows (`catalex-verify-latex`,
+  `review-document`) and one reference skill, `catalex-guide`. The guide holds
+  the user guide and `limits.md`, the agent-only list of what an agent cannot
+  change and where the user changes it. Add facts about how the app works there,
+  not to a prompt or a tool description.
+
+The guide's `docs/` folder is a copy of the user guide pages in `docs/`. Edit
+the pages in `docs/` only, then run `pnpm guide:sync`; `pnpm guide:check` runs
+with the desktop build and fails when the copy is out of date.
+`apps/desktop/e2e/electron/agent-guide-live.mjs` is a manual check that asks each
+installed provider a question about the app through your own account and reports
+whether it read the guide. It uses real inference, so no suite runs it.
+
+The user's Global Instructions are added to the first message of a provider
+session. Settings save them only when they differ from `DEFAULT_AGENT_MD`, so an
+untouched default follows the app.
 
 The sidecar's `src/index.ts` owns the persistent Claude query and JSON-lines
 protocol; `catalex-mcp.ts` and `catalex-skills.ts` configure the app-owned MCP
@@ -273,6 +306,9 @@ diagnostics and SyncTeX paths remain relative to the opened project.
 Each agent turn snapshots these choices in its existing compile context. The
 workspace MCP `workspace_state` exposes `root.folder` and `root.file`, both
 relative to its draft `projectPath` (an empty folder means the project folder).
+`compile` reports the same as `rootFolder` and `rootFile`. Both add
+`chosenByUser`, so an agent can tell a setting the user made from one the app
+detected and point the user to the Recompile menu.
 The agent compile tool uses the same folder selection as the preview, resolved
 inside the draft; choices refresh on the next turn.
 

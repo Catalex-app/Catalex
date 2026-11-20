@@ -40,6 +40,7 @@ interface StartTurnCommand {
   model?: string;
   effort?: EffortLevel;
   systemPrompt: string;
+  tools: string[];
   resumeSessionId?: string;
   continueSession?: boolean;
 }
@@ -253,7 +254,7 @@ function buildOptions(command: StartTurnCommand): Options {
     effort: command.effort,
     thinking: { type: "adaptive" },
     permissionMode: "auto",
-    allowedTools: allowedClaudeTools,
+    allowedTools: allowedClaudeTools(command.tools),
     canUseTool: createPermissionHandler({
       ask: mcpPermissionQuestion(command.mcp),
     }),

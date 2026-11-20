@@ -1,11 +1,16 @@
+# The agent's guide ships a copy of docs/. Commit the synced copy with the docs.
+guide_copy=apps/desktop/backend/resources/catalex/skills/catalex-guide/docs
+
 if command -v corepack >/dev/null 2>&1; then
   corepack pnpm version:sync
+  corepack pnpm guide:sync && git add -- "$guide_copy"
   corepack pnpm exec biome check --staged --write --no-errors-on-unmatched
   exit $?
 fi
 
 if command -v pnpm >/dev/null 2>&1; then
   pnpm version:sync
+  pnpm guide:sync && git add -- "$guide_copy"
   pnpm exec biome check --staged --write --no-errors-on-unmatched
   exit $?
 fi

@@ -24,7 +24,8 @@ import {
   normalizePromptLibrary,
   type LibraryPrompt,
 } from "@/lib/prompt-library";
-import { DEFAULT_AGENT_MD, RETIRED_AGENT_MD } from "@/lib/default-agent-md";
+import { DEFAULT_AGENT_MD } from "@/lib/default-agent-md";
+import { RETIRED_AGENT_MD } from "@/lib/retired-agent-md";
 import {
   DEFAULT_MODE_THEMES,
   normalizeModeThemes,
@@ -382,7 +383,7 @@ function normalizeScrollSyncByProject(
   );
 }
 
-function buildInitialCompilerChoice(
+export function buildInitialCompilerChoice(
   backend: CompilerBackend,
   engine: CompilerEngine,
   detectedEngine?: ConcreteCompilerEngine | null,

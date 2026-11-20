@@ -9,23 +9,13 @@ const options = () => ({
   toolUseID: "tool",
   requestId: "request",
 });
-test("all app tools and web tools are preauthorized", () => {
-  for (const tool of [
-    "compile",
-    "diagnostics",
-    "workspace_state",
-    "render_page",
-    "read_pdf",
-    "ask_user",
-    "create_comment",
-    "list_comments",
-    "edit_comment",
-    "resolve_comment",
-    "delete_comment",
-  ])
-    expect(allowedClaudeTools).toContain(`mcp__catalex__${tool}`);
-  expect(allowedClaudeTools).toContain("WebFetch");
-  expect(allowedClaudeTools).toContain("WebSearch");
+test("the app's tools and web tools are preauthorized", () => {
+  expect(allowedClaudeTools(["compile", "ask_user"])).toEqual([
+    "WebFetch",
+    "WebSearch",
+    "mcp__catalex__compile",
+    "mcp__catalex__ask_user",
+  ]);
 });
 test("deny, skip, custom answers, cancellation, and unavailable UI never authorize", async () => {
   for (const answer of [

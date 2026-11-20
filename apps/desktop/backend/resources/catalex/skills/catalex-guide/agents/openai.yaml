@@ -1,0 +1,6 @@
+interface:
+  display_name: "Catalex guide"
+  short_description: "How the app works and where settings are"
+  default_prompt: "Use $catalex-guide to explain how this works in Catalex."
+policy:
+  allow_implicit_invocation: true

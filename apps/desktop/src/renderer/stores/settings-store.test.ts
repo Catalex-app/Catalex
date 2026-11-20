@@ -6,7 +6,8 @@ import {
   normalizeCatCustomText,
   useSettingsStore,
 } from "./settings-store";
-import { DEFAULT_AGENT_MD, RETIRED_AGENT_MD } from "@/lib/default-agent-md";
+import { DEFAULT_AGENT_MD } from "@/lib/default-agent-md";
+import { RETIRED_AGENT_MD } from "@/lib/retired-agent-md";
 import {
   DEFAULT_PROMPT_LIBRARY,
   visiblePromptLibrary,

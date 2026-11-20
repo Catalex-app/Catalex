@@ -17,13 +17,9 @@ use serde_json::{json, Value};
 use crate::host::WindowContext;
 use tokio_util::sync::CancellationToken;
 
-use crate::verification::{
-    execute_tool, VerificationContext, VerificationToolResult, MAX_RENDER_PAGES,
-};
-
-pub(crate) fn comment_guidance() -> &'static str {
-    "Comments apply directly in every approval mode. Use list_comments before editing, resolving, or deleting, and reread on revision conflicts. Before changing existing comments, briefly explain your intention; one notice can cover a related group and does not require a reply. Prefer resolving to deleting; delete only when explicitly requested. When a comment should be resolved because of text you propose in this draft, call resolve_comment with when \"accepted\": the app resolves it once the user accepts every proposed edit in that file, and keeps it open otherwise. Do not wait for the text decision and do not resolve such a comment now. Never assume proposed text was accepted. Do not edit comments.json or comments-agents.json directly."
-}
+use crate::verification::{VerificationContext, VerificationToolResult};
+#[cfg(test)]
+use crate::verification::MAX_RENDER_PAGES;
 
 type Executor = Arc<
     dyn Fn(
@@ -50,13 +46,71 @@ pub struct WorkspaceMcp {
 /// Revokes access even when starting a provider turn fails before its listener starts.
 pub struct TurnAccess(CancellationToken);
 
-struct TurnScope {
-    model: Option<String>,
-    thinking_effort: Option<String>,
-    review_choice: tokio::sync::Mutex<Option<crate::comments::ReviewChoice>>,
-    project_path: String,
-    context: Option<VerificationContext>,
-    cancelled: CancellationToken,
+pub(crate) struct TurnScope {
+    pub(crate) model: Option<String>,
+    pub(crate) thinking_effort: Option<String>,
+    pub(crate) review_choice: tokio::sync::Mutex<Option<crate::comments::ReviewChoice>>,
+    pub(crate) project_path: String,
+    pub(crate) context: Option<VerificationContext>,
+    pub(crate) cancelled: CancellationToken,
+}
+
+/// One call, with what a handler may need from its chat and its turn.
+pub(crate) struct ToolCall {
+    pub(crate) name: &'static str,
+    pub(crate) window: WindowContext,
+    pub(crate) tab_id: String,
+    pub(crate) source_root: String,
+    pub(crate) origin: crate::comments::AgentOrigin,
+    pub(crate) scope: Arc<TurnScope>,
+    pub(crate) arguments: Value,
+}
+
+pub(crate) type ToolFuture = Pin<Box<dyn Future<Output = VerificationToolResult> + Send>>;
+
+/// A tool is defined once, next to the code that carries it out. Adding one
+/// means adding a `ToolDef` to its area's list; the catalog, dispatch, and each
+/// provider's permission list are derived from these.
+pub(crate) struct ToolDef {
+    pub(crate) name: &'static str,
+    /// What the tool does and returns. When and how to use it belongs in the
+    /// session text or a skill, which are not sent with every turn's catalog.
+    pub(crate) description: &'static str,
+    pub(crate) input: fn() -> Value,
+    /// Waits on the app's UI, so it ends when the client gives up. Other tools
+    /// run to completion: a compile keeps its lock until the compiler exits.
+    pub(crate) waits_on_app: bool,
+    pub(crate) run: fn(ToolCall) -> ToolFuture,
+}
+
+pub(crate) fn tools() -> impl Iterator<Item = &'static ToolDef> {
+    [
+        crate::verification::TOOLS,
+        crate::comments::pdf::TOOLS,
+        crate::agent_questions::TOOLS,
+        crate::comments::TOOLS,
+    ]
+    .into_iter()
+    .flatten()
+}
+
+pub(crate) fn tool_names() -> Vec<&'static str> {
+    tools().map(|tool| tool.name).collect()
+}
+
+pub(crate) fn no_input() -> Value {
+    json!({"type":"object","properties":{},"additionalProperties":false})
+}
+
+pub(crate) fn tool_result(result: Result<Value, String>) -> VerificationToolResult {
+    match result {
+        Ok(payload) => VerificationToolResult { success: true, payload, images: vec![] },
+        Err(error) => VerificationToolResult {
+            success: false,
+            payload: json!({"status":"error","message":error}),
+            images: vec![],
+        },
+    }
 }
 
 // Captured at HTTP admission, before the MCP SDK schedules the tool handler.
@@ -84,120 +138,22 @@ impl WorkspaceMcp {
         origin: crate::comments::AgentOrigin,
     ) -> Result<Arc<Self>, String> {
         let execute: Executor = Arc::new(move |scope, tool, arguments| {
-            let window = window.clone();
-            let tab_id = tab_id.clone();
-            let source_root = source_root.clone();
+            let Some(def) = tools().find(|def| def.name == tool) else {
+                return Box::pin(async move {
+                    tool_result(Err(format!("unknown_tool: {PRODUCT_NAME} Workspace does not provide `{tool}`")))
+                });
+            };
             let mut origin = origin.clone();
             origin.model = scope.model.clone();
             origin.thinking_effort = scope.thinking_effort.clone();
-            Box::pin(async move {
-                if tool == "ask_user" {
-                    let result = async {
-                        crate::agent_workspace::validate_comment_scope(
-                            &window.service,
-                            &source_root,
-                            &scope.project_path,
-                            &tab_id,
-                        )?;
-                        let answer = crate::agent_questions::ask(
-                            &window,
-                            &tab_id,
-                            &origin.session_id,
-                            &source_root,
-                            arguments,
-                            &scope.cancelled,
-                        )
-                        .await?;
-                        crate::agent_workspace::validate_comment_scope(
-                            &window.service,
-                            &source_root,
-                            &scope.project_path,
-                            &tab_id,
-                        )?;
-                        Ok::<_, String>(answer)
-                    }
-                    .await;
-                    return match result {
-                        Ok(payload) => VerificationToolResult {
-                            success: true,
-                            payload,
-                            images: vec![],
-                        },
-                        Err(error) => VerificationToolResult {
-                            success: false,
-                            payload: json!({"status":"error","message":error}),
-                            images: vec![],
-                        },
-                    };
-                }
-                if matches!(
-                    tool.as_str(),
-                    "list_comments" | "edit_comment" | "resolve_comment" | "delete_comment"
-                ) {
-                    return match crate::comments::manage_agent_comment(
-                        &window,
-                        &source_root,
-                        &scope.project_path,
-                        &tab_id,
-                        &tool,
-                        arguments,
-                        &scope.cancelled,
-                    )
-                    .await
-                    {
-                        Ok(payload) => VerificationToolResult {
-                            success: true,
-                            payload,
-                            images: vec![],
-                        },
-                        Err(error) => VerificationToolResult {
-                            success: false,
-                            payload: json!({"status":"error","message":error}),
-                            images: vec![],
-                        },
-                    };
-                }
-                if tool == "create_comment" {
-                    return match crate::comments::create_agent_comment(
-                        &window,
-                        &source_root,
-                        &scope.project_path,
-                        &tab_id,
-                        &origin,
-                        arguments,
-                        &scope.cancelled,
-                        &scope.review_choice,
-                    )
-                    .await
-                    {
-                        Ok(payload) => VerificationToolResult {
-                            success: true,
-                            payload,
-                            images: vec![],
-                        },
-                        Err(error) => VerificationToolResult {
-                            success: false,
-                            payload: json!({"status":"error","message":error}),
-                            images: vec![],
-                        },
-                    };
-                }
-                if tool == "read_pdf" {
-                    return match crate::comments::pdf::read(&window, &source_root, &scope.project_path, &tab_id, arguments, &scope.cancelled).await {
-                        Ok(payload) => VerificationToolResult { success: true, payload, images: vec![] },
-                        Err(error) => VerificationToolResult { success: false, payload: json!({"status":"error","message":error}), images: vec![] },
-                    };
-                }
-                execute_tool(
-                    &window,
-                    &scope.project_path,
-                    &tab_id,
-                    scope.context.as_ref(),
-                    &tool,
-                    &arguments,
-                    &scope.cancelled,
-                )
-                .await
+            (def.run)(ToolCall {
+                name: def.name,
+                window: window.clone(),
+                tab_id: tab_id.clone(),
+                source_root: source_root.clone(),
+                origin,
+                scope,
+                arguments,
             })
         });
         Self::serve(execute).await
@@ -326,46 +282,9 @@ struct WorkspaceHandler {
 }
 
 fn tool_catalog() -> Vec<Tool> {
-    let empty = json!({"type":"object","properties":{},"additionalProperties":false});
-    [
-        ("compile", concat!("Compile this draft's resolved LaTeX root using ", env!("APP_BRAND_NAME"), "'s preview compiler and engine. Returns authoritative compile status, diagnostics, configured engine, and actualEngine (the last engine invoked, or null if no compiler ran)."), empty.clone()),
-        ("diagnostics", concat!("Read diagnostics and actualEngine from this draft's latest ", env!("APP_BRAND_NAME"), " compile."), empty.clone()),
-        ("workspace_state", "Read this draft's main LaTeX file and compilation folder (both relative to projectPath; empty folder means projectPath), compiler settings, and verification capabilities.", empty),
-        ("render_page", "Render one to three pages of this draft's latest compiled PDF as PNG images. Compile first if the document changed.", json!({
-            "type":"object", "properties":{"pages":{"type":"array","items":{"type":"integer","minimum":1},"minItems":1,"maxItems":MAX_RENDER_PAGES,"uniqueItems":true}},
-            "required":["pages"],"additionalProperties":false
-        })),
-        ("read_pdf", "Read selectable text from one to three pages of a standalone project PDF. Returns pageCount and the exact PDF fingerprint. Use this text and fingerprint with create_comment's pdf field. Scanned pages may contain no text; OCR is not provided. Source and draft PDF bytes must match. This does not read the compiled LaTeX preview.", json!({
-            "type":"object","properties":{"filePath":{"type":"string"},"pages":{"type":"array","items":{"type":"integer","minimum":1},"minItems":1,"maxItems":3,"uniqueItems":true}},"required":["filePath","pages"],"additionalProperties":false
-        })),
-        ("ask_user", concat!("Ask the user one question with 2–4 choices in ", env!("APP_BRAND_NAME"), "'s UI; custom answers are also allowed. Use when clarification or a decision is needed. Keep questions and choices simple, precise, and compact. Waits for an answer in this turn (up to 10 minutes); cancellation/expiry is not approval. The answer does not bypass any tool validation. For changed review text, offer updating feedback, saving only safely anchored comments, or discarding only unsaved comments."), json!({
-            "type":"object","properties":{
-                "permission":{"type":"boolean","description":"Whether this is a tool approval request with explicit choices only."},
-                "details":{"type":"string","description":"Optional full action details shown with the question.","maxLength":128000},
-                "question":{"type":"string","description":"One short, clear sentence asking for the user's decision.","minLength":1,"maxLength":2000},
-                "options":{"type":"array","minItems":2,"maxItems":4,"items":{"type":"object","properties":{
-                    "label":{"type":"string","description":"A few words identifying the choice. Put any necessary explanation in description.","minLength":1,"maxLength":120},
-                    "description":{"type":"string","description":"Optional explanation shown when hovering over the question mark. Usually one brief sentence; do not repeat the label or add unnecessary detail.","maxLength":500}
-                },"required":["label"],"additionalProperties":false}}
-            },"required":["question","options"],"additionalProperties":false
-        })),
-        ("list_comments", "List all human and agent comments, including resolved comments. With filePath, lists one source document. Without it, lists every commented document in the project; in a large project some files report only a count, so list those by filePath. Returns IDs and revisions for safe mutations. resolvesOnAcceptance marks a comment you asked to resolve when your draft is accepted.", json!({"type": "object", "properties": {"filePath": {"type": "string", "description": "Project-relative source document path. Omit to list the whole project."}}, "additionalProperties": false})),
-        ("edit_comment", "Edit only the text of an existing human or agent comment. Applies directly in every approval mode. Preserves its anchor and original author. Use the revision from list_comments; on conflict, reread and reconsider.", json!({"type": "object", "properties": {"filePath": {"type": "string", "description": "Project-relative source document path"}, "id": {"type": "string", "minLength": 1}, "revision": {"type": "string", "minLength": 1}, "text": {"type": "string", "minLength": 1, "maxLength": 20000}}, "required": ["filePath", "id", "revision", "text"], "additionalProperties": false})),
-        ("resolve_comment", "Change comment status. Set resolved to true to resolve, or false to reopen and show it again. Omitted resolved defaults to true. With when \"now\" the change applies directly in every approval mode. With when \"accepted\" the comment stays open and the app resolves it after the user accepts every edit this draft proposes in that file; a rejected or rewritten edit, or a comment the user changes first, leaves it open. Use \"accepted\" whenever the comment is addressed by text you propose in this draft, and only for a file this draft changes. With \"accepted\", resolved false withdraws the request. Briefly inform the user before changing existing comments. Use its current revision from list_comments; on conflict, reread and reconsider.", json!({"type": "object", "properties": {"filePath": {"type": "string", "description": "Project-relative source document path"}, "id": {"type": "string", "minLength": 1}, "revision": {"type": "string", "minLength": 1}, "resolved": {"type": "boolean", "default": true, "description": "true resolves the comment; false reopens it"}, "when": {"type": "string", "enum": ["now", "accepted"], "default": "now", "description": "now changes the status directly; accepted resolves it once the user accepts this draft's edits to the file"}}, "required": ["filePath", "id", "revision"], "additionalProperties": false})),
-        ("delete_comment", "Delete a comment directly. Prefer resolving; delete only when explicitly requested. Use its current revision from list_comments; on conflict, reread and reconsider.", json!({"type": "object", "properties": {"filePath": {"type": "string", "description": "Project-relative source document path"}, "id": {"type": "string", "minLength": 1}, "revision": {"type": "string", "minLength": 1}}, "required": ["filePath", "id", "revision"], "additionalProperties": false})),
-        ("create_comment", concat!("Add an Agent review comment immediately, independently of accepting draft edits. For a standalone PDF, first call read_pdf and supply the pdf page/fingerprint field. The following source-matching rules apply to editable text files. Supply an exact passage and optionally its 1-based start line in the draft. If the file differs, the complete blank-line-delimited paragraph(s) must remain exact and unique in source; shifted/moved blocks are allowed. A missing or conflicting anchor opens ", env!("APP_BRAND_NAME"), "'s existing choice UI and waits for the user. Do not launch another question. A review_decision response saved nothing: follow the recorded answer. Only Update comments permits a fresh reviewedParagraph; reread the returned source path and reconsider feedback first. Safe-only and discard decisions cannot be bypassed with fresh context. Never edit source to force a match; unsaved source buffers and stale sessions still reject."), json!({
-            "type":"object","properties":{
-                "filePath":{"type":"string","description":"Project-relative document path"},
-                "passage":{"type":"string","minLength":1,"maxLength":20000},
-                "lineHint":{"type":"integer","minimum":1},
-                "pdf":{"type":"object","description":"For standalone PDFs only: call read_pdf first, quote a unique passage from one page (whitespace/ligatures are normalized), and provide that page and fingerprint. Do not provide lineHint or reviewedParagraph. No OCR or fuzzy matching; stale PDFs reject. The app calculates highlight coordinates.","properties":{"page":{"type":"integer","minimum":1},"fingerprint":{"type":"string","pattern":"^[a-f0-9]{40}$"}},"required":["page","fingerprint"],"additionalProperties":false},
-                "text":{"type":"string","minLength":1,"maxLength":20000},
-                "reviewedParagraph":{"type":"string","minLength":1,"maxLength":20000,"description":"Only after rereviewing changed source: exact complete blank-line-delimited source block(s), including adjoining section/command lines when no blank line separates them. Omit outer blank lines and the trailing newline. Must be unique; passage must occur once inside it. An incomplete_paragraph error supplies the full context to review before a corrected attempt. lineHint is not used in this mode."}
-            },"required":["filePath","passage","text"],"additionalProperties":false
-        })),
-    ].into_iter().map(|(name, description, schema)| {
-        Tool::new(name, description, schema.as_object().unwrap().clone())
-    }).collect()
+    tools()
+        .map(|tool| Tool::new(tool.name, tool.description, (tool.input)().as_object().unwrap().clone()))
+        .collect()
 }
 
 fn mcp_result(result: VerificationToolResult) -> CallToolResult {
@@ -436,7 +355,7 @@ impl ServerHandler for WorkspaceHandler {
         let arguments = Value::Object(request.arguments.unwrap_or_default());
         let execute = self.execute.clone();
         let token = scope.cancelled.clone();
-        if matches!(request.name.as_ref(), "ask_user" | "create_comment" | "read_pdf") {
+        if tools().any(|tool| tool.name == request.name && tool.waits_on_app) {
             // Renderer requests and questions can drop their wait on client cancellation.
             let result = tokio::select! {
                 biased;
@@ -468,6 +387,23 @@ impl ServerHandler for WorkspaceHandler {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+
+    #[test]
+    fn every_tool_is_defined_once_and_the_catalog_stays_small() {
+        let names = tool_names();
+        assert_eq!(
+            names,
+            ["compile", "diagnostics", "workspace_state", "render_page", "read_pdf", "ask_user", "list_comments", "edit_comment", "resolve_comment", "delete_comment", "create_comment"]
+        );
+        let catalog = serde_json::to_string(&tool_catalog()).unwrap();
+        // Sent with every turn. Rules for using a tool go in the session text
+        // or a skill; a description says what the tool does.
+        assert!(catalog.len() < 7_500, "{}", catalog.len());
+        for tool in tools() {
+            assert!(tool.description.len() < 600, "{}: {}", tool.name, tool.description.len());
+        }
+        eprintln!("catalog bytes: {}; session text bytes: {:?}", catalog.len(), [crate::agent_prompt::Provider::Claude, crate::agent_prompt::Provider::Codex, crate::agent_prompt::Provider::Pi].map(|p| crate::agent_prompt::system_prompt(p).len()));
+    }
 
     #[tokio::test]
     async fn model_metadata_is_snapshotted_per_turn() {
@@ -767,8 +703,7 @@ pub(crate) mod tests {
             backend: crate::latex::CompilerBackend::Latexmk,
             engine: crate::latex::TexEngine::XeLaTeX,
             auto_engine: false,
-            root_folder: String::new(),
-        };
+            root_folder: String::new(), main_file_chosen: false };
         let second = connection
             .begin_turn("/draft-b".into(), Some(context.clone()))
             .unwrap();

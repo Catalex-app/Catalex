@@ -29,6 +29,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm branding:check
       - run: pnpm version:check
+      - run: pnpm guide:check
       - run: pnpm exec biome ci
       - run: node --test scripts/*.test.mjs
       - name: Check release tag and changelog
@@ -74,6 +75,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm branding:check
       - run: pnpm version:check
+      - run: pnpm guide:check
       - run: pnpm --filter @catalex/desktop-sidecar typecheck
       - run: pnpm --filter @catalex/desktop-sidecar test
       - run: pnpm --filter @catalex/desktop electron:typecheck

@@ -6,6 +6,8 @@ Open a source file and start writing. Catalex saves edits automatically after a 
 
 Choose the main `.tex` file that brings the document together, then click **Recompile** or press **⌘Enter** in the editor. In a project with several files, compile the root document rather than an included section. The preview's root controls let you work with more than one document in a project.
 
+The arrow next to **Recompile** opens **Compilation options**. **LaTeX root** is the folder the compiler runs in; it starts as the project folder. **Main file** is the document that is compiled; **Auto** finds it inside the root folder, and a file you choose takes precedence over the open file. Both are saved per project. If a chosen folder or file is later missing, choose again here. An agent cannot change these settings; its compile tool uses the same ones.
+
 Catalex supports **LaTeXmk** with your local TeX installation and the bundled **Tectonic** backend. Choose defaults in **Settings → Rendering**, and use the compilation options for the current document. LaTeXmk supports **pdfLaTeX**, **XeLaTeX**, and **LuaLaTeX**; Tectonic uses a XeTeX-based engine. **Auto** engine selection uses the document's engine hints. An explicit choice takes precedence, and Catalex remembers the choice for that root document.
 
 Automatic compilation is set per project. Change its default for new projects in Rendering settings. For a large paper, turning it off and recompiling when ready can keep editing more responsive.

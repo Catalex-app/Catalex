@@ -43,7 +43,7 @@ if (args[0] === process.env.TEST_FAIL_COMMAND) process.exit(7);
 test("native build failure stops packaging and preserves the exit status", (t) => {
   const { result, commands } = runBuild(t, "build", "build:native");
   assert.equal(result.status, 7);
-  assert.equal(commands.length, 3);
+  assert.equal(commands.length, 4);
   assert.ok(!commands.flat().includes("electron-builder"));
 });
 

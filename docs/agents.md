@@ -24,13 +24,13 @@ Type **`/` at the start of the input** to browse commands and skills for the sel
 
 The catalog brings together Catalex's writing skills and the skills discovered from your provider's project, user, and supported plugin locations. Claude and Codex use their respective `.claude/skills` and `.codex/skills` folders; Pi reports skills from its selected configuration. Providers expose different catalogs, so switching one can change the list.
 
-Catalex includes skills for **reviewing documents with passage-specific comments** and **compiling, fixing, and inspecting LaTeX changes**. Their displayed command names follow the provider's syntax. Add your request after selecting a skill. **`/compact`** asks the current provider to condense a long conversation; it does not start a new project.
+Catalex includes skills for **reviewing documents with passage-specific comments**, **compiling, fixing, and inspecting LaTeX changes**, and a **guide to the app itself**. The guide gives the agent this user guide and a list of settings only you can change, so it can tell you where a setting is instead of working around it. Their displayed command names follow the provider's syntax. Add your request after selecting a skill. **`/compact`** asks the current provider to condense a long conversation; it does not start a new project.
 
 ## Project instructions
 
 Use **System Prompts** in the sidebar to open or create the project's instruction files: `CLAUDE.md` for Claude, and `AGENTS.md` for Codex or Pi. These are ordinary project files you can review and share through Git.
 
-**Settings → Agent → Global Instructions** holds the app-wide instructions added to agent requests. Keep general writing preferences there and project-specific conventions in the project's instruction file. Provider configuration and skills continue to follow the selected agent's own rules.
+**Settings → Agent → Global Instructions** holds the app-wide instructions added to the first request of a conversation. Until you edit them they follow the app's default text, including after an update. Keep general writing preferences there and project-specific conventions in the project's instruction file. Provider configuration and skills continue to follow the selected agent's own rules.
 
 ## Conversations and provider switching
 
@@ -65,7 +65,7 @@ Catalex exposes a local **MCP** connection—the Model Context Protocol—to the
 
 | Tools | What the agent can do |
 | --- | --- |
-| `compile`, `diagnostics` | Build the active draft with the document's compiler settings and inspect actual errors |
+| `compile`, `diagnostics` | Build the active draft with the document's compiler settings and inspect actual errors; the result names the root folder and main file and says whether you chose them |
 | `render_page` | Inspect rendered PDF pages after compilation |
 | `workspace_state` | Read the active document root, compiler choice, and latest build status |
 | Comment tools | Read comments for one file or the whole project; create, edit, resolve, or delete passage-specific comments; resolve a comment once its proposed text is accepted |

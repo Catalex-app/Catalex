@@ -7,22 +7,11 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { CatalexMcpConnection } from "./catalex-mcp.js";
 
-export const allowedClaudeTools = [
+/** The app names its own MCP tools; they and web access need no prompt. */
+export const allowedClaudeTools = (tools: string[]) => [
   "WebFetch",
   "WebSearch",
-  ...[
-    "compile",
-    "diagnostics",
-    "workspace_state",
-    "render_page",
-    "read_pdf",
-    "ask_user",
-    "create_comment",
-    "list_comments",
-    "edit_comment",
-    "resolve_comment",
-    "delete_comment",
-  ].map((name) => `mcp__${APP_NAMESPACE}__${name}`),
+  ...tools.map((name) => `mcp__${APP_NAMESPACE}__${name}`),
 ];
 
 const deny = (message: string): PermissionResult => ({

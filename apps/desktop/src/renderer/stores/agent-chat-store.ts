@@ -44,6 +44,7 @@ import { invoke } from "@/lib/desktop/core";
 import { getLatexProjectOptions, useDocumentStore } from "./document-store";
 import type { AgentQuestion, SavedAgentQuestion } from "./agent-question-store";
 import {
+  buildInitialCompilerChoice,
   type ChatProvider,
   type ClaudeEffortLevel,
   type ClaudeModelId,
@@ -2574,27 +2575,36 @@ const createAgentChatState: StateCreator<AgentChatState> = (set, get) => ({
     }
     if (piSkillCommand) prompt = `${piSkillCommand} ${prompt}`;
     const verificationContext = (() => {
+      const { rootFolder, mainFile } = getLatexProjectOptions();
       const resolved = resolveCompileTarget(
         docState.activeFileId,
         docState.files,
       );
-      if (!resolved) return null;
+      if (!resolved && !rootFolder && !mainFile) return null;
       const rootFile = docState.files.find(
-        (file) => file.id === resolved.rootId,
+        (file) => file.id === resolved?.rootId,
       );
       const detectedEngine = rootFile?.content
         ? detectTexEngineFromContent(rootFile.content)
         : null;
-      const { backend, engine, autoEngine } =
-        settings.initializeCompilerChoiceForRoot(
-          projectPath,
-          resolved.rootId,
-          detectedEngine,
-        );
+      const { backend, engine, autoEngine } = resolved
+        ? settings.initializeCompilerChoiceForRoot(
+            projectPath,
+            resolved.rootId,
+            detectedEngine,
+          )
+        : (mainFile &&
+            settings.getCompilerChoiceForRoot(projectPath, mainFile)) ||
+          buildInitialCompilerChoice(
+            settings.compilerBackend,
+            settings.compilerEngine,
+          );
       return {
-        rootId: resolved.rootId,
-        targetPath: resolved.targetPath,
-        rootFolder: getLatexProjectOptions().rootFolder,
+        // Keep the settings for diagnostics even when no file can be compiled.
+        rootId: resolved?.rootId ?? "",
+        targetPath: resolved?.targetPath ?? mainFile ?? "",
+        rootFolder,
+        mainFileChosen: Boolean(mainFile),
         backend,
         engine,
         autoEngine,

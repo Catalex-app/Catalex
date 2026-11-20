@@ -38,6 +38,7 @@ function run(...args) {
 
 run("branding:check");
 run("version:check");
+run("guide:check");
 run("build:native");
 run("build:claude-sidecar");
 run("--filter=@catalex/desktop", "electron:typecheck");

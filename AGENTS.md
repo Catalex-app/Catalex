@@ -37,6 +37,7 @@ Subissues require the existing non-build checks. Parent and standalone completio
 - Verify frontend TypeScript and production Vite output with `npx --yes corepack pnpm -C apps/desktop build`.
 - For parent and standalone completion, run `npx --yes corepack pnpm build:desktop` and `npx --yes corepack pnpm package:desktop` for final verification. For stable releases, use the signed packaging command below instead of `package:desktop`.
 - Verify Electron main/preload types with `npx --yes corepack pnpm -C apps/desktop electron:typecheck`. Browser harnesses do not establish native IPC, subprocess, or packaged-resource behavior; check the actual Electron application for changes to those surfaces.
+- Set `CATALEX_TEST_BACKGROUND_WINDOWS=1` when running the real Electron application for checks, so its windows open on a secondary display without taking focus. See `docs/testing/README.md`.
 - For UI changes, inspect rendered behavior and visual fit yourself before asking the user to verify. Code checks and builds alone are insufficient. Prefer Playwright against Vite; use Computer Use only when explicitly requested.
 - During visual iteration, skip repeated full production builds before user checks unless diagnosing compile, import, or runtime issues.
 - If rendered checks are blocked, explain exactly why, report lighter checks run, and ask the user to verify manually.

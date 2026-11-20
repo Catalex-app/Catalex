@@ -1,3 +1,4 @@
+mod agent_prompt;
 mod agent_questions;
 mod agent_workspace;
 mod branding;

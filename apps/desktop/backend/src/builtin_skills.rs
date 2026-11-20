@@ -2,7 +2,7 @@ use crate::branding::PRODUCT_NAME;
 use std::path::{Path, PathBuf};
 use crate::host::WindowContext;
 
-pub const NAMES: &[&str] = &["catalex-verify-latex", "review-document"];
+pub const NAMES: &[&str] = &["catalex-verify-latex", "review-document", "catalex-guide"];
 
 fn complete(root: &Path) -> bool {
     NAMES

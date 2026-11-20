@@ -1764,6 +1764,87 @@ pub async fn create_agent_comment(
     Ok(json!({"status":"created","filePath":input.file_path,"comment":change.after}))
 }
 
+
+fn list_comments_input() -> Value {
+    json!({"type": "object", "properties": {"filePath": {"type": "string", "description": "Project-relative source document path. Omit to list the whole project."}}, "additionalProperties": false})
+}
+fn edit_comment_input() -> Value {
+    json!({"type": "object", "properties": {"filePath": {"type": "string", "description": "Project-relative source document path"}, "id": {"type": "string", "minLength": 1}, "revision": {"type": "string", "minLength": 1}, "text": {"type": "string", "minLength": 1, "maxLength": 20000}}, "required": ["filePath", "id", "revision", "text"], "additionalProperties": false})
+}
+fn resolve_comment_input() -> Value {
+    json!({"type": "object", "properties": {"filePath": {"type": "string", "description": "Project-relative source document path"}, "id": {"type": "string", "minLength": 1}, "revision": {"type": "string", "minLength": 1}, "resolved": {"type": "boolean", "default": true, "description": "true resolves the comment; false reopens it"}, "when": {"type": "string", "enum": ["now", "accepted"], "default": "now", "description": "now changes the status directly; accepted resolves it once the user accepts this draft's edits to the file"}}, "required": ["filePath", "id", "revision"], "additionalProperties": false})
+}
+fn delete_comment_input() -> Value {
+    json!({"type": "object", "properties": {"filePath": {"type": "string", "description": "Project-relative source document path"}, "id": {"type": "string", "minLength": 1}, "revision": {"type": "string", "minLength": 1}}, "required": ["filePath", "id", "revision"], "additionalProperties": false})
+}
+fn create_comment_input() -> Value {
+    json!({
+            "type":"object","properties":{
+                "filePath":{"type":"string","description":"Project-relative document path"},
+                "passage":{"type":"string","minLength":1,"maxLength":20000},
+                "lineHint":{"type":"integer","minimum":1},
+                "pdf":{"type":"object","description":"Standalone PDFs only: the page and fingerprint from read_pdf. Quote a unique passage from that page and omit lineHint and reviewedParagraph. The app computes the highlight.","properties":{"page":{"type":"integer","minimum":1},"fingerprint":{"type":"string","pattern":"^[a-f0-9]{40}$"}},"required":["page","fingerprint"],"additionalProperties":false},
+                "text":{"type":"string","minLength":1,"maxLength":20000},
+                "reviewedParagraph":{"type":"string","minLength":1,"maxLength":20000,"description":"Only after rereading changed source: the exact, complete blank-line-delimited source block(s) around the passage, including adjoining section or command lines when no blank line separates them, without outer blank lines. Must be unique and contain the passage once. An incomplete_paragraph error returns the full context to use. lineHint is not used."}
+            },"required":["filePath","passage","text"],"additionalProperties":false
+        })
+}
+
+fn run_manage_comment(call: crate::workspace_mcp::ToolCall) -> crate::workspace_mcp::ToolFuture {
+    Box::pin(async move {
+        crate::workspace_mcp::tool_result(
+            manage_agent_comment(&call.window, &call.source_root, &call.scope.project_path, &call.tab_id, call.name, call.arguments, &call.scope.cancelled).await,
+        )
+    })
+}
+
+fn run_create_comment(call: crate::workspace_mcp::ToolCall) -> crate::workspace_mcp::ToolFuture {
+    Box::pin(async move {
+        crate::workspace_mcp::tool_result(
+            create_agent_comment(&call.window, &call.source_root, &call.scope.project_path, &call.tab_id, &call.origin, call.arguments, &call.scope.cancelled, &call.scope.review_choice).await,
+        )
+    })
+}
+
+/// Reading and changing comments. The rules for using these are in the session
+/// text (`agent_prompt`) and the review skill, not repeated per tool.
+pub(crate) const TOOLS: &[crate::workspace_mcp::ToolDef] = &[
+    crate::workspace_mcp::ToolDef {
+        name: "list_comments",
+        description: "List human and agent comments, including resolved ones, with the ID and revision each change needs. With filePath: one document. Without it: every commented document in the project; in a large project some files report only a count, so list those by filePath. resolvesOnAcceptance marks a comment you asked to resolve on acceptance.",
+        input: list_comments_input,
+        waits_on_app: false,
+        run: run_manage_comment,
+    },
+    crate::workspace_mcp::ToolDef {
+        name: "edit_comment",
+        description: "Change the text of a comment. Keeps its anchor and author. Needs the comment's current revision from list_comments.",
+        input: edit_comment_input,
+        waits_on_app: false,
+        run: run_manage_comment,
+    },
+    crate::workspace_mcp::ToolDef {
+        name: "resolve_comment",
+        description: "Resolve or reopen a comment; resolved defaults to true. when \"now\" applies directly. when \"accepted\" keeps the comment open until the user accepts every edit this draft proposes in that file; a rejected or rewritten edit, or a comment the user changes first, leaves it open, and resolved false withdraws the request. Needs the comment's current revision from list_comments.",
+        input: resolve_comment_input,
+        waits_on_app: false,
+        run: run_manage_comment,
+    },
+    crate::workspace_mcp::ToolDef {
+        name: "delete_comment",
+        description: "Delete a comment. Needs the comment's current revision from list_comments.",
+        input: delete_comment_input,
+        waits_on_app: false,
+        run: run_manage_comment,
+    },
+    crate::workspace_mcp::ToolDef {
+        name: "create_comment",
+        description: "Add an agent comment on an exact passage. It is saved at once, independently of the draft review. Text files: lineHint is the passage's 1-based start line in the draft; if the draft differs from the user's file, the passage's whole paragraph must still be exact and unique there. A missing or conflicting anchor opens the app's own choice for the user and waits; a review_decision reply means nothing was saved, and the review-document skill says how to continue. Standalone PDFs: pass pdf with the page and fingerprint from read_pdf.",
+        input: create_comment_input,
+        waits_on_app: true,
+        run: run_create_comment,
+    },
+];
 #[cfg(test)]
 mod tests {
     #[test]

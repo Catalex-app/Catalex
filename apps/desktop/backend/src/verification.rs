@@ -22,14 +22,25 @@ const RENDER_TIMEOUT: Duration = Duration::from_secs(45);
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VerificationContext {
+    /// Empty when the selected compilation settings could not resolve a file.
     pub root_id: String,
     pub target_path: String,
     #[serde(default)]
     pub root_folder: String,
+    /// The user picked the main file in Compilation options; otherwise the app
+    /// found it. A root folder is the user's choice whenever it is not empty.
+    #[serde(default)]
+    pub main_file_chosen: bool,
     pub backend: crate::latex::CompilerBackend,
     pub engine: crate::latex::TexEngine,
     #[serde(default)]
     pub auto_engine: bool,
+}
+
+impl VerificationContext {
+    fn has_unresolved_selection(&self) -> bool {
+        self.root_id.is_empty() && (self.main_file_chosen || !self.root_folder.is_empty())
+    }
 }
 
 #[derive(Clone, Debug, serde::Serialize)]
@@ -153,6 +164,12 @@ fn tex_engine_name(engine: crate::latex::TexEngine) -> &'static str {
     }
 }
 
+// A failed build often comes from these two settings, which only the user
+// changes. Say which ones are the user's own choice.
+fn chosen_by_user(context: &VerificationContext) -> Value {
+    json!({"rootFile": context.main_file_chosen, "rootFolder": !context.root_folder.is_empty()})
+}
+
 fn success(payload: Value) -> VerificationToolResult {
     VerificationToolResult {
         success: true,
@@ -272,6 +289,16 @@ fn validate_project_scope(
     let Some(context) = context else {
         return Ok(canonical_project.to_string_lossy().to_string());
     };
+    if context.has_unresolved_selection() {
+        return Err(VerificationError {
+            code: "missing_root",
+            message: if context.main_file_chosen {
+                "The chosen LaTeX main file could not be resolved with the current compilation settings".into()
+            } else {
+                "No compilable LaTeX main file was found in the chosen root folder".into()
+            },
+        });
+    }
     if context.root_id.is_empty() || context.root_id.len() > 4_096 {
         return Err(VerificationError {
             code: "invalid_root",
@@ -504,6 +531,8 @@ async fn compile(
             let payload = json!({
                 "status": "success",
                 "rootFile": context.target_path,
+                "rootFolder": context.root_folder,
+                "chosenByUser": chosen_by_user(context),
                 "backend": backend,
                 "engine": engine,
                 "actualEngine": result.actual_engine,
@@ -521,6 +550,8 @@ async fn compile(
                 json!({
                     "status": "error",
                     "rootFile": context.target_path,
+                    "rootFolder": context.root_folder,
+                    "chosenByUser": chosen_by_user(context),
                     "backend": backend,
                     "engine": engine,
                     "actualEngine": actual_engine,
@@ -613,6 +644,17 @@ async fn diagnostics(window: &WindowContext, canonical_project: &str) -> Verific
     }))
 }
 
+fn workspace_root(context: &VerificationContext) -> Value {
+    json!({
+        "id": (!context.root_id.is_empty()).then_some(&context.root_id),
+        "file": (!context.target_path.is_empty()).then_some(&context.target_path),
+        "folder": context.root_folder,
+        "chosenByUser": chosen_by_user(context),
+        "backend": compiler_backend_name(context.backend),
+        "engine": if context.auto_engine { "auto" } else { tex_engine_name(context.engine) }
+    })
+}
+
 async fn workspace_state(
     window: &WindowContext,
     project_path: &str,
@@ -637,21 +679,11 @@ async fn workspace_state(
                 .map_or(0, Vec::len)
         })
     });
-    let root = context.map(|context| {
-        json!({
-            "id": context.root_id,
-            "file": context.target_path,
-            "folder": context.root_folder,
-            "backend": compiler_backend_name(context.backend),
-            "engine": if context.auto_engine { "auto" } else { tex_engine_name(context.engine) }
-        })
-    });
-
     success(json!({
         "status": "success",
         "server": { "id": "catalex", "name": concat!(env!("APP_BRAND_NAME"), " Workspace") },
         "projectPath": project_path,
-        "root": root,
+        "root": context.map(workspace_root),
         "lastCompile": last_compile_summary,
         "capabilities": ["compile", "diagnostics", "render_page", "workspace_state"],
         "limits": {
@@ -662,6 +694,31 @@ async fn workspace_state(
             "maxTextCharacters": MAX_TOOL_TEXT_CHARS
         }
     }))
+}
+
+fn compile_target_failure(
+    code: &str,
+    message: impl AsRef<str>,
+    context: Option<&VerificationContext>,
+) -> VerificationToolResult {
+    let mut result = failure(code, message);
+    result.payload["rootFile"] = json!(context
+        .map(|context| context.target_path.as_str())
+        .filter(|path| !path.is_empty()));
+    result.payload["rootFolder"] = json!(context.map_or("", |context| context.root_folder.as_str()));
+    result.payload["chosenByUser"] = context
+        .map(chosen_by_user)
+        .unwrap_or_else(|| json!({"rootFile": false, "rootFolder": false}));
+    result.payload["actualEngine"] = Value::Null;
+    if let Some(context) = context {
+        result.payload["backend"] = json!(compiler_backend_name(context.backend));
+        result.payload["engine"] = json!(if context.auto_engine {
+            "auto"
+        } else {
+            tex_engine_name(context.engine)
+        });
+    }
+    result
 }
 
 async fn render_pages(
@@ -792,8 +849,24 @@ pub async fn execute_tool(
     if cancelled.is_cancelled() {
         return failure("turn_cancelled", concat!(env!("APP_BRAND_NAME"), " agent turn cancelled"));
     }
+    // An unresolved selection describes a compile error. Diagnostics can still
+    // report the last build, and rendering handles it as a missing target.
+    let context = if matches!(tool, "diagnostics" | "render_page") {
+        context.filter(|context| !context.has_unresolved_selection())
+    } else {
+        context
+    };
     let canonical_project = match validate_project_scope(project_path, context) {
         Ok(project) => project,
+        Err(error) if tool == "compile" => {
+            return compile_target_failure(error.code, error.message, context);
+        }
+        Err(error) if tool == "workspace_state" => {
+            let mut result = failure(error.code, error.message);
+            result.payload["projectPath"] = json!(project_path);
+            result.payload["root"] = json!(context.map(workspace_root));
+            return result;
+        }
         Err(error) => return failure(error.code, error.message),
     };
 
@@ -803,9 +876,10 @@ pub async fn execute_tool(
                 return failure(error.code, error.message);
             }
             let Some(context) = context else {
-                return failure(
+                return compile_target_failure(
                     "missing_root",
                     concat!("The active ", env!("APP_BRAND_NAME"), " project does not contain a compilable LaTeX root"),
+                    None,
                 );
             };
             compile(window, project_path, tab_id, context, &canonical_project, cancelled).await
@@ -847,6 +921,62 @@ pub async fn execute_tool(
     }
 }
 
+
+use crate::workspace_mcp::{no_input, ToolCall, ToolDef, ToolFuture};
+
+fn run_build_tool(call: ToolCall) -> ToolFuture {
+    Box::pin(async move {
+        execute_tool(
+            &call.window,
+            &call.scope.project_path,
+            &call.tab_id,
+            call.scope.context.as_ref(),
+            call.name,
+            &call.arguments,
+            &call.scope.cancelled,
+        )
+        .await
+    })
+}
+
+fn render_page_input() -> Value {
+    json!({
+            "type":"object", "properties":{"pages":{"type":"array","items":{"type":"integer","minimum":1},"minItems":1,"maxItems":MAX_RENDER_PAGES,"uniqueItems":true}},
+            "required":["pages"],"additionalProperties":false
+        })
+}
+
+/// Building and inspecting the draft's LaTeX document.
+pub(crate) const TOOLS: &[ToolDef] = &[
+    ToolDef {
+        name: "compile",
+        description: "Compile this draft's LaTeX main file with the app's compiler settings. Returns the status, diagnostics, the main file and root folder that were used and whether the user chose them, the configured engine, and actualEngine (the engine that ran, or null if none ran).",
+        input: no_input,
+        waits_on_app: false,
+        run: run_build_tool,
+    },
+    ToolDef {
+        name: "diagnostics",
+        description: "Read the diagnostics and actualEngine of this draft's latest compile.",
+        input: no_input,
+        waits_on_app: false,
+        run: run_build_tool,
+    },
+    ToolDef {
+        name: "workspace_state",
+        description: "Read this draft's LaTeX main file and root folder (relative to projectPath; an empty folder is projectPath), whether the user chose them, the compiler settings, and the latest compile status.",
+        input: no_input,
+        waits_on_app: false,
+        run: run_build_tool,
+    },
+    ToolDef {
+        name: "render_page",
+        description: "Render one to three pages of this draft's latest compiled PDF as PNG images. Compile first if the document changed.",
+        input: render_page_input,
+        waits_on_app: false,
+        run: run_build_tool,
+    },
+];
 pub async fn resolve_verification_render_request(
     state: &VerificationServiceState,
     request_id: String,
@@ -866,17 +996,28 @@ pub async fn resolve_verification_render_request(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn results_say_which_compile_settings_are_the_users_own() {
+        let context = |folder: &str, chosen| VerificationContext {
+            root_id: "main.tex".into(), target_path: "main.tex".into(), root_folder: folder.into(),
+            main_file_chosen: chosen, backend: crate::latex::CompilerBackend::Tectonic,
+            engine: crate::latex::TexEngine::XeLaTeX, auto_engine: true,
+        };
+        assert_eq!(chosen_by_user(&context("", false)), json!({"rootFile": false, "rootFolder": false}));
+        assert_eq!(chosen_by_user(&context("paper", true)), json!({"rootFile": true, "rootFolder": true}));
+        // Requests from before this field existed mean an automatic main file.
+        let old: VerificationContext = serde_json::from_value(json!({"rootId":"a.tex","targetPath":"a.tex","backend":"tectonic","engine":"xelatex"})).unwrap();
+        assert!(!old.main_file_chosen);
+    }
     use std::fs;
     use tempfile::TempDir;
 
-    #[tokio::test]
-    #[ignore = "requires installed latexmk, pdfLaTeX, XeLaTeX and LuaLaTeX"]
-    async fn compile_reports_actual_engine_and_preserves_it_in_diagnostics() {
-        let dir = TempDir::new().unwrap();
-        let service = std::sync::Arc::new(crate::host::ServiceState {
-            data_dir: dir.path().join("data"),
-            cache_dir: dir.path().join("cache"),
-            resource_dir: dir.path().join("resources"),
+    fn test_window(dir: &Path) -> WindowContext {
+        let service = Arc::new(crate::host::ServiceState {
+            data_dir: dir.join("data"),
+            cache_dir: dir.join("cache"),
+            resource_dir: dir.join("resources"),
             claude: Default::default(),
             codex: Default::default(),
             pi: Default::default(),
@@ -887,7 +1028,80 @@ mod tests {
             questions: Default::default(),
             zotero: Default::default(),
         });
-        let window = WindowContext { service, id: "engine-test".into() };
+        WindowContext { service, id: "verification-test".into() }
+    }
+
+    #[tokio::test]
+    async fn compile_target_errors_report_settings_before_launching_a_compiler() {
+        let dir = TempDir::new().unwrap();
+        let window = test_window(dir.path());
+        let project = dir.path().to_str().unwrap();
+        fs::create_dir(dir.path().join("paper")).unwrap();
+        let cancelled = CancellationToken::new();
+        let chosen_file = VerificationContext {
+            root_id: String::new(),
+            target_path: "paper/main.tex".into(),
+            root_folder: "paper".into(),
+            main_file_chosen: true,
+            backend: crate::latex::CompilerBackend::Latexmk,
+            engine: crate::latex::TexEngine::Latex,
+            auto_engine: false,
+        };
+        let chosen_folder = VerificationContext {
+            target_path: String::new(),
+            root_folder: "missing".into(),
+            main_file_chosen: false,
+            ..chosen_file.clone()
+        };
+        let vanished_file = VerificationContext {
+            root_id: "paper/main.tex".into(),
+            ..chosen_file.clone()
+        };
+        for (context, code, file, chosen) in [
+            (&chosen_file, "missing_root", json!("paper/main.tex"), true),
+            (&chosen_folder, "missing_root", Value::Null, false),
+            (&vanished_file, "invalid_root", json!("paper/main.tex"), true),
+        ] {
+            let compile = execute_tool(
+                &window, project, "tab", Some(context), "compile", &json!({}), &cancelled,
+            ).await;
+            assert!(!compile.success);
+            assert_eq!(compile.payload["code"], code);
+            assert_eq!(compile.payload["rootFile"], file);
+            assert_eq!(compile.payload["rootFolder"], context.root_folder);
+            assert_eq!(compile.payload["chosenByUser"], json!({"rootFile": chosen, "rootFolder": true}));
+            assert_eq!(compile.payload.get("actualEngine"), Some(&Value::Null));
+            let state = execute_tool(
+                &window, project, "tab", Some(context), "workspace_state", &json!({}), &cancelled,
+            ).await;
+            assert!(!state.success);
+            assert_eq!(state.payload["code"], code);
+            assert_eq!(state.payload["root"]["file"], file);
+            assert_eq!(state.payload["root"]["folder"], context.root_folder);
+            assert_eq!(state.payload["root"]["chosenByUser"], compile.payload["chosenByUser"]);
+        }
+
+        let compile = execute_tool(
+            &window, project, "tab", None, "compile", &json!({}), &cancelled,
+        ).await;
+        assert!(!compile.success);
+        assert_eq!(compile.payload["code"], "missing_root");
+        assert_eq!(compile.payload.get("rootFile"), Some(&Value::Null));
+        assert_eq!(compile.payload["rootFolder"], "");
+        assert_eq!(compile.payload["chosenByUser"], json!({"rootFile": false, "rootFolder": false}));
+
+        let render = execute_tool(
+            &window, project, "tab", Some(&chosen_file), "render_page",
+            &json!({"pages": [1]}), &cancelled,
+        ).await;
+        assert_eq!(render.payload["code"], "missing_pdf");
+    }
+
+    #[tokio::test]
+    #[ignore = "requires installed latexmk, pdfLaTeX, XeLaTeX and LuaLaTeX"]
+    async fn compile_reports_actual_engine_and_preserves_it_in_diagnostics() {
+        let dir = TempDir::new().unwrap();
+        let window = test_window(dir.path());
         let project = dir.path().join("project");
         fs::create_dir(&project).unwrap();
         let project = project.to_str().unwrap();
@@ -902,7 +1116,7 @@ mod tests {
             let file = format!("{name}.tex");
             if !source.is_empty() { fs::write(Path::new(project).join(&file), source).unwrap(); }
             let context = VerificationContext { root_id: file.clone(), target_path: file.clone(),
-                root_folder: String::new(), backend: crate::latex::CompilerBackend::Latexmk, engine, auto_engine: auto };
+                root_folder: String::new(), backend: crate::latex::CompilerBackend::Latexmk, engine, auto_engine: auto, main_file_chosen: false };
             let result = compile(&window, project, "tab", &context, project, &cancelled).await;
             assert_eq!(result.success, succeeds, "{name}: {:?}", result.payload);
             assert_eq!(result.payload["actualEngine"], json!(expected), "{name}");
@@ -918,8 +1132,7 @@ mod tests {
         let context = VerificationContext {
             root_id: "paper/main.tex".into(), target_path: "paper/main.tex".into(),
             root_folder: "paper".into(), backend: crate::latex::CompilerBackend::Latexmk,
-            engine: crate::latex::TexEngine::Latex, auto_engine: false,
-        };
+            engine: crate::latex::TexEngine::Latex, auto_engine: false, main_file_chosen: false };
         assert!(validate_project_scope(project, Some(&context)).is_ok());
         let state = workspace_state(&window, project, project, Some(&context)).await;
         assert_eq!(state.payload["root"]["folder"], "paper");
@@ -987,14 +1200,12 @@ mod tests {
             root_folder: String::new(),
             backend: crate::latex::CompilerBackend::Latexmk,
             engine: crate::latex::TexEngine::XeLaTeX,
-            auto_engine: false,
-        };
+            auto_engine: false, main_file_chosen: false };
         assert!(validate_project_scope(project.path().to_str().unwrap(), Some(&valid)).is_ok());
 
         let invalid = VerificationContext {
             target_path: "../main.tex".to_string(),
-            ..valid
-        };
+            ..valid };
         assert_eq!(
             validate_project_scope(project.path().to_str().unwrap(), Some(&invalid))
                 .unwrap_err()

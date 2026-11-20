@@ -38,6 +38,8 @@ const env = {
   CATALEX_DEV_URL: `http://127.0.0.1:${vite.httpServer.address().port}`,
 };
 delete env.ELECTRON_RUN_AS_NODE;
+// This script checks behaviour that depends on the window being focused.
+delete env.CATALEX_TEST_BACKGROUND_WINDOWS;
 let app;
 const errors = [];
 async function ready(page) {

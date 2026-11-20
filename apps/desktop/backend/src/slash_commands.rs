@@ -11,6 +11,9 @@ const CATALEX_VERIFY_SKILL_CONTENT: &str = include_str!(
 const REVIEW_SKILL_CONTENT: &str = include_str!(
     "../resources/catalex/skills/review-document/SKILL.md"
 );
+const GUIDE_SKILL_CONTENT: &str = include_str!(
+    "../resources/catalex/skills/catalex-guide/SKILL.md"
+);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SlashCommand {
@@ -358,6 +361,11 @@ fn create_builtin_skill_commands(provider: Option<&str>) -> Vec<SlashCommand> {
             "review-document",
             "Review documents and leave exact-passage comments without rewriting.",
             REVIEW_SKILL_CONTENT,
+        ),
+        (
+            "catalex-guide",
+            "How the app works and where its settings are.",
+            GUIDE_SKILL_CONTENT,
         ),
     ]
     .into_iter()

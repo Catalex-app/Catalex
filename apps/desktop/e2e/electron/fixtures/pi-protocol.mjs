@@ -81,7 +81,10 @@ if (discovery && process.env.CATALEX_PI_MODELS) {
   assert.equal(flag("--provider"), "fixture");
   assert.equal(flag("--model"), "fixture-model");
   assert.equal(flag("--thinking"), "medium");
-  assert.match(flag("--append-system-prompt"), /Use the Catalex MCP tools/);
+  assert.match(
+    flag("--append-system-prompt"),
+    /MCP tools compile the draft[\s\S]*the catalex-guide skill/,
+  );
   const extension = await import(pathToFileURL(flag("--extension")).href);
   extension.default({
     registerMcpServer(name, config) {
@@ -203,11 +206,17 @@ async function prompt(message) {
     });
     send({ type: "auto_retry_end", success: true, attempt: 1 });
     const catalog = await rpc("tools/list");
-    assert.equal(catalog.tools.length, 10);
+    assert.equal(catalog.tools.length, 11);
     const workspace = await tool("workspace_state");
     assert.equal(workspace.value.root.file, "main.tex");
+    // Nothing was chosen in Compilation options for this project.
+    const detected = { rootFile: false, rootFolder: false };
+    assert.deepEqual(workspace.value.root.chosenByUser, detected);
     const compiled = await tool("compile");
     assert.equal(compiled.value.status, "success");
+    assert.equal(compiled.value.rootFile, "main.tex");
+    assert.equal(compiled.value.rootFolder, "");
+    assert.deepEqual(compiled.value.chosenByUser, detected);
     const rendered = await tool("render_page", { pages: [1] });
     const image = rendered.result.content.find(
       (block) => block.type === "image",

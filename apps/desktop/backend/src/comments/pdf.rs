@@ -331,3 +331,26 @@ pub(super) async fn create(
     checkpoint_first_comment(window, source_root, &input.file_path, first, true);
     Ok(json!({"status":"created","filePath":input.file_path,"comment":change.after}))
 }
+
+fn read_pdf_input() -> Value {
+    json!({
+            "type":"object","properties":{"filePath":{"type":"string"},"pages":{"type":"array","items":{"type":"integer","minimum":1},"minItems":1,"maxItems":3,"uniqueItems":true}},"required":["filePath","pages"],"additionalProperties":false
+        })
+}
+
+fn run_read_pdf(call: crate::workspace_mcp::ToolCall) -> crate::workspace_mcp::ToolFuture {
+    Box::pin(async move {
+        crate::workspace_mcp::tool_result(
+            read(&call.window, &call.source_root, &call.scope.project_path, &call.tab_id, call.arguments, &call.scope.cancelled).await,
+        )
+    })
+}
+
+/// Reading standalone PDFs in the project.
+pub(crate) const TOOLS: &[crate::workspace_mcp::ToolDef] = &[crate::workspace_mcp::ToolDef {
+    name: "read_pdf",
+    description: "Read selectable text from one to three pages of a standalone project PDF. Returns pageCount and the PDF's fingerprint for create_comment's pdf field. The draft's copy of the PDF must be identical to the user's file. Scanned pages may have no text; there is no OCR. This does not read the compiled LaTeX preview.",
+    input: read_pdf_input,
+    waits_on_app: true,
+    run: run_read_pdf,
+}];

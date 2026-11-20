@@ -236,6 +236,59 @@ pub async fn ask(
     Ok(json!({"status":"answered", "question":request.question.question, "answer":answer}))
 }
 
+
+fn ask_user_input() -> Value {
+    json!({
+            "type":"object","properties":{
+                "permission":{"type":"boolean","description":"Whether this is a tool approval request with explicit choices only."},
+                "details":{"type":"string","description":"Optional full action details shown with the question.","maxLength":128000},
+                "question":{"type":"string","description":"One short, clear sentence asking for the user's decision.","minLength":1,"maxLength":2000},
+                "options":{"type":"array","minItems":2,"maxItems":4,"items":{"type":"object","properties":{
+                    "label":{"type":"string","description":"A few words identifying the choice. Put any necessary explanation in description.","minLength":1,"maxLength":120},
+                    "description":{"type":"string","description":"Optional explanation shown when hovering over the question mark. Usually one brief sentence; do not repeat the label or add unnecessary detail.","maxLength":500}
+                },"required":["label"],"additionalProperties":false}}
+            },"required":["question","options"],"additionalProperties":false
+        })
+}
+
+fn run_ask_user(call: crate::workspace_mcp::ToolCall) -> crate::workspace_mcp::ToolFuture {
+    Box::pin(async move {
+        let check = || {
+            crate::agent_workspace::validate_comment_scope(
+                &call.window.service,
+                &call.source_root,
+                &call.scope.project_path,
+                &call.tab_id,
+            )
+        };
+        let result = async {
+            check()?;
+            let answer = ask(
+                &call.window,
+                &call.tab_id,
+                &call.origin.session_id,
+                &call.source_root,
+                call.arguments.clone(),
+                &call.scope.cancelled,
+            )
+            .await?;
+            // The draft may have been settled while the question was open.
+            check()?;
+            Ok::<_, String>(answer)
+        }
+        .await;
+        crate::workspace_mcp::tool_result(result)
+    })
+}
+
+/// Questions to the user.
+pub(crate) const TOOLS: &[crate::workspace_mcp::ToolDef] = &[crate::workspace_mcp::ToolDef {
+    name: "ask_user",
+    description: "Ask the user one question with 2–4 choices in the app's UI; a custom answer is also allowed. Keep the question and choices simple, precise, and compact. Waits up to 10 minutes for the answer. Cancellation or expiry is not approval, and an answer does not bypass any tool's validation.",
+    input: ask_user_input,
+    waits_on_app: true,
+    run: run_ask_user,
+}];
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -898,6 +898,46 @@ describe("Multi-tab merge triggers", () => {
   });
 
   describe("Codex app-server thread routing", () => {
+    it.each([
+      { mainFile: "paper/missing.tex", targetPath: "paper/missing.tex" },
+      { mainFile: null, targetPath: "" },
+    ])("keeps compile settings when the selected target is missing ($mainFile)", async ({
+      mainFile,
+      targetPath,
+    }) => {
+      vi.mocked(getLatexProjectOptions).mockReturnValue({
+        rootFolder: "paper",
+        mainFile,
+      });
+      useSettingsStore.setState({
+        compilerBackend: "latexmk",
+        compilerEngine: "auto",
+        compilerChoicesByRoot: {},
+      });
+      useAgentChatStore.setState((state) => ({
+        selectedProvider: "codex",
+        tabs: state.tabs.map((tab) => ({ ...tab, provider: "codex" })),
+      }));
+
+      await useAgentChatStore.getState().sendPrompt("Why won't this compile?");
+
+      expect(invoke).toHaveBeenCalledWith(
+        "execute_codex_code",
+        expect.objectContaining({
+          compileContext: {
+            rootId: "",
+            targetPath,
+            rootFolder: "paper",
+            mainFileChosen: Boolean(mainFile),
+            backend: "latexmk",
+            engine: "pdflatex",
+            autoEngine: undefined,
+          },
+        }),
+      );
+      expect(useSettingsStore.getState().compilerChoicesByRoot).toEqual({});
+    });
+
     it("passes the resolved root and active compiler choice to Codex", async () => {
       vi.mocked(getLatexProjectOptions).mockReturnValue({
         rootFolder: "paper",
@@ -948,6 +988,7 @@ describe("Multi-tab merge triggers", () => {
             rootId: "paper/main.tex",
             targetPath: "paper/main.tex",
             rootFolder: "paper",
+            mainFileChosen: true,
             backend: "latexmk",
             engine: "lualatex",
             autoEngine: undefined,
@@ -1054,6 +1095,7 @@ describe("Multi-tab merge triggers", () => {
             rootId: "paper.tex",
             targetPath: "paper.tex",
             rootFolder: "",
+            mainFileChosen: false,
             backend: "latexmk",
             engine: "xelatex",
             autoEngine: undefined,

@@ -24,5 +24,8 @@ jobs:
       - name: Version sync check
         run: pnpm version:check
 
+      - name: Agent guide sync check
+        run: pnpm guide:check
+
       - name: Biome CI
         run: pnpm exec biome ci
