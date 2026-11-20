@@ -94,6 +94,7 @@ import {
   useSyncExternalStore,
 } from "react";
 import { Button } from "@/components/ui/button";
+import { invoke } from "@/lib/desktop/core";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { broadcastSettingsChanged } from "@/components/settings/solar-mode-effect";
@@ -1004,6 +1005,24 @@ export function SettingsWindow() {
     null,
   );
   const globalPromptInput = useRef<HTMLTextAreaElement>(null);
+  // What the app itself tells every chat, read-only. Loaded only when shown.
+  const [appInstructionsOpen, setAppInstructionsOpen] = useState(false);
+  const [appInstructions, setAppInstructions] = useState<{
+    provider: DefaultAgent;
+    text: string;
+  } | null>(null);
+  useEffect(() => {
+    if (!appInstructionsOpen) return;
+    let current = true;
+    invoke<string>("agent_app_instructions", { provider: agentProvider })
+      .catch(() => "The app instructions could not be loaded.")
+      .then((text) => {
+        if (current) setAppInstructions({ provider: agentProvider, text });
+      });
+    return () => {
+      current = false;
+    };
+  }, [appInstructionsOpen, agentProvider]);
   const editorColorScheme = useSettingsStore((s) => s.editorColorScheme);
   const setEditorColorScheme = useSettingsStore((s) => s.setEditorColorScheme);
   const editorFontSize = useSettingsStore((s) => s.editorFontSize);
@@ -1644,6 +1663,13 @@ export function SettingsWindow() {
           ...getOptionSearchText(AGENT_MODE_OPTIONS),
         ],
         searchOptions: getSearchOptions(AGENT_MODE_OPTIONS),
+      },
+      {
+        id: "agent-app-instructions",
+        section: "agent",
+        label: "App instructions",
+        valueLabel: "View",
+        searchText: ["App instructions", "System Prompt", "Agent Prompt"],
       },
       {
         id: "agent-global-instructions",
@@ -2769,11 +2795,63 @@ export function SettingsWindow() {
                               />
                             </SettingsRow>
                           </SettingsGroup>
+                          <div
+                            data-settings-row-id="agent-app-instructions"
+                            className="scroll-mt-4"
+                          >
+                            <SettingsGroup
+                              title="App instructions"
+                              titleAction={
+                                <div className="flex flex-1 items-center gap-1.5 pl-1.5">
+                                  <Hint content="Sent by the app to every chat. Not editable.">
+                                    <Button
+                                      variant="ghost"
+                                      size="icon-xs"
+                                      className="size-5 rounded-full text-muted-foreground"
+                                      aria-label="About app instructions"
+                                    >
+                                      <CircleHelpIcon className="size-3.5" />
+                                    </Button>
+                                  </Hint>
+                                  <div className="ml-auto flex items-center gap-2">
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      className="h-7 text-xs"
+                                      aria-expanded={appInstructionsOpen}
+                                      aria-label={`${appInstructionsOpen ? "Hide" : "Show"} app instructions`}
+                                      onClick={() =>
+                                        setAppInstructionsOpen((open) => !open)
+                                      }
+                                    >
+                                      {appInstructionsOpen ? "Hide" : "Show"}
+                                    </Button>
+                                  </div>
+                                </div>
+                              }
+                            >
+                              {appInstructionsOpen ? (
+                                <div className="pt-2">
+                                  <Textarea
+                                    aria-label="App instructions"
+                                    className="max-h-96 min-h-36 resize-y border-border/45 bg-transparent font-mono text-xs shadow-none focus-visible:border-border/45 focus-visible:ring-0 dark:bg-transparent"
+                                    readOnly
+                                    value={
+                                      appInstructions?.provider ===
+                                      agentProvider
+                                        ? appInstructions.text
+                                        : ""
+                                    }
+                                  />
+                                </div>
+                              ) : null}
+                            </SettingsGroup>
+                          </div>
                           <SettingsGroup
                             title="Global Instructions"
                             titleAction={
                               <div className="flex flex-1 items-center gap-1.5 pl-1.5">
-                                <Hint content="Applied when a new chat starts.">
+                                <Hint content="Added after the app instructions.">
                                   <Button
                                     variant="ghost"
                                     size="icon-xs"

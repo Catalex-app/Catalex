@@ -110,6 +110,9 @@ async fn dispatch(
         "slash_command_get" => {
             result(slash_commands::slash_command_get(argument(&args, "commandId")?).await)
         }
+        "agent_app_instructions" => result(agent_prompt::app_instructions(
+            &argument::<String>(&args, "provider")?,
+        )),
         "list_claude_models" => result(claude::list_claude_models(window).await),
         "read_claude_subscription_usage" => {
             result(claude::read_claude_subscription_usage(window).await)

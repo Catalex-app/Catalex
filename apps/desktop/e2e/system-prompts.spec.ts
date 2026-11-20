@@ -133,7 +133,7 @@ test("Global instructions require Edit and Save, preserve drafts, and synchroniz
   });
   await help.hover();
   await expect(page.getByRole("tooltip")).toHaveText(
-    "Applied when a new chat starts.",
+    "Added after the app instructions.",
   );
   const headingBounds = await section
     .getByText("Global Instructions", { exact: true })
@@ -163,7 +163,9 @@ test("Global instructions require Edit and Save, preserve drafts, and synchroniz
     .boundingBox();
   const boxBounds = await instructions.boundingBox();
   expect(boxBounds!.width).toBeCloseTo(rowBounds!.width, 0);
+  // The default is empty and is never saved, so it follows the app.
   const initial = await instructions.inputValue();
+  expect(initial).toBe("");
   const saved = () =>
     page.evaluate(
       () =>
@@ -193,7 +195,7 @@ test("Global instructions require Edit and Save, preserve drafts, and synchroniz
     ),
   ).toBe("0 0 #0000");
   await instructions.fill("Unsaved instructions in the first window.");
-  expect(await saved()).toBe(initial);
+  expect(await saved()).toBeUndefined();
   await expect(other.getByLabel("Global agent instructions")).toHaveValue(
     initial,
   );
@@ -224,15 +226,14 @@ test("Global instructions require Edit and Save, preserve drafts, and synchroniz
     .getByRole("button", { name: "Edit global instructions", exact: true })
     .click();
   await section.getByRole("button", { name: "Reset", exact: true }).click();
-  await expect(instructions).toHaveValue(/Project Guidelines/);
+  await expect(instructions).toHaveValue("");
   expect(await saved()).toBe("Unsaved instructions in the first window.");
   await page
     .getByRole("button", { name: "Save global instructions", exact: true })
     .click();
   await expect(instructions).toHaveJSProperty("readOnly", true);
-  await expect(other.getByLabel("Global agent instructions")).toHaveValue(
-    /Project Guidelines/,
-  );
+  await expect(other.getByLabel("Global agent instructions")).toHaveValue("");
+  await expect.poll(saved).toBeUndefined();
   await instructions.scrollIntoViewIfNeeded();
   await page.screenshot({
     path: "test-results/global-instructions-readonly.png",
@@ -246,9 +247,7 @@ test("Global instructions require Edit and Save, preserve drafts, and synchroniz
     "readOnly",
     true,
   );
-  await expect(page.getByLabel("Global agent instructions")).toHaveValue(
-    /Project Guidelines/,
-  );
+  await expect(page.getByLabel("Global agent instructions")).toHaveValue("");
   await other.close();
   await page.evaluate(() => localStorage.setItem("theme", "dark"));
   await page.reload();
@@ -268,4 +267,43 @@ test("Global instructions require Edit and Save, preserve drafts, and synchroniz
   await page.screenshot({
     path: "test-results/global-instructions-edit-dark.png",
   });
+});
+
+test("App instructions are collapsed, read-only, and follow the provider tab", async ({
+  page,
+}) => {
+  await page.goto("/?debug=markdown-settings&section=agent");
+  const row = page.locator('[data-settings-row-id="agent-app-instructions"]');
+  await expect(
+    row.getByText("App instructions", { exact: true }),
+  ).toBeVisible();
+  await row
+    .getByRole("button", { name: "About app instructions", exact: true })
+    .hover();
+  await expect(page.getByRole("tooltip")).toHaveText(
+    "Sent by the app to every chat. Not editable.",
+  );
+  const text = page.getByLabel("App instructions", { exact: true });
+  await expect(text).toHaveCount(0);
+
+  const show = row.getByRole("button", {
+    name: "Show app instructions",
+    exact: true,
+  });
+  await expect(show).toHaveAttribute("aria-expanded", "false");
+  await show.click();
+  await expect(text).toHaveJSProperty("readOnly", true);
+  await page.getByRole("tab", { name: "Codex", exact: true }).click();
+  await expect(text).toHaveValue(/for codex\./);
+  await page.getByRole("tab", { name: /Claude Code/ }).click();
+  await expect(text).toHaveValue(/for claude\./);
+  await text.scrollIntoViewIfNeeded();
+  await page.screenshot({ path: "test-results/app-instructions-open.png" });
+
+  await row
+    .getByRole("button", { name: "Hide app instructions", exact: true })
+    .click();
+  await expect(text).toHaveCount(0);
+  await row.scrollIntoViewIfNeeded();
+  await page.screenshot({ path: "test-results/app-instructions-closed.png" });
 });

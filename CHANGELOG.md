@@ -6,7 +6,7 @@
 - Markdown selections: Show preview text in the existing chat context badge, update and clear live selections, and retain pinned passages with their source file.
 - Agent drafts: No longer compile every finished draft before review or automatic apply. Compile errors appear in the preview as usual, and a failed compile no longer replaces the chat input. The agent can still compile with its own tool.
 - Agent comments: An agent can ask for a comment to be resolved once you accept the text it proposes for that file, instead of leaving it open after the review. It can also list the comments of the whole project in one call.
-- Agent guide: Agents now have a built-in guide to the app, with this user guide and a list of the settings only you can change, such as the LaTeX root folder and main file. Compile results name both and say whether you chose them. All three providers start from the same short instructions, and the default Global Instructions follow the app until you edit them.
+- Agent guide: Agents now have a built-in guide to the app, with this user guide and a list of the settings only you can change, such as the LaTeX root folder and main file. Compile results name both and say whether you chose them. All three providers start from the same short instructions. Global Instructions are now empty by default, because the app already tells agents how it works; a default saved by an earlier release is cleared, and instructions you edited are kept. **Settings → Agent → App instructions** shows, read-only, what the app sends each provider.
 - LaTeX root: A section file compiles with the root that includes it, and a non-LaTeX active file uses the project root instead of the first `.tex` file in the list.
 
 ## [0.3.0]

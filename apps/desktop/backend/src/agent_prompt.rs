@@ -60,6 +60,17 @@ pub(crate) fn system_prompt(provider: Provider) -> &'static str {
     })
 }
 
+/// The session text for a provider named by the renderer, shown read-only in
+/// Settings so the user sees what every chat already gets.
+pub(crate) fn app_instructions(provider: &str) -> Result<&'static str, String> {
+    match provider {
+        "claude" => Ok(system_prompt(Provider::Claude)),
+        "codex" => Ok(system_prompt(Provider::Codex)),
+        "pi" => Ok(system_prompt(Provider::Pi)),
+        other => Err(format!("Unknown agent provider: {other}")),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -78,5 +89,13 @@ mod tests {
         assert!(texts[0].contains("the catalex:catalex-guide skill") && texts[0].contains("TodoWrite"));
         assert!(texts[1].contains("$catalex-guide") && texts[1].contains("request_user_input"));
         assert!(texts[2].contains("the catalex-guide skill") && !texts[2].contains("instead of"));
+    }
+
+    #[test]
+    fn settings_show_the_text_each_provider_gets() {
+        assert_eq!(app_instructions("claude").unwrap(), system_prompt(Provider::Claude));
+        assert_eq!(app_instructions("codex").unwrap(), system_prompt(Provider::Codex));
+        assert_eq!(app_instructions("pi").unwrap(), system_prompt(Provider::Pi));
+        assert!(app_instructions("other").is_err());
     }
 }

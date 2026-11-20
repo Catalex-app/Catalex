@@ -30,7 +30,7 @@ Catalex includes skills for **reviewing documents with passage-specific comments
 
 Use **System Prompts** in the sidebar to open or create the project's instruction files: `CLAUDE.md` for Claude, and `AGENTS.md` for Codex or Pi. These are ordinary project files you can review and share through Git.
 
-**Settings → Agent → Global Instructions** holds the app-wide instructions added to the first request of a conversation. Until you edit them they follow the app's default text, including after an update. Keep general writing preferences there and project-specific conventions in the project's instruction file. Provider configuration and skills continue to follow the selected agent's own rules.
+**Settings → Agent → Global Instructions** holds the app-wide instructions added to the first request of a conversation. They are empty by default: the app already tells every agent how it works, so use them only for your own preferences. **App instructions**, just above, shows that text for the provider selected at the top of the page; it is read-only. Keep general writing preferences there and project-specific conventions in the project's instruction file. Provider configuration and skills continue to follow the selected agent's own rules.
 
 ## Conversations and provider switching
 

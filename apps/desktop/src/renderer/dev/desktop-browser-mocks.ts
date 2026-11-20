@@ -261,6 +261,8 @@ export function ensureDesktopBrowserMocks() {
         return { success: true, message: "Demo changes committed" };
       }
     }
+    if (cmd === "agent_app_instructions")
+      return `Demo app instructions for ${String(args?.provider)}.\nThe desktop app shows the text each provider gets.`;
     if (cmd === "check_codex_status" || cmd === "check_claude_status") {
       return {
         installed: true,
