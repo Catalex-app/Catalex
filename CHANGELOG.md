@@ -6,10 +6,14 @@
 
 ### TL;DR
 
-- Agents get a built-in guide to the app and one shared set of instructions. See them in **Settings → Agent → App instructions**.
-- Set the LaTeX root folder and main file for each project.
-- Agent reviews apply quickly in large projects and keep your own edits.
-- Comments reconnect to moved or replaced PDFs, long papers with comments stay responsive, and agents can resolve a comment once you accept their text.
+Just went through the ICLR rebuttal, and it's time to bring some upgrades!
+
+- Set the LaTeX root folder and main file for each project, from the dropdown next to the Recompile button.
+- Greatly speed up applying approved agent changes in large projects.
+- Several performance improvements around comments.
+- Redesigned built-in guidance for agents, cutting the prompt text the app adds by up to 25%.
+
+One step closer to the one tool you need for writing your paper and your rebuttal!
 
 ### Full Changelog
 
