@@ -2,12 +2,30 @@
 
 ## [Unreleased]
 
+## [0.3.1]
+
+### TL;DR
+
+- Agents get a built-in guide to the app and one shared set of instructions. See them in **Settings → Agent → App instructions**.
+- Set the LaTeX root folder and main file for each project.
+- Agent reviews apply quickly in large projects and keep your own edits.
+- Comments reconnect to moved or replaced PDFs, long papers with comments stay responsive, and agents can resolve a comment once you accept their text.
+
+### Full Changelog
+
+- Agent guide: Agents now have a built-in guide to the app, with this user guide and a list of the settings only you can change, such as the LaTeX root folder and main file. Compile results name both and say whether you chose them. All three providers start from the same short instructions. Global Instructions are now empty by default, because the app already tells agents how it works; a default saved by an earlier release is cleared, and instructions you edited are kept. **Settings → Agent → App instructions** shows, read-only, what the app sends each provider.
+- LaTeX root and main file: Choose the folder the compiler runs in and the document that is compiled in **Compilation options**, next to **Recompile**. The choice is saved per project, shared by the preview, other windows, and agent drafts, and follows renames. A missing folder or file is reported instead of compiling a different document.
+- LaTeX root: A section file compiles with the root that includes it, and a non-LaTeX active file uses the project root instead of the first `.tex` file in the list.
+- Agent drafts: No longer compile every finished draft before review or automatic apply. Compile errors appear in the preview as usual, and a failed compile no longer replaces the chat input. The agent can still compile with its own tool.
+- Agent reviews: Applying a review decision no longer re-reads the whole project, so it stays fast in large projects. The draft view stays open between per-file decisions. Text you type in a draft file outside the agent's proposal is saved instead of discarded, and no longer makes a revision fail. A review shows the project's current version of files the agent did not change, including edits made while the agent worked.
+- Agent comments: An agent can ask for a comment to be resolved once you accept the text it proposes for that file, instead of leaving it open after the review. It can also list the comments of the whole project in one call.
+- Reconnecting comments: Comments on a PDF that was moved or renamed outside the app are found again by its content and keep their exact position. For a replaced PDF, each comment's quoted text is searched for again, and the dialog says how many could not be placed. Any readable text document can now be a reconnection target.
+- Long papers: Comment highlights on the PDF and comment handles in the editor no longer stall the window on a long paper. One change to comments no longer makes every open view read the project's comments again.
+- Memory: PDF comment selection and resize data are released when the interaction ends.
+- Automatic history: A project that contains a nested Git repository now gets history snapshots, so agent runs can start and accepted changes get an undo point. History maintenance no longer runs after every snapshot once history is over its storage limit.
+- Menus: A menu that loses its dialog releases keyboard and mouse input.
 - File selection: Keep five recent files in stable rows above the remaining alphabetical list, with project-specific history preserved across windows and restarts.
 - Markdown selections: Show preview text in the existing chat context badge, update and clear live selections, and retain pinned passages with their source file.
-- Agent drafts: No longer compile every finished draft before review or automatic apply. Compile errors appear in the preview as usual, and a failed compile no longer replaces the chat input. The agent can still compile with its own tool.
-- Agent comments: An agent can ask for a comment to be resolved once you accept the text it proposes for that file, instead of leaving it open after the review. It can also list the comments of the whole project in one call.
-- Agent guide: Agents now have a built-in guide to the app, with this user guide and a list of the settings only you can change, such as the LaTeX root folder and main file. Compile results name both and say whether you chose them. All three providers start from the same short instructions. Global Instructions are now empty by default, because the app already tells agents how it works; a default saved by an earlier release is cleared, and instructions you edited are kept. **Settings → Agent → App instructions** shows, read-only, what the app sends each provider.
-- LaTeX root: A section file compiles with the root that includes it, and a non-LaTeX active file uses the project root instead of the first `.tex` file in the list.
 
 ## [0.3.0]
 
