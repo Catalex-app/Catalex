@@ -8,6 +8,8 @@ Select a passage and use the comment action. The editor and previews show the sa
 
 Edit a comment as your feedback develops, resolve it when addressed, or reopen it when more work is needed. Deleting a comment is a separate action with confirmation. Attach a comment to chat when you want an agent to work on a specific concern.
 
+Choose a color in the selection toolbar, then click **Highlight** or **Comment** to use it. The toolbar remembers the last color you choose and shows the full palette on hover or keyboard focus. Click an existing highlight or comment, then choose a swatch to recolor it immediately. Use **Add comment** to write a note on a highlight, or save a human comment with blank text to turn it into a highlight. Highlights appear in comment navigation under their human comment number. Click **Remove highlight**, then **Delete?** to remove it. In the workspace, Undo restores the highlight. Highlights are excluded from chat attachments and agent tools.
+
 ## Keep comments with the text
 
 Catalex tracks comment locations as the source changes, including file renames made through the app. PDF feedback is linked back to source where a source location is available. A changed or removed passage may need attention rather than an automatic match to unrelated text.

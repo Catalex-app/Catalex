@@ -25,6 +25,7 @@ const artifacts = path.resolve(
 await fs.mkdir(artifacts, { recursive: true });
 const vite = await createServer({
   root: desktopRoot,
+  cacheDir: path.join(profile, "vite-cache"),
   configFile: path.join(desktopRoot, "vite.config.ts"),
   server: { host: "127.0.0.1", port: 0, hmr: false },
 });
@@ -46,25 +47,28 @@ async function ready(page) {
   await page.locator("#loading-screen").waitFor({ state: "hidden" });
   return page;
 }
-async function launch() {
+async function launch(filePath = "a/paper.pdf") {
   app = await electron.launch({ args: [desktopRoot], env });
   const page = await ready(await app.firstWindow());
-  await page.evaluate(async (project) => {
-    const { useOnboardingStore } = await import(
-      "/src/renderer/stores/onboarding-store.ts"
-    );
-    const { useDocumentStore } = await import(
-      "/src/renderer/stores/document-store.ts"
-    );
-    const { useSettingsStore } = await import(
-      "/src/renderer/stores/settings-store.ts"
-    );
-    useOnboardingStore.getState().finish();
-    useSettingsStore.setState({ defaultAutoCompile: false });
-    await useDocumentStore.getState().closeProject();
-    await useDocumentStore.getState().openProject(project);
-    useDocumentStore.getState().setActiveFile("a/paper.pdf");
-  }, project);
+  await page.evaluate(
+    async ({ project, filePath }) => {
+      const { useOnboardingStore } = await import(
+        "/src/renderer/stores/onboarding-store.ts"
+      );
+      const { useDocumentStore } = await import(
+        "/src/renderer/stores/document-store.ts"
+      );
+      const { useSettingsStore } = await import(
+        "/src/renderer/stores/settings-store.ts"
+      );
+      useOnboardingStore.getState().finish();
+      useSettingsStore.setState({ defaultAutoCompile: false });
+      await useDocumentStore.getState().closeProject();
+      await useDocumentStore.getState().openProject(project);
+      useDocumentStore.getState().setActiveFile(filePath);
+    },
+    { project, filePath },
+  );
   await expect(page.locator(".mupdf-text-layer").first()).toBeVisible({
     timeout: 15_000,
   });
@@ -79,10 +83,10 @@ async function stored(page) {
     });
   }, project);
 }
-async function selectPdfText(page) {
+async function selectPdfText(page, passage = "Your abstract here.") {
   const line = page
     .locator(".mupdf-text-layer text")
-    .filter({ hasText: "Your abstract here." })
+    .filter({ hasText: passage })
     .first();
   await line.scrollIntoViewIfNeeded();
   await page.getByTestId("pdf-scroll-container").focus();
@@ -408,9 +412,93 @@ try {
   await main.screenshot({
     path: path.join(artifacts, "native-pdf-comment-relinked.png"),
   });
+  const passage = "Related Work";
+  const toolbar = () => main.locator("[data-selection-toolbar]");
+  const popoutOpening = app.waitForEvent("window");
+  await main.evaluate(async () => {
+    const { openPanelWindow } = await import(
+      "/src/renderer/lib/panel-windows.ts"
+    );
+    openPanelWindow("editor", "duet");
+  });
+  const popout = await ready(await popoutOpening);
+  await selectPdfText(popout, passage);
+  const popoutToolbar = popout.locator("[data-selection-toolbar]");
+  await popoutToolbar.hover();
+  await popoutToolbar
+    .getByRole("button", { name: "Set color to Graphite" })
+    .click();
+  const savedHighlight = async () =>
+    (await stored(main)).files["c/moved.pdf"]?.find((comment) =>
+      comment.pdf?.text.includes(passage),
+    );
+  await expect.poll(savedHighlight).toBeUndefined();
+  await popoutToolbar
+    .getByRole("button", { name: "Highlight", exact: true })
+    .click();
+  await expect.poll(savedHighlight).toMatchObject({ color: "gray", text: "" });
+  await selectPdfText(main);
+  await expect(
+    toolbar().getByRole("button", { name: "Set color to Graphite" }),
+  ).toHaveAttribute("aria-pressed", "true");
+  const identity = await savedHighlight();
+  await app.close();
+  app = null;
+  main = await launch("c/moved.pdf");
+  await expect.poll(savedHighlight).toMatchObject({
+    id: identity.id,
+    number: identity.number,
+    color: "gray",
+    text: "",
+  });
+  await selectPdfText(main, "Your abstract here.");
+  await expect(
+    toolbar().getByRole("button", { name: "Set color to Graphite" }),
+  ).toHaveAttribute("aria-pressed", "true");
+  await main.keyboard.press("Escape");
+  await main
+    .locator(".mupdf-text-layer text")
+    .filter({ hasText: passage })
+    .first()
+    .click();
+  await toolbar().screenshot({
+    path: path.join(artifacts, "native-highlight-toolbar.png"),
+  });
+  await toolbar()
+    .getByRole("button", { name: "Remove highlight", exact: true })
+    .click();
+  assert.equal((await savedHighlight()).id, identity.id);
+  await toolbar()
+    .getByRole("button", { name: "Confirm delete highlight", exact: true })
+    .click();
+  await expect.poll(savedHighlight).toBeUndefined();
+  await main.getByTestId("pdf-scroll-container").focus();
+  await main.keyboard.press("ControlOrMeta+z");
+  await expect.poll(savedHighlight).toMatchObject(identity);
+  await main
+    .locator(".mupdf-text-layer text")
+    .filter({ hasText: passage })
+    .first()
+    .click();
+  await toolbar()
+    .getByRole("button", { name: "Add comment", exact: true })
+    .click();
+  const editor = main.getByRole("dialog", { name: "PDF comment", exact: true });
+  await editor
+    .getByRole("textbox", { name: "Comment text" })
+    .fill("Review this passage");
+  await editor
+    .getByRole("button", { name: "Save comment", exact: true })
+    .click();
+  await expect.poll(savedHighlight).toMatchObject({
+    id: identity.id,
+    number: identity.number,
+    color: "gray",
+    text: "Review this passage",
+  });
   assert.deepEqual(errors, []);
   console.log(
-    "Native PDF comments, resize undo/redo, selection badges, same-name isolation, immutable files, pop-out sharing, restart persistence, replacement disconnection, and relinking to a moved or revised PDF passed.",
+    "Native PDF comments and colored highlights, resize undo/redo, selection badges, same-name isolation, immutable files, pop-out sharing, restart persistence, replacement disconnection, and relinking passed.",
   );
 } catch (error) {
   if (app)

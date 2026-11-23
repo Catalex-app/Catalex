@@ -66,6 +66,120 @@ async function addComment(page: Page, text: string) {
   return saveSelectedPdfComment(page, text);
 }
 
+test("a standalone PDF highlight can be resized and retains color when its note is removed", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await openStandalonePdf(page);
+  await selectPdfText(page, "Your abstract here.", "Your abstract here.");
+  const toolbar = page.locator("[data-selection-toolbar]");
+  await toolbar.hover();
+  const orange = toolbar.getByRole("button", { name: "Set color to Orange" });
+  await orange.press("Space");
+  await expect(orange).toHaveAttribute("aria-pressed", "true");
+  const viewport = page.getByTestId("pdf-scroll-container");
+  const highlight = viewport.getByRole("button", {
+    name: /^Show highlight H-/,
+  });
+  await expect(highlight).toHaveCount(0);
+  await toolbar
+    .getByRole("button", { name: "Highlight", exact: true })
+    .press("Enter");
+  await expect(highlight).toBeVisible();
+  const label = await highlight.getAttribute("aria-label");
+  const id = await highlight.getAttribute("data-pdf-comment-id");
+  const line = page
+    .locator(".mupdf-text-layer text")
+    .filter({ hasText: "Your abstract here." })
+    .first();
+  await line.evaluate((element) =>
+    element.scrollIntoView({ block: "center", inline: "nearest" }),
+  );
+  const pointAt = (offset: number) =>
+    line.evaluate((element, offset) => {
+      const text = element as SVGTextElement;
+      const index = text.textContent!.indexOf("Your") + offset;
+      const glyph = text.getExtentOfChar(index);
+      const point = new DOMPoint(
+        glyph.x + glyph.width / 2,
+        glyph.y + glyph.height / 2,
+      ).matrixTransform(text.getScreenCTM()!);
+      return { x: point.x, y: point.y };
+    }, offset);
+  await highlight.focus();
+  await highlight.press("Enter");
+  await toolbar.hover();
+  await expect(
+    toolbar.getByRole("button", { name: "Set color to Orange" }),
+  ).toHaveAttribute("aria-pressed", "true");
+  const end = viewport.getByRole("button", { name: "Resize comment end" });
+  await expect(end).toBeVisible();
+  await expect(end).toHaveCSS("color", "rgb(237, 117, 63)");
+  const box = (await end.boundingBox())!;
+  const x = box.x + box.width / 2;
+  const y = box.y + box.height / 2;
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  const destination = await pointAt(10);
+  await page.mouse.move(destination.x, destination.y, { steps: 8 });
+  await page.mouse.up();
+  await expect
+    .poll(() =>
+      page.evaluate(
+        (id) =>
+          Object.entries(localStorage)
+            .filter(([key]) => key.startsWith("catalex-harness-comments:"))
+            .flatMap(([, value]) => JSON.parse(value)["paper.pdf"] ?? [])
+            .find((comment) => comment.id === id)?.pdf.text.length,
+        id,
+      ),
+    )
+    .toBeLessThan("Your abstract here.".length);
+  await highlight.focus();
+  await highlight.press("Enter");
+  await toolbar
+    .getByRole("button", { name: "Add comment", exact: true })
+    .click();
+  const card = page.getByRole("dialog", { name: "PDF comment", exact: true });
+  const input = card.getByRole("textbox", { name: "Comment text" });
+  const save = card.getByRole("button", { name: "Save comment", exact: true });
+  await input.fill("PDF annotation");
+  await save.click();
+  await expect(card).toContainText("PDF annotation");
+  await card.getByRole("button", { name: "Edit comment", exact: true }).click();
+  await input.fill("");
+  await save.click();
+  await expect(highlight).toHaveAttribute("aria-label", label!);
+  await expect(card).toHaveCount(0);
+  const readHighlight = () =>
+    page.evaluate(
+      (id) =>
+        Object.entries(localStorage)
+          .filter(([key]) => key.startsWith("catalex-harness-comments:"))
+          .flatMap(([, value]) => JSON.parse(value)["paper.pdf"] ?? [])
+          .find((comment) => comment.id === id),
+      id,
+    );
+  await expect.poll(readHighlight).toMatchObject({ color: "orange", text: "" });
+  const original = await readHighlight();
+  await highlight.focus();
+  await highlight.press("Enter");
+  await toolbar
+    .getByRole("button", { name: "Remove highlight", exact: true })
+    .click();
+  await expect(highlight).toBeVisible();
+  expect(await readHighlight()).toMatchObject(original);
+  await toolbar
+    .getByRole("button", { name: "Confirm delete highlight", exact: true })
+    .click();
+  await expect(highlight).toHaveCount(0);
+  await expect.poll(readHighlight).toBeUndefined();
+  await viewport.focus();
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect(highlight).toHaveAttribute("aria-label", label!);
+  await expect.poll(readHighlight).toMatchObject(original);
+});
+
 async function saveSelectedPdfComment(page: Page, text: string) {
   await page.getByRole("button", { name: "Comment", exact: true }).click();
   const card = page.getByRole("dialog", { name: "PDF comment", exact: true });

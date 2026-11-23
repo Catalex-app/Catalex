@@ -52,6 +52,7 @@ import {
 } from "@/lib/chat-context";
 export { isSelectionRangeContextLabel } from "@/lib/chat-context";
 import { useProjectComments } from "@/components/workspace/editor/use-project-comments";
+import { commentColors } from "@/lib/comment-colors";
 import {
   commentsInPdfSelection,
   commentsInSelection,
@@ -81,6 +82,7 @@ import {
 import { formatCodexModelName, codexEffortLabel } from "@/lib/codex-models";
 import { AGENT_EXECUTION_MODES } from "@/lib/agent-execution-mode";
 import {
+  type CSSProperties,
   type FC,
   useCallback,
   useContext,
@@ -1597,7 +1599,10 @@ export const ChatComposer: FC<{
       if (!context.comment || !commentsLoaded) return true;
       return Boolean(
         commentsByFile[context.filePath ?? ""]?.some(
-          (comment) => comment.id === context.comment!.id && !comment.resolved,
+          (comment) =>
+            comment.id === context.comment!.id &&
+            !comment.resolved &&
+            Boolean(comment.text.trim()),
         ),
       );
     };
@@ -2324,6 +2329,15 @@ export const ChatComposer: FC<{
             ? "Agent proposed · Earlier draft"
             : "Agent proposed"
           : null;
+        const comment = ctx.comment;
+        const cardColor =
+          comment && !comment.agent
+            ? commentColors[
+                commentsByFile[ctx.filePath]?.find(
+                  (candidate) => candidate.id === comment.id,
+                )?.color ?? "yellow"
+              ].card
+            : undefined;
         const badge = ctx.imageDataUrl ? (
           <span
             className="inline-flex max-w-full items-center gap-1 rounded-sm border border-border bg-transparent py-0.5 pr-0.5 pl-1 font-mono text-muted-foreground text-xs transition-colors hover:border-muted-foreground/50 hover:bg-muted/50 hover:text-foreground"
@@ -2358,6 +2372,11 @@ export const ChatComposer: FC<{
             }
             data-comment-chip={ctx.comment ? "true" : undefined}
             data-selection-pinned={Boolean(ctx.selectionPinned)}
+            style={
+              cardColor
+                ? ({ "--comment-chip-color": cardColor } as CSSProperties)
+                : undefined
+            }
             onMouseDown={(event) => {
               if (ctx.comment) event.preventDefault();
             }}
@@ -2382,7 +2401,7 @@ export const ChatComposer: FC<{
                 : ctx.comment
                   ? ctx.comment.agent
                     ? "bg-[#7252b5] text-white hover:bg-[#62439e]"
-                    : "bg-[#eab308] text-white hover:bg-[#d6a207]"
+                    : "bg-[var(--comment-chip-color)] text-white hover:bg-[color-mix(in_srgb,var(--comment-chip-color)_92%,black)]"
                   : "bg-muted text-muted-foreground hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/40 dark:hover:text-blue-300",
             )}
             title={

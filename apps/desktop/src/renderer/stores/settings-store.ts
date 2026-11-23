@@ -10,6 +10,7 @@ import {
   type ProjectWorkspacePreferences,
 } from "@/lib/workspace-mode";
 import { synchronizePersistedStore } from "@/lib/persisted-store-sync";
+import { normalizeCommentColor, type CommentColor } from "@/lib/comment-colors";
 import {
   DEFAULT_MINIMAP_LAYERS,
   normalizeMinimapLayers,
@@ -164,6 +165,8 @@ export interface SettingsState {
   editorMinimapLayers: MinimapLayers;
   setEditorMinimapLayer: (layer: MinimapLayer, visible: boolean) => void;
   displayComments: boolean;
+  lastCommentColor: CommentColor;
+  setLastCommentColor: (color: CommentColor) => void;
   showPdfComments: boolean;
   pdfCommentFullWidth: boolean;
   setPdfCommentFullWidth: (full: boolean) => void;
@@ -565,6 +568,7 @@ export function migrateSettingsState(persistedState: unknown, version = 0) {
         showEditorMinimap?: boolean;
         editorMinimapLayers?: Partial<MinimapLayers>;
         displayComments?: boolean;
+        lastCommentColor?: unknown;
         showPdfComments?: boolean;
         pdfCommentFullWidth?: boolean;
         editorProblemsPanelOpenByProject?: Record<string, boolean>;
@@ -699,6 +703,7 @@ export function migrateSettingsState(persistedState: unknown, version = 0) {
     showEditorMinimap: normalizeBoolean(persisted?.showEditorMinimap, true),
     editorMinimapLayers: normalizeMinimapLayers(persisted?.editorMinimapLayers),
     displayComments: normalizeBoolean(persisted?.displayComments, true),
+    lastCommentColor: normalizeCommentColor(persisted?.lastCommentColor),
     showPdfComments: normalizeBoolean(persisted?.showPdfComments, true),
     pdfCommentFullWidth: normalizeBoolean(
       persisted?.pdfCommentFullWidth,
@@ -914,6 +919,8 @@ export const useSettingsStore = create<SettingsState>()(
           },
         })),
       displayComments: true,
+      lastCommentColor: "yellow",
+      setLastCommentColor: (lastCommentColor) => set({ lastCommentColor }),
       showPdfComments: true,
       pdfCommentFullWidth: false,
       setPdfCommentFullWidth: (pdfCommentFullWidth) =>
@@ -1242,6 +1249,7 @@ export const useSettingsStore = create<SettingsState>()(
         return {
           ...current,
           ...saved,
+          lastCommentColor: normalizeCommentColor(saved?.lastCommentColor),
           recentMarkdownThemePaths: normalizeRecentMarkdownThemes(
             saved?.recentMarkdownThemePaths,
           ),

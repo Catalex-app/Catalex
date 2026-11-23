@@ -584,7 +584,8 @@ for (const label of ["Editor", "PDF", "Preview"]) {
     });
     await comment.focus();
     if (label !== "Editor") {
-      // The comment action's hint takes the first Escape while it is open.
+      // Open the hint explicitly before checking its Escape handling.
+      await comment.hover();
       await expect(page.getByRole("tooltip")).toBeVisible();
       await page.keyboard.press("Escape");
       await expect(page.getByRole("tooltip")).toHaveCount(0);

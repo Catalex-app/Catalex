@@ -7,6 +7,7 @@ import {
   type PreviewSearchQuery,
 } from "@/lib/preview-search";
 import { useProjectComments } from "./use-project-comments";
+import { isCommentHighlight, isNewCommentDraft } from "./inline-comments";
 import {
   PDF_COMMENT_NAVIGATE_EVENT,
   type CommentSearchNavigation,
@@ -42,6 +43,7 @@ export function useSearchComments(
           .filter(
             (c) =>
               !c.resolved &&
+              !isNewCommentDraft(c) &&
               (!range || (c.from >= range.from && c.to <= range.to)),
           )
           .flatMap((comment) => {
@@ -54,7 +56,9 @@ export function useSearchComments(
                     id: comment.id,
                     commentId: comment.id,
                     filePath,
-                    text: idMatch ? `${label} · ${comment.text}` : comment.text,
+                    text: idMatch
+                      ? `${label} · ${isCommentHighlight(comment) ? "Highlight" : comment.text}`
+                      : comment.text,
                     match,
                   },
                 ]

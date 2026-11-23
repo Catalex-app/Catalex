@@ -7,6 +7,7 @@ import {
 import { useUpdater } from "@/hooks/use-updater";
 import { PRODUCT_NAME } from "../../../branding";
 import { useProjectComments } from "./editor/use-project-comments";
+import { isNewCommentDraft } from "./editor/inline-comments";
 import { CommentDeleteButtons } from "./editor/comment-delete-buttons";
 import { PROJECT_COMMENTS_REFRESH_EVENT } from "@/lib/workspace-events";
 import { toast } from "sonner";
@@ -1078,7 +1079,7 @@ function SidebarDefault({
               path,
               comments.reduce<FileCommentCounts>(
                 (counts, comment) => {
-                  if (!comment.resolved && comment.text.trim()) {
+                  if (!comment.resolved && !isNewCommentDraft(comment)) {
                     counts[comment.origin ? "agent" : "human"] += 1;
                   }
                   return counts;

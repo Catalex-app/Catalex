@@ -48,7 +48,7 @@ import {
   clearCommentDraftHistory,
   type CommentHistoryScope,
 } from "./comment-draft-history";
-import { getActiveComment } from "./active-comment";
+import { getActiveComment, setActiveComment } from "./active-comment";
 import { attachCommentToChat } from "@/lib/comment-chat-context";
 import { captureProposedDraft } from "@/lib/chat-context";
 import { isReferencePanelWindow } from "@/lib/panel-window-runtime";
@@ -175,7 +175,12 @@ import {
   type LatexBlockFormat,
   type LatexInlineFormat,
 } from "./latex-editor-header";
-import { SelectionToolbar, type ToolbarAction } from "./selection-toolbar";
+import {
+  CommentSelectionToolbar,
+  SelectionToolbar,
+  type ToolbarAction,
+} from "./selection-toolbar";
+import { storedCommentColor, type CommentColor } from "@/lib/comment-colors";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -242,6 +247,10 @@ import {
   isInlineCommentRangeAllowed,
   commentsAfterEditorUpdate,
   normalizeInlineCommentRange,
+  beginCommentEdit,
+  isCommentHighlight,
+  isNewCommentDraft,
+  saveCommentText,
   type InlineEditorComment,
 } from "./inline-comments";
 import {
@@ -1259,6 +1268,38 @@ function sendDiagnosticToChat(view: EditorView, issues: DiagnosticChatIssue[]) {
     .sendPrompt(
       `[Problems in ${fileName}]\n${problems}\n\nFix these problems.`,
     );
+}
+
+function editorSelectionToolbarAnchor(
+  view: EditorView,
+  start: number,
+  end: number,
+) {
+  const viewport = view.scrollDOM.getBoundingClientRect();
+  const top = Math.max(0, viewport.top);
+  const bottom = Math.min(window.innerHeight, viewport.bottom);
+  if (bottom <= top) return null;
+  const length = view.state.doc.length;
+  const from = Math.max(0, Math.min(start, end, length));
+  const last = Math.max(from, Math.min(length, Math.max(start, end)) - 1);
+  // CodeMirror may virtualize one of the endpoints.
+  const selectionTop =
+    view.coordsAtPos(from)?.top ??
+    view.documentTop + view.lineBlockAt(from).top;
+  const selectionBottom =
+    view.coordsAtPos(last)?.bottom ??
+    view.documentTop + view.lineBlockAt(last).bottom;
+  if (selectionBottom <= top || selectionTop >= bottom) return null;
+  return {
+    top: selectionTop,
+    left: view.contentDOM.getBoundingClientRect().left - 42 - 2,
+    bounds: {
+      top: top + 8,
+      bottom: bottom - 8,
+      left: 8,
+      right: window.innerWidth - 8,
+    },
+  };
 }
 
 export function LatexEditor({
@@ -4452,39 +4493,13 @@ export function LatexEditor({
 
   const getToolbarAnchor = useCallback(() => {
     const view = viewRef.current;
-    if (!view || !selectionRange) return null;
-    const bounds = view.scrollDOM.getBoundingClientRect();
-    const topEdge = Math.max(0, bounds.top);
-    const bottomEdge = Math.min(window.innerHeight, bounds.bottom);
-    if (bottomEdge <= topEdge) return null;
-    const { doc } = view.state;
-    const from = Math.max(
-      0,
-      Math.min(selectionRange.start, selectionRange.end, doc.length),
+    if (!view || !selectionRange || selectionRange.start === selectionRange.end)
+      return null;
+    return editorSelectionToolbarAnchor(
+      view,
+      selectionRange.start,
+      selectionRange.end,
     );
-    const to = Math.min(
-      doc.length,
-      Math.max(selectionRange.start, selectionRange.end),
-    );
-    if (from >= to) return null;
-    const start = view.coordsAtPos(from);
-    const end = view.coordsAtPos(to - 1);
-    // CodeMirror may not render an endpoint far outside its virtual viewport.
-    const selectionTop =
-      start?.top ?? view.documentTop + view.lineBlockAt(from).top;
-    const selectionBottom =
-      end?.bottom ?? view.documentTop + view.lineBlockAt(to - 1).bottom;
-    if (selectionBottom <= topEdge || selectionTop >= bottomEdge) return null;
-    return {
-      top: selectionTop,
-      left: view.contentDOM.getBoundingClientRect().left - 42 - 2,
-      bounds: {
-        top: topEdge + 8,
-        bottom: bottomEdge - 8,
-        left: 8,
-        right: window.innerWidth - 8,
-      },
-    };
   }, [selectionRange]);
 
   useEffect(() => {
@@ -4550,78 +4565,90 @@ export function LatexEditor({
     [agentWorkspaceRoot, displayComments, inlineCommentsLoaded],
   );
 
-  const openCommentForSelection = useCallback(() => {
-    if (
-      !inlineCommentsLoaded ||
-      !useSettingsStore.getState().displayComments ||
-      agentWorkspaceRoot ||
-      isMergeActiveRef.current ||
-      !activeFile?.content
-    )
-      return;
-    const view = viewRef.current;
-    const liveSelection = view?.state.selection.main;
-    const selectionStart =
-      liveSelection && !liveSelection.empty
-        ? liveSelection.from
-        : selectionRange?.start;
-    const selectionEnd =
-      liveSelection && !liveSelection.empty
-        ? liveSelection.to
-        : selectionRange?.end;
-    if (selectionStart === undefined || selectionEnd === undefined) return;
+  const openCommentForSelection = useCallback(
+    (highlightColor?: CommentColor) => {
+      if (
+        !inlineCommentsLoaded ||
+        !useSettingsStore.getState().displayComments ||
+        agentWorkspaceRoot ||
+        isMergeActiveRef.current ||
+        !activeFile?.content
+      )
+        return;
+      const view = viewRef.current;
+      const liveSelection = view?.state.selection.main;
+      const selectionStart =
+        liveSelection && !liveSelection.empty
+          ? liveSelection.from
+          : selectionRange?.start;
+      const selectionEnd =
+        liveSelection && !liveSelection.empty
+          ? liveSelection.to
+          : selectionRange?.end;
+      if (selectionStart === undefined || selectionEnd === undefined) return;
 
-    const doc = view?.state.doc.toString() ?? activeFile.content;
-    if (!isInlineCommentRangeAllowed(doc.length, selectionStart, selectionEnd))
-      return;
+      const doc = view?.state.doc.toString() ?? activeFile.content;
+      if (
+        !isInlineCommentRangeAllowed(doc.length, selectionStart, selectionEnd)
+      )
+        return;
 
-    const range = normalizeInlineCommentRange(
-      doc,
-      selectionStart,
-      selectionEnd,
-    );
-    if (!range) return;
+      const range = normalizeInlineCommentRange(
+        doc,
+        selectionStart,
+        selectionEnd,
+      );
+      if (!range) return;
 
-    const filePath = activeFile.relativePath;
-    const comment: InlineEditorComment = {
-      id: `${filePath}:${range.from}:${range.to}:${Date.now()}`,
-      ...range,
-      text: "",
-      createdAt: new Date().toISOString(),
-
-      isEditing: true,
-    };
-
-    pendingInlineCommentCenterIdRef.current = comment.id;
-    if (view) {
-      commentSelectionRef.current = {
-        commentId: comment.id,
-        view,
-        selection: view.state.selection.main.empty
-          ? EditorSelection.single(selectionStart, selectionEnd)
-          : view.state.selection,
-      };
-      view.dispatch({ selection: { anchor: view.state.selection.main.head } });
-    }
-    setInlineCommentsByFile((current) => ({
-      ...current,
-      [filePath]: [
-        ...(current[filePath] ?? []).filter(
-          (existing) => existing.text.trim() || !existing.isEditing,
+      const filePath = activeFile.relativePath;
+      const comment: InlineEditorComment = {
+        id: crypto.randomUUID(),
+        ...range,
+        text: "",
+        color: storedCommentColor(
+          highlightColor ?? useSettingsStore.getState().lastCommentColor,
         ),
-        comment,
-      ],
-    }));
-    toolbarStickyRef.current = false;
-    setSelectionCoords(null);
-    setSelectionRange(null);
-  }, [
-    activeFile,
-    selectionRange,
-    setSelectionRange,
-    agentWorkspaceRoot,
-    inlineCommentsLoaded,
-  ]);
+        createdAt: new Date().toISOString(),
+
+        isEditing: highlightColor === undefined,
+      };
+
+      if (comment.isEditing)
+        pendingInlineCommentCenterIdRef.current = comment.id;
+      if (view) {
+        if (comment.isEditing)
+          commentSelectionRef.current = {
+            commentId: comment.id,
+            view,
+            selection: view.state.selection.main.empty
+              ? EditorSelection.single(selectionStart, selectionEnd)
+              : view.state.selection,
+          };
+        view.dispatch({
+          selection: { anchor: view.state.selection.main.head },
+        });
+      }
+      setInlineCommentsByFile((current) => ({
+        ...current,
+        [filePath]: [
+          ...(current[filePath] ?? []).filter(
+            (existing) => !isNewCommentDraft(existing),
+          ),
+          comment,
+        ],
+      }));
+      toolbarStickyRef.current = false;
+      setSelectionCoords(null);
+      setSelectionRange(null);
+    },
+    [
+      activeFile,
+      selectionRange,
+      setSelectionRange,
+      agentWorkspaceRoot,
+      inlineCommentsLoaded,
+    ],
+  );
 
   useEffect(() => {
     const run = (filePath: string, forward: boolean) => {
@@ -4768,9 +4795,63 @@ export function LatexEditor({
   ]);
 
   const inlineCommentFilePath = activeFile?.relativePath;
+  const [selectedAnnotation, setSelectedAnnotation] = useState<{
+    id: string;
+    fileId: typeof activeFileId;
+  } | null>(null);
+  const activeAnnotation =
+    selectedAnnotation?.fileId === activeFileId
+      ? activeFileDocumentComments.find(
+          ({ id }) => id === selectedAnnotation?.id,
+        )
+      : undefined;
+  const selectedAnnotationAnchor = useCallback(() => {
+    const view = viewRef.current;
+    return view && activeAnnotation
+      ? editorSelectionToolbarAnchor(
+          view,
+          activeAnnotation.from,
+          activeAnnotation.to,
+        )
+      : null;
+  }, [activeAnnotation]);
+  const dismissAnnotation = useCallback(
+    (reason?: "outside" | "escape") => {
+      if (reason === "escape" && getActiveComment() === selectedAnnotation?.id)
+        setActiveComment(null);
+      setSelectedAnnotation(null);
+    },
+    [selectedAnnotation?.id],
+  );
+  const selectAnnotation = useCallback(
+    (id: string) => {
+      const view = viewRef.current;
+      const comment =
+        view &&
+        readCommentDocument(view.state)?.comments.find(
+          (item) => item.id === id,
+        );
+      if (comment && !comment.isEditing && isCommentHighlight(comment))
+        setActiveComment(id);
+      setSelectedAnnotation({ id, fileId: activeFileId });
+    },
+    [activeFileId],
+  );
+  const recolorAnnotation = (id: string, color: CommentColor) => {
+    if (!inlineCommentFilePath) return;
+    setInlineCommentsByFile((current) => ({
+      ...current,
+      [inlineCommentFilePath]: (current[inlineCommentFilePath] ?? []).map(
+        (comment) =>
+          comment.id === id && !comment.origin
+            ? { ...comment, color: storedCommentColor(color) }
+            : comment,
+      ),
+    }));
+  };
   const handleSaveInlineComment = useCallback(
     (commentId: string, text: string) => {
-      if (!inlineCommentFilePath || !text.trim()) return;
+      if (!inlineCommentFilePath) return;
       if (commentSelectionRef.current?.commentId === commentId) {
         commentSelectionRef.current = null;
       }
@@ -4778,9 +4859,7 @@ export function LatexEditor({
       setInlineCommentsByFile((current) => ({
         ...current,
         [filePath]: (current[filePath] ?? []).map((comment) =>
-          comment.id === commentId
-            ? { ...comment, text, isEditing: false }
-            : comment,
+          comment.id === commentId ? saveCommentText(comment, text) : comment,
         ),
       }));
     },
@@ -4794,7 +4873,9 @@ export function LatexEditor({
       setInlineCommentsByFile((current) => ({
         ...current,
         [filePath]: (current[filePath] ?? []).map((comment) =>
-          comment.id === commentId ? { ...comment, resolved: true } : comment,
+          comment.id === commentId && !isCommentHighlight(comment)
+            ? { ...comment, resolved: true }
+            : comment,
         ),
       }));
     },
@@ -4808,7 +4889,7 @@ export function LatexEditor({
       setInlineCommentsByFile((current) => ({
         ...current,
         [filePath]: (current[filePath] ?? []).map((comment) =>
-          comment.id === commentId ? { ...comment, isEditing: true } : comment,
+          comment.id === commentId ? beginCommentEdit(comment) : comment,
         ),
       }));
     },
@@ -5218,6 +5299,7 @@ export function LatexEditor({
           onSave: handleSaveInlineComment,
           onResolve: handleResolveInlineComment,
           onEdit: handleEditInlineComment,
+          onSelect: selectAnnotation,
           onDelete: handleDeleteInlineComment,
           onCancel: handleCancelInlineComment,
         },
@@ -5250,6 +5332,7 @@ export function LatexEditor({
     handleEditInlineComment,
     handleResolveInlineComment,
     handleSaveInlineComment,
+    selectAnnotation,
     projectRoot,
     activeFile?.relativePath,
     selectionAiEnabled,
@@ -5639,7 +5722,7 @@ export function LatexEditor({
       label:
         editorToolbarActions.find((action) => action.id === "comment")?.label ??
         "Comment",
-      run: openCommentForSelection,
+      run: () => openCommentForSelection(),
       visible: editorToolbarActions.some((action) => action.id === "comment"),
       enabled:
         editorActionsAvailable &&
@@ -6309,8 +6392,42 @@ export function LatexEditor({
                       contextLabel={selectionLabel}
                       selectionContext={selectionContext}
                       actions={editorToolbarActions}
+                      commentColorsDisabled={!addCommentAction.enabled}
+                      onHighlight={
+                        editorToolbarActions.length
+                          ? openCommentForSelection
+                          : undefined
+                      }
                       onAction={addCommentAction.run}
                       onDismiss={handleToolbarDismiss}
+                    />
+                  )}
+                {displayComments &&
+                  !isReviewDisplay &&
+                  !isSearchOpen &&
+                  !selectionRange &&
+                  activeAnnotation &&
+                  !activeAnnotation.origin &&
+                  !activeAnnotation.isEditing &&
+                  !activeAnnotation.resolved && (
+                    <CommentSelectionToolbar
+                      key={activeAnnotation.id}
+                      comment={activeAnnotation}
+                      getAnchor={selectedAnnotationAnchor}
+                      onDismiss={dismissAnnotation}
+                      onColor={(color) =>
+                        recolorAnnotation(activeAnnotation.id, color)
+                      }
+                      onEdit={() => {
+                        dismissAnnotation();
+                        pendingInlineCommentCenterIdRef.current =
+                          activeAnnotation.id;
+                        handleEditInlineComment(activeAnnotation.id);
+                      }}
+                      onDelete={() => {
+                        dismissAnnotation();
+                        handleDeleteInlineComment(activeAnnotation.id);
+                      }}
                     />
                   )}
               </>

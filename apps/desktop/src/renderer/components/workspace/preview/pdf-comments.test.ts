@@ -18,7 +18,7 @@ const sourceMap = {
 };
 
 describe("PDF comment source ranges", () => {
-  it("excludes resolved, empty and stale offsets and respects exclusive range ends", () => {
+  it("includes highlights, skips resolved and stale offsets, and respects exclusive range ends", () => {
     const file = {
       relativePath: "chapter.tex",
       content: "First\nSecond\nThird",
@@ -28,15 +28,20 @@ describe("PDF comment source ranges", () => {
       "chapter.tex": [
         comment,
         { ...comment, id: "resolved", resolved: true },
-        { ...comment, id: "empty", text: "" },
+        { ...comment, id: "highlight", text: "", color: "blue" },
         { ...comment, id: "stale", to: 999 },
       ],
     });
-    expect(targets).toHaveLength(1);
+    expect(targets).toHaveLength(2);
     expect(targets[0]).toMatchObject({
       firstLine: 1,
       lastLine: 1,
       sourceText: "First\n",
+    });
+    expect(targets[1].comment).toMatchObject({
+      id: "highlight",
+      text: "",
+      color: "blue",
     });
   });
   it("preserves source line boundaries across edits, CRLF and UTF-16 offsets", () => {

@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Choose from six colors, including Graphite, for highlights and comments in the source editor, Markdown preview, and PDF preview. Pick a color before choosing Highlight or Comment. Recolor or remove an existing highlight from its toolbar. Add a note to a highlight or clear a comment's text to turn it back into a highlight.
+
 ## [0.3.1]
 
 ### TL;DR

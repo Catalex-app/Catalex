@@ -1,3 +1,4 @@
+import { isNewCommentDraft } from "./inline-comments";
 import {
   COMMENT_PATHS_CHANGED_EVENT,
   isCommentDetached,
@@ -93,7 +94,7 @@ export function useProjectComments(
                 if (c.id !== id) return [c];
                 // New drafts can also live in the originating PDF pane's snapshot.
                 // Closing the shared draft must remove that empty local copy too.
-                return c.text.trim() ? [{ ...c, isEditing: false }] : [];
+                return isNewCommentDraft(c) ? [] : [{ ...c, isEditing: false }];
               },
             ),
           },

@@ -11,6 +11,51 @@ async function read(page: Page, key: string, file: string, id: string) {
     { key, file, id },
   );
 }
+
+test("a cardless editor highlight uses the selection menu position and can be resized", async ({
+  page,
+}) => {
+  await page.goto("/?debug=editor-comments");
+  await page.waitForFunction(() => window.__editorCommentsHarness?.ready);
+  await page.evaluate(() => window.__editorCommentsHarness!.selectRange!(2, 9));
+  const toolbar = page.locator("[data-selection-toolbar]");
+  await expect(toolbar).toHaveCSS("opacity", "1");
+  const selectionBox = (await toolbar.boundingBox())!;
+  await toolbar.hover();
+  await toolbar.getByRole("button", { name: "Set color to Blue" }).click();
+  await toolbar.getByRole("button", { name: "Highlight", exact: true }).click();
+  const mark = page.locator(".cm-inlineCommentMark");
+  await expect(mark).toHaveText("Comment");
+  await mark.click();
+  await expect(
+    toolbar.getByRole("button", { name: "Remove highlight", exact: true }),
+  ).toBeVisible();
+  await expect(toolbar).toHaveCSS("opacity", "1");
+  const highlightBox = (await toolbar.boundingBox())!;
+  expect(Math.abs(highlightBox.x - selectionBox.x)).toBeLessThan(2);
+  expect(Math.abs(highlightBox.y - selectionBox.y)).toBeLessThan(2);
+  await expect(page.locator(".cm-inlineCommentCard")).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Resize comment start" }),
+  ).toBeVisible();
+  const end = page.getByRole("button", { name: "Resize comment end" });
+  await expect(end).toBeVisible();
+  await expect(end).toHaveCSS("color", "rgb(69, 159, 227)");
+  const box = (await end.boundingBox())!;
+  const point = await page.evaluate(
+    () => window.__editorCommentsHarness!.coordsForText!("Comment harnes")!.end,
+  );
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(point.x, point.y, { steps: 8 });
+  await page.mouse.up();
+  await expect(mark).toHaveText("Comment harnes");
+  const id = (await mark.getAttribute("data-inline-comment-id"))!;
+  await expect
+    .poll(() => read(page, editorKey, "main.tex", id))
+    .toMatchObject({ from: 2, to: 16, text: "", color: "blue" });
+});
+
 test("editor handles resize once, cancel, undo, redo, and persist", async ({
   page,
 }) => {
@@ -90,6 +135,90 @@ test("editor handles resize once, cancel, undo, redo, and persist", async ({
   );
   expect((await read(page, editorKey, "main.tex", "resize")).to).toBe(16);
   expect(errors).toEqual([]);
+});
+
+test("undo restores a removed highlight to its source chapter from the compiled PDF", async ({
+  page,
+}) => {
+  const key = "catalex-harness-comments:/tmp/catalex-pdf-comments-harness";
+  await page.goto("/?debug=pdf-comments");
+  const mark = page
+    .locator('[data-pdf-comment-id="human-pdf"][data-pdf-comment-highlight]')
+    .first();
+  await expect(mark).toBeAttached();
+  await page
+    .getByRole("button", { name: "Toggle editor", exact: true })
+    .click();
+  await page.evaluate(async (key) => {
+    const { invoke } = await import(
+      /* @vite-ignore */ "/src/renderer/lib/desktop/core.ts"
+    );
+    const before = JSON.parse(localStorage.getItem(key)!)["chapter.tex"].find(
+      (comment: { id: string }) => comment.id === "human-pdf",
+    );
+    await invoke("update_project_comment", {
+      projectRoot: "/tmp/catalex-pdf-comments-harness",
+      patch: {
+        filePath: "chapter.tex",
+        id: before.id,
+        before,
+        after: { ...before, text: "", color: "blue" },
+      },
+    });
+  }, key);
+  await expect(mark).toHaveAttribute("aria-label", /^Show highlight H-/);
+  const original = await read(page, key, "chapter.tex", "human-pdf");
+  await mark.evaluate((button: HTMLElement) => button.click());
+  const remove = page.getByRole("button", {
+    name: "Remove highlight",
+    exact: true,
+  });
+  await remove.click();
+  await expect(mark).toBeAttached();
+  expect(await read(page, key, "chapter.tex", "human-pdf")).toMatchObject(
+    original,
+  );
+  await page
+    .getByRole("button", { name: "Confirm delete highlight", exact: true })
+    .click();
+  await expect(mark).toHaveCount(0);
+  await expect
+    .poll(() => read(page, key, "chapter.tex", "human-pdf"))
+    .toBeUndefined();
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect(mark).toBeAttached();
+  await expect
+    .poll(() => read(page, key, "chapter.tex", "human-pdf"))
+    .toMatchObject(original);
+
+  const opening = page.waitForEvent("popup");
+  await page.evaluate(async () => {
+    const { openPanelWindow } = await import(
+      /* @vite-ignore */ "/src/renderer/lib/panel-windows.ts"
+    );
+    openPanelWindow("preview", "artisan");
+  });
+  const preview = await opening;
+  await preview
+    .locator('[data-pdf-comment-id="human-pdf"][data-pdf-comment-highlight]')
+    .first()
+    .evaluate((button: HTMLElement) => button.click());
+  await preview
+    .getByRole("button", { name: "Remove highlight", exact: true })
+    .click();
+  const confirm = preview.getByRole("button", {
+    name: "Confirm delete highlight",
+    exact: true,
+  });
+  await expect(confirm).toBeVisible();
+  expect(await read(page, key, "chapter.tex", "human-pdf")).toMatchObject(
+    original,
+  );
+  await confirm.click();
+  await expect
+    .poll(() => read(page, key, "chapter.tex", "human-pdf"))
+    .toBeUndefined();
+  await preview.close();
 });
 
 test("PDF focused highlight has draggable endpoints and persists a resize", async ({

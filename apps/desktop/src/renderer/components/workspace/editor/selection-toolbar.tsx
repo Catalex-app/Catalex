@@ -1,4 +1,6 @@
 import { canHandleEscape, consumeKey, ownsKey } from "@/lib/keyboard-events";
+import { commentColors, type CommentColor } from "@/lib/comment-colors";
+import { useSettingsStore } from "@/stores/settings-store";
 import { Hint } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
@@ -9,6 +11,9 @@ import {
 import {
   ChevronLeftIcon,
   ChevronRightIcon,
+  EraserIcon,
+  HighlighterIcon,
+  MessageSquareTextIcon,
   MessagesSquareIcon,
 } from "lucide-react";
 import { useAgentChatStore } from "@/stores/agent-chat-store";
@@ -30,11 +35,17 @@ import {
   useState,
   useSyncExternalStore,
   type ReactNode,
+  type ComponentProps,
 } from "react";
 import { createPortal } from "react-dom";
+import {
+  isCommentHighlight,
+  type InlineEditorComment,
+} from "./inline-comments";
 
 const selectionSurfaceClassName =
   "popup-glass rounded-lg border border-[color:var(--popup-surface-border,var(--border))] bg-[var(--popup-surface-background,var(--background))] text-foreground shadow-[0_0_0_transparent,var(--popup-surface-shadow,var(--shadow-xl))]";
+const paletteColors = Object.keys(commentColors) as CommentColor[];
 
 export interface ToolbarAction {
   disabled?: boolean;
@@ -44,6 +55,7 @@ export interface ToolbarAction {
   isAI: boolean;
   label: string;
   icon: ReactNode;
+  confirmation?: { label: string; accessibleLabel: string };
   hint?: string; // e.g. "Double-click also works"
 }
 
@@ -59,6 +71,10 @@ interface SelectionToolbarProps {
   contextLabel: string;
   selectionContext?: ChatContextBadge | null;
   actions: ToolbarAction[];
+  commentColor?: CommentColor;
+  commentColorsDisabled?: boolean;
+  onCommentColor?: (color: CommentColor) => void;
+  onHighlight?: (color: CommentColor) => void;
   aiEnabled?: boolean;
   onAction: (actionId: string) => void;
   onDismiss: (reason?: "outside" | "escape") => void;
@@ -70,19 +86,43 @@ export function SelectionToolbar({
   selectionContext,
   getAnchor,
   actions,
+  commentColor,
+  commentColorsDisabled,
+  onCommentColor,
+  onHighlight,
   aiEnabled = true,
   onAction,
   onDismiss,
 }: SelectionToolbarProps) {
+  const lastColor = useSettingsStore((state) => state.lastCommentColor);
+  const selectedColor = commentColor ?? lastColor;
+  const hasPalette = Boolean(onCommentColor || onHighlight);
+  const chooseColor = (color: CommentColor) => {
+    if (commentColorsDisabled) return;
+    onCommentColor?.(color);
+    useSettingsStore.getState().setLastCommentColor(color);
+  };
   const visibleActions = actions.filter((action) => aiEnabled || !action.isAI);
-  const groupedActions = [
+  const groupedActions: ToolbarAction[] = [
     ...visibleActions.filter((action) => action.isAI),
+    ...(onHighlight
+      ? [
+          {
+            id: "highlight",
+            label: "Highlight",
+            isAI: false,
+            icon: <HighlighterIcon className="size-4" />,
+            disabled: commentColorsDisabled,
+          },
+        ]
+      : []),
     ...visibleActions.filter((action) => !action.isAI),
   ];
   const toolbarRef = useRef<HTMLDivElement>(null);
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
   const [chatMenuOpen, setChatMenuOpen] = useState(false);
+  const [confirmingAction, setConfirmingAction] = useState<string | null>(null);
   const expanded = !getAnchor || hovered || focused || chatMenuOpen;
   const tabs = useAgentChatStore((s) => s.tabs);
   const activeTabId = useAgentChatStore((s) => s.activeTabId);
@@ -129,8 +169,9 @@ export function SelectionToolbar({
   useEffect(() => {
     if (targets.length <= 1 && chatMenuOpen) returnToActions();
   }, [targets.length, chatMenuOpen, returnToActions]);
-  const hasActions =
-    groupedActions.length > 0 || Boolean(selectionContext && targets.length);
+  const hasAnnotationActions = hasPalette || groupedActions.length > 0;
+  const hasSendToChat = Boolean(selectionContext && targets.length > 0);
+  const hasActions = hasAnnotationActions || hasSendToChat;
 
   const animationRef = useRef<Animation | null>(null);
   const visibleRef = useRef(false);
@@ -209,7 +250,8 @@ export function SelectionToolbar({
               toolbar.style.right = `${window.innerWidth - fixedRight}px`;
               toolbar.style.maxWidth = `${Math.max(0, fixedRight - left)}px`;
             } else {
-              toolbar.style.maxWidth = `${Math.max(0, right - left)}px`;
+              const available = Math.max(0, right - left);
+              toolbar.style.maxWidth = `${available}px`;
               toolbar.style.left = `${Math.max(left, Math.min(anchor.left, right - toolbar.offsetWidth))}px`;
               toolbar.style.right = "auto";
             }
@@ -402,6 +444,7 @@ export function SelectionToolbar({
     <div
       ref={toolbarRef}
       data-selection-toolbar="true"
+      data-comment-toolbar={commentColor ? "" : undefined}
       data-ui-surface="popover"
       data-expanded={expanded}
       onMouseEnter={() => setHovered(true)}
@@ -504,7 +547,57 @@ export function SelectionToolbar({
         </>
       ) : (
         <>
-          {selectionContext && targets.length > 0 && sendButton}
+          {hasSendToChat && sendButton}
+          {hasSendToChat && hasAnnotationActions && (
+            <div role="separator" className="mx-2 my-1 h-px bg-border" />
+          )}
+          {hasPalette && (
+            <div
+              aria-label="Color"
+              role="group"
+              className={cn(
+                "flex items-center px-1",
+                expanded ? "justify-between gap-px" : "justify-center",
+              )}
+            >
+              {(expanded ? paletteColors : [selectedColor]).map((color) => {
+                const label =
+                  color === "gray"
+                    ? "Graphite"
+                    : color[0].toUpperCase() + color.slice(1);
+                return (
+                  <button
+                    key={color}
+                    type="button"
+                    aria-label={`Set color to ${label}`}
+                    aria-pressed={color === selectedColor}
+                    aria-disabled={commentColorsDisabled || undefined}
+                    title={label}
+                    className="group flex size-8 min-w-0 items-center justify-center rounded-md focus-visible:outline-2 focus-visible:outline-ring aria-disabled:opacity-50"
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => chooseColor(color)}
+                  >
+                    <span
+                      aria-hidden="true"
+                      className={cn(
+                        "size-3 shrink-0 rounded-full border border-foreground/20 ring-offset-1 ring-offset-background",
+                        color === selectedColor
+                          ? "ring-1 ring-foreground"
+                          : !commentColorsDisabled &&
+                              "group-hover:ring-1 group-hover:ring-muted-foreground/60",
+                      )}
+                      style={{
+                        backgroundColor:
+                          color === "yellow"
+                            ? commentColors.yellow.card
+                            : commentColors[color].stroke,
+                      }}
+                    />
+                  </button>
+                );
+              })}
+            </div>
+          )}
           {groupedActions.length > 0 && (
             <div className="flex flex-col">
               {groupedActions.map((action, index) => (
@@ -518,25 +611,73 @@ export function SelectionToolbar({
                     )}
                   <Hint content={action.description}>
                     <button
-                      aria-label={action.label}
+                      aria-label={
+                        confirmingAction === action.id
+                          ? action.confirmation?.accessibleLabel
+                          : action.label
+                      }
                       aria-disabled={action.disabled || undefined}
                       aria-busy={action.busy || undefined}
                       aria-description={action.description}
+                      data-confirming={
+                        action.confirmation
+                          ? confirmingAction === action.id
+                          : undefined
+                      }
                       onClick={() => {
-                        if (!action.disabled) onAction(action.id);
+                        if (action.disabled) return;
+                        if (
+                          action.confirmation &&
+                          confirmingAction !== action.id
+                        ) {
+                          setConfirmingAction(action.id);
+                          return;
+                        }
+                        setConfirmingAction(null);
+                        if (action.id === "highlight")
+                          onHighlight?.(selectedColor);
+                        else onAction(action.id);
                       }}
-                      className={`flex items-center gap-2.5 whitespace-nowrap px-3 py-1.5 text-left text-foreground text-sm transition-colors ${action.disabled ? "cursor-default opacity-50" : "hover:bg-muted"}`}
+                      className={cn(
+                        "flex items-center gap-2.5 whitespace-nowrap px-3 py-1.5 text-left text-foreground text-sm transition-colors",
+                        action.disabled
+                          ? "cursor-default opacity-50"
+                          : "hover:bg-muted",
+                        action.confirmation && "trash-context-menu-item",
+                      )}
                     >
-                      <span className="size-4 shrink-0 text-muted-foreground">
-                        {action.icon}
-                      </span>
-                      <span
-                        aria-hidden="true"
-                        className="transition-opacity duration-200 motion-reduce:transition-none"
-                        style={{ opacity: expanded ? 1 : 0 }}
-                      >
-                        {action.label}
-                      </span>
+                      {action.confirmation ? (
+                        <>
+                          <span className="trash-menu-label" aria-hidden="true">
+                            <span className="size-4 shrink-0 text-muted-foreground">
+                              {action.icon}
+                            </span>
+                            <span style={{ opacity: expanded ? 1 : 0 }}>
+                              {action.label}
+                            </span>
+                          </span>
+                          <span
+                            className="trash-menu-confirmation"
+                            aria-hidden="true"
+                          >
+                            {action.icon}
+                            {action.confirmation.label}
+                          </span>
+                        </>
+                      ) : (
+                        <>
+                          <span className="size-4 shrink-0 text-muted-foreground">
+                            {action.icon}
+                          </span>
+                          <span
+                            aria-hidden="true"
+                            className="transition-opacity duration-200 motion-reduce:transition-none"
+                            style={{ opacity: expanded ? 1 : 0 }}
+                          >
+                            {action.label}
+                          </span>
+                        </>
+                      )}
                       {action.hint && expanded && (
                         <span className="ml-auto text-muted-foreground text-xs">
                           {action.hint}
@@ -553,4 +694,87 @@ export function SelectionToolbar({
     </div>
   );
   return getAnchor ? createPortal(toolbar, document.body) : toolbar;
+}
+
+export function previewSelectionToolbarAnchor(
+  rect: Pick<DOMRectReadOnly, "top" | "right" | "bottom" | "left">,
+  viewport: DOMRectReadOnly,
+) {
+  const top = Math.max(0, viewport.top);
+  const bottom = Math.min(window.innerHeight, viewport.bottom);
+  const left = Math.max(0, viewport.left);
+  const right = Math.min(window.innerWidth, viewport.right);
+  if (
+    rect.bottom <= rect.top ||
+    rect.right <= rect.left ||
+    bottom - top <= 16 ||
+    right - left <= 16 ||
+    rect.bottom <= top ||
+    rect.top >= bottom ||
+    rect.right <= left ||
+    rect.left >= right
+  )
+    return null;
+  return {
+    top: rect.top,
+    left: rect.left - 42 - 8,
+    bounds: {
+      top: top + 8,
+      bottom: bottom - 8,
+      left: left + 8,
+      right: right - 8,
+    },
+  };
+}
+
+export function CommentSelectionToolbar({
+  comment,
+  getAnchor,
+  onDismiss,
+  onColor,
+  onEdit,
+  onDelete,
+}: {
+  comment: InlineEditorComment;
+  getAnchor: NonNullable<ComponentProps<typeof SelectionToolbar>["getAnchor"]>;
+  onDismiss: ComponentProps<typeof SelectionToolbar>["onDismiss"];
+  onColor: (color: CommentColor) => void;
+  onEdit?: () => void;
+  onDelete?: () => void;
+}) {
+  const highlight = isCommentHighlight(comment);
+  const actions: ToolbarAction[] = [];
+  if (highlight && onDelete)
+    actions.push({
+      id: "remove",
+      label: "Remove highlight",
+      isAI: false,
+      icon: <EraserIcon className="size-4 shrink-0" />,
+      confirmation: {
+        label: "Delete?",
+        accessibleLabel: "Confirm delete highlight",
+      },
+    });
+  if (highlight && onEdit)
+    actions.push({
+      id: "comment",
+      label: "Add comment",
+      isAI: false,
+      icon: <MessageSquareTextIcon className="size-4" />,
+    });
+  return (
+    <SelectionToolbar
+      position={{ top: 0, left: 0 }}
+      getAnchor={getAnchor}
+      contextLabel={highlight ? "Highlight" : "Comment"}
+      actions={actions}
+      commentColor={comment.color ?? "yellow"}
+      onCommentColor={onColor}
+      onDismiss={onDismiss}
+      onAction={(id) => {
+        if (id === "comment") onEdit?.();
+        if (id === "remove") onDelete?.();
+      }}
+    />
+  );
 }

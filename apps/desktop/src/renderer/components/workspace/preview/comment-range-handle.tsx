@@ -8,7 +8,7 @@ import {
 export function CommentRangeHandle({
   edge,
   hidden = false,
-  agent,
+  color,
   x,
   y,
   height,
@@ -18,7 +18,7 @@ export function CommentRangeHandle({
 }: {
   hidden?: boolean;
   edge: CommentRangeEdge;
-  agent: boolean;
+  color: string;
   x: number;
   y: number;
   height: number;
@@ -31,7 +31,7 @@ export function CommentRangeHandle({
   callbacks.current = { onStart, onMove, onFinish };
   useEffect(() => {
     const handle = ref.current!;
-    styleCommentRangeHandle(handle, edge, agent);
+    styleCommentRangeHandle(handle, edge, color);
     let cancel: (() => void) | undefined;
     handle.onpointerdown = (event) => {
       if (event.button !== 0) return;
@@ -47,7 +47,7 @@ export function CommentRangeHandle({
       cancel?.();
       handle.replaceChildren();
     };
-  }, [edge, agent]);
+  }, [edge, color]);
   return (
     <button
       ref={ref}

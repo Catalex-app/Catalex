@@ -1,8 +1,17 @@
 import { StateEffect } from "@codemirror/state";
+import { commentColors, commentMarkPaint } from "@/lib/comment-colors";
 import type { InlineEditorComment } from "./inline-comments";
 
 export const COMMENT_RANGE_HANDLE_OUTLINE =
   "0 0 0 1px var(--comment-range-handle-outline, white)";
+
+export function commentRangeHandleColor(
+  comment: Pick<InlineEditorComment, "color" | "origin">,
+) {
+  return comment.origin || comment.color
+    ? commentMarkPaint(comment.color, Boolean(comment.origin)).stroke
+    : commentColors.yellow.badge;
+}
 
 export const commentRangePreviewEffect = StateEffect.define<{
   id: string;
@@ -127,7 +136,7 @@ export function startCommentRangeDrag(
 export function styleCommentRangeHandle(
   handle: HTMLButtonElement,
   edge: CommentRangeEdge,
-  agent: boolean,
+  color: string,
 ) {
   handle.type = "button";
   handle.dataset.commentRangeHandle = edge;
@@ -147,7 +156,7 @@ export function styleCommentRangeHandle(
     pointerEvents: "auto",
     zIndex: "8",
     transform: "translateX(-50%)",
-    color: agent ? "#7252b5" : "#ca8a04",
+    color,
   });
   const tip = document.createElement("span");
   Object.assign(tip.style, {

@@ -500,7 +500,8 @@
 }
 
 /* Match the comment controls' 120ms horizontal confirmation swap. */
-[data-slot="context-menu-item"].trash-context-menu-item {
+[data-slot="context-menu-item"].trash-context-menu-item,
+button.trash-context-menu-item {
   display: grid;
   gap: 0;
   overflow: hidden;
@@ -516,6 +517,11 @@
   border-radius: inherit;
   pointer-events: none;
   transition: transform 120ms ease-out, opacity 120ms ease-out;
+}
+
+button.trash-context-menu-item > span {
+  gap: 10px;
+  padding-inline: 12px;
 }
 
 .trash-menu-confirmation {

@@ -14,6 +14,7 @@ import {
   commentRangePreviewEffect,
   startCommentRangeDrag,
   styleCommentRangeHandle,
+  commentRangeHandleColor,
   COMMENT_RANGE_HANDLE_OUTLINE,
   type CommentRange,
 } from "./comment-range";
@@ -130,7 +131,11 @@ export function commentRangeExtension(
             ? (["from"] as const)
             : (["from", "to"] as const)) {
             const handle = document.createElement("button");
-            styleCommentRangeHandle(handle, edge, !!comment.origin);
+            styleCommentRangeHandle(
+              handle,
+              edge,
+              commentRangeHandleColor(comment),
+            );
             if (point) {
               handle.dataset.commentRangeHandle = "point";
               handle.setAttribute(

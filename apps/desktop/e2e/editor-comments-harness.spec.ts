@@ -1,5 +1,211 @@
 import { expect, test } from "@playwright/test";
 
+test("highlights keep their number and color when adding or clearing comment text", async ({
+  page,
+}, info) => {
+  await page.goto("/?debug=editor-comments");
+  await page.waitForFunction(() => window.__editorCommentsHarness?.ready);
+  await page.evaluate(() =>
+    window.__editorCommentsHarness!.selectText!("line 20"),
+  );
+
+  const toolbar = page.locator("[data-selection-toolbar]");
+  const expectPaletteSpacing = async () => {
+    await expect(toolbar).toHaveCSS("width", "184px");
+    const palette = toolbar.getByRole("group", { name: "Color" });
+    const swatches = palette.getByRole("button");
+    await expect(swatches).toHaveCount(6);
+    const menu = (await toolbar.boundingBox())!;
+    const first = (await swatches.first().boundingBox())!;
+    const last = (await swatches.last().boundingBox())!;
+    expect(first.width).toBeCloseTo(28.17, 1);
+    expect(first.height).toBe(32);
+    expect(last.width).toBeCloseTo(first.width, 1);
+    expect(first.x - menu.x).toBe(5);
+    expect(menu.x + menu.width - last.x - last.width).toBeCloseTo(5, 0);
+    const positions = await swatches.evaluateAll((buttons) =>
+      buttons.map((button) => button.getBoundingClientRect().left),
+    );
+    for (let index = 1; index < positions.length; index++)
+      expect(positions[index] - positions[index - 1]).toBeCloseTo(29.17, 1);
+  };
+  await expect(
+    toolbar.getByRole("button", { name: "Highlight", exact: true }),
+  ).toHaveCount(1);
+  await expect(
+    toolbar.getByRole("button", { name: "Set color to Yellow" }),
+  ).toHaveAttribute("aria-pressed", "true");
+  await toolbar.hover();
+  await expectPaletteSpacing();
+  await expect(
+    toolbar.getByRole("button", { name: /^Set color to / }),
+  ).toHaveCount(6);
+  await toolbar.screenshot({
+    path: info.outputPath("selection-palette.png"),
+    animations: "disabled",
+  });
+  await toolbar.getByRole("button", { name: "Set color to Blue" }).click();
+  await expect(page.locator(".cm-inlineCommentMark")).toHaveCount(0);
+  await expect(
+    toolbar.getByRole("button", { name: "Set color to Blue" }),
+  ).toHaveAttribute("aria-pressed", "true");
+  await toolbar.getByRole("button", { name: "Highlight", exact: true }).click();
+
+  const mark = page
+    .locator(".cm-inlineCommentMark")
+    .filter({ hasText: "line 20" });
+  const highlight = page.getByRole("button", { name: /^Show highlight H-/ });
+  await expect(mark).toBeVisible();
+  await expect(highlight).toBeVisible();
+  const label = await highlight.textContent();
+  await expect(page.locator(".cm-inlineCommentCard")).toHaveCount(0);
+  await mark.click();
+  await toolbar.hover();
+  await expect(
+    toolbar.getByRole("button", { name: "Set color to Blue" }),
+  ).toHaveAttribute("aria-pressed", "true");
+  await toolbar.hover();
+  await toolbar.getByRole("button", { name: "Set color to Green" }).click();
+  await expect(
+    toolbar.getByRole("button", { name: "Set color to Green" }),
+  ).toHaveAttribute("aria-pressed", "true");
+  await toolbar
+    .getByRole("button", { name: "Add comment", exact: true })
+    .click();
+
+  const input = page.getByRole("textbox", { name: "Comment text" });
+  const save = page.getByRole("button", { name: "Save comment", exact: true });
+  await input.fill("Keep this passage");
+  await save.click();
+  const card = page.locator(".cm-inlineCommentCard");
+  await expect(card).toContainText("Keep this passage");
+  await expect(card.locator(".cm-inlineCommentBadge")).toHaveText(label!);
+  await mark.click();
+  await toolbar.hover();
+  await expectPaletteSpacing();
+  const pinkChoice = toolbar.getByRole("button", { name: "Set color to Pink" });
+  const pinkDot = pinkChoice.locator("span");
+  await expect(pinkDot).toHaveCSS("box-shadow", "none");
+  await pinkChoice.hover();
+  await expect(pinkChoice).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+  await expect(pinkDot).not.toHaveCSS("box-shadow", "none");
+  const selectedDot = toolbar
+    .getByRole("button", { name: "Set color to Green" })
+    .locator("span");
+  const selectedOutline = await selectedDot.evaluate(
+    (dot) => getComputedStyle(dot).boxShadow,
+  );
+  await expect(pinkDot).not.toHaveCSS("box-shadow", selectedOutline);
+  await expect(
+    toolbar.getByRole("button", { name: /^Set color to / }),
+  ).toHaveCount(6);
+  await expect(
+    toolbar.getByRole("button", { name: "Remove highlight", exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    card.getByRole("button", { name: "Delete comment", exact: true }),
+  ).toBeAttached();
+  await card.getByRole("button", { name: "Edit comment", exact: true }).click();
+  await input.fill("  ");
+  await save.click();
+  await expect(highlight).toHaveText(label!);
+  await expect(card).toHaveCount(0);
+
+  await page.reload();
+  await expect(highlight).toHaveText(label!);
+  await highlight.click();
+  await toolbar.hover();
+  await expectPaletteSpacing();
+  await expect(
+    toolbar.getByRole("button", { name: "Set color to Green" }),
+  ).toHaveAttribute("aria-pressed", "true");
+  const readHighlight = () =>
+    page.evaluate(
+      () =>
+        JSON.parse(
+          localStorage.getItem(
+            "catalex-harness-comments:/tmp/comment-harness",
+          ) ?? "{}",
+        )["main.tex"]?.[0],
+    );
+  const original = await readHighlight();
+  expect(original).toMatchObject({ color: "green", text: "" });
+  const remove = toolbar.getByRole("button", {
+    name: "Remove highlight",
+    exact: true,
+  });
+  const confirm = toolbar.getByRole("button", {
+    name: "Confirm delete highlight",
+    exact: true,
+  });
+  await remove.click();
+  await expect(confirm.getByText("Delete?", { exact: true })).toBeVisible();
+  await expect(highlight).toBeVisible();
+  expect(await readHighlight()).toMatchObject(original);
+  await page.keyboard.press("Escape");
+  await expect(confirm).toHaveCount(0);
+  await highlight.click();
+  await remove.click();
+  await confirm.press("Enter");
+  await expect(highlight).toHaveCount(0);
+  await expect.poll(readHighlight).toBeUndefined();
+  await page.locator(".cm-content").focus();
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect(highlight).toHaveText(label!);
+  await expect(mark).toHaveText("line 20");
+  await expect.poll(readHighlight).toMatchObject(original);
+
+  await page.mouse.move(0, 0);
+  await page.evaluate(() =>
+    window.__editorCommentsHarness!.selectText!("line 21"),
+  );
+  const currentColor = toolbar.getByRole("button", {
+    name: "Set color to Green",
+  });
+  await expect(currentColor).toBeVisible();
+  await expect(currentColor).toHaveAttribute("aria-pressed", "true");
+  const createHighlight = toolbar.getByRole("button", {
+    name: "Highlight",
+    exact: true,
+  });
+  await expect(createHighlight.locator("svg")).toHaveCSS("width", "16px");
+  await expect(
+    toolbar.getByRole("button", { name: /^Set color to / }),
+  ).toHaveCount(1);
+  await currentColor.focus();
+  const colors = toolbar.getByRole("button", { name: /^Set color to / });
+  await expect(colors).toHaveCount(6);
+  await expect(toolbar).toHaveCSS("width", "184px");
+  const swatch = toolbar
+    .getByRole("button", { name: "Set color to Green" })
+    .locator("span");
+  await expect(swatch).toHaveCSS("width", "12px");
+  await expect(swatch).toHaveCSS("--tw-ring-offset-width", "1px");
+  await expect
+    .poll(() =>
+      colors.evaluateAll((buttons) =>
+        buttons.map((button) => button.getAttribute("aria-label")),
+      ),
+    )
+    .toEqual(
+      ["Yellow", "Orange", "Green", "Blue", "Pink", "Graphite"].map(
+        (color) => `Set color to ${color}`,
+      ),
+    );
+  await page.keyboard.press("Shift+Tab");
+  const orange = toolbar.getByRole("button", { name: "Set color to Orange" });
+  await expect(orange).toBeFocused();
+  await page.keyboard.press("Space");
+  await expect(orange).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator(".cm-inlineCommentMark")).toHaveCount(1);
+  for (let index = 0; index < 5; index++) await page.keyboard.press("Tab");
+  await expect(createHighlight).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(
+    page.locator(".cm-inlineCommentMark").filter({ hasText: "line 21" }),
+  ).toBeVisible();
+});
+
 test("comment creation waits for the initial native snapshot without losing the selection", async ({
   page,
 }) => {

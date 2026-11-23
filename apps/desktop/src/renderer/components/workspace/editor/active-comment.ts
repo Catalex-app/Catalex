@@ -21,7 +21,7 @@ function pointerDown(event: PointerEvent) {
   }
   if (
     target.closest(
-      "[data-comment-range-handle], [data-pdf-comment-surface], [data-comment-popup], [data-comment-layout-control]",
+      "[data-comment-range-handle], [data-pdf-comment-surface], [data-comment-popup], [data-comment-layout-control], [data-comment-toolbar]",
     )
   )
     return;

@@ -16,8 +16,7 @@ export function pdfFileCommentTargets(
       !anchor ||
       !validPdfCommentRegions(anchor.regions) ||
       anchor.fingerprint !== fingerprint ||
-      comment.resolved ||
-      (!comment.text.trim() && !comment.isEditing)
+      comment.resolved
     )
       return [];
     return [

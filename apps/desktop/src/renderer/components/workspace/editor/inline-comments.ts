@@ -1,4 +1,10 @@
 import { piModelLabel } from "@/lib/pi-models";
+import {
+  commentColors,
+  commentMarkPaint,
+  type CommentColor,
+  type StoredCommentColor,
+} from "@/lib/comment-colors";
 import "@/components/agent-chat/context-badge-list.css";
 import { toast } from "sonner";
 import {
@@ -67,15 +73,51 @@ export interface InlineEditorComment {
   to: number;
   line: number;
   text: string;
+  color?: StoredCommentColor;
   draftText?: string;
   createdAt?: string;
   isEditing?: boolean;
+  isNewDraft?: boolean;
   resolved?: boolean;
   origin?: {
     provider: "claude" | "codex" | "pi";
     sessionId: string;
     model?: string;
     thinkingEffort?: string;
+  };
+}
+
+export function isNewCommentDraft(comment: InlineEditorComment): boolean {
+  return (
+    !!comment.isEditing &&
+    !comment.text.trim() &&
+    (comment.isNewDraft ?? comment.number == null)
+  );
+}
+
+export function isCommentHighlight(comment: InlineEditorComment): boolean {
+  return !comment.origin && !comment.text.trim() && !isNewCommentDraft(comment);
+}
+
+export function beginCommentEdit(
+  comment: InlineEditorComment,
+): InlineEditorComment {
+  return { ...comment, isEditing: true, isNewDraft: false };
+}
+
+export function saveCommentText(
+  comment: InlineEditorComment,
+  text: string,
+): InlineEditorComment {
+  if (text.trim())
+    return { ...comment, text, isEditing: false, isNewDraft: undefined };
+  if (comment.origin || isNewCommentDraft(comment)) return comment;
+  return {
+    ...comment,
+    text: "",
+    isEditing: false,
+    isNewDraft: undefined,
+    resolved: false,
   };
 }
 
@@ -96,6 +138,8 @@ export interface InlineCommentActions {
   onResize?: (commentId: string, range: CommentRange) => void;
   onResolve?: (commentId: string) => void;
   onEdit?: (commentId: string) => void;
+  onSelect?: (id: string) => void;
+  onColor?: (color: CommentColor) => void;
   onDelete?: (commentId: string) => void;
   onCancel?: (commentId: string) => void;
 }
@@ -196,6 +240,8 @@ export class InlineCommentCardWidget extends WidgetType {
       other.comment.number === this.comment.number &&
       other.comment.expectedNumber === this.comment.expectedNumber &&
       other.comment.text === this.comment.text &&
+      other.comment.color === this.comment.color &&
+      other.comment.isNewDraft === this.comment.isNewDraft &&
       other.comment.positionReset === this.comment.positionReset &&
       other.comment.draftText === this.comment.draftText &&
       other.comment.createdAt === this.comment.createdAt &&
@@ -221,6 +267,19 @@ export class InlineCommentCardWidget extends WidgetType {
     const card = document.createElement("div");
     card.className = "cm-inlineCommentCard";
     card.tabIndex = -1;
+    card.addEventListener(
+      "click",
+      (event) => {
+        const target = event.target as Element;
+        if (
+          !target.closest(
+            "textarea, input, a, button:not(.cm-inlineCommentAttach)",
+          )
+        )
+          this.actions.onSelect?.(this.comment.id);
+      },
+      true,
+    );
     // Card controls prevent the editor's default mouse handling. Explicitly
     // take keyboard focus so shortcuts do not remain in chat or search.
     card.addEventListener(
@@ -261,6 +320,7 @@ export class InlineCommentCardWidget extends WidgetType {
       true,
     );
     card.classList.toggle("cm-inlineCommentAgent", !!this.comment.origin);
+    this.updateColor(card);
     card.classList.toggle(
       "cm-inlineCommentUnplaced",
       !!this.comment.positionReset,
@@ -463,6 +523,7 @@ export class InlineCommentCardWidget extends WidgetType {
       );
     }
     card.classList.toggle("cm-inlineCommentAgent", !!this.comment.origin);
+    this.updateColor(card);
     card.classList.toggle(
       "cm-inlineCommentUnplaced",
       !!this.comment.positionReset,
@@ -556,7 +617,9 @@ export class InlineCommentCardWidget extends WidgetType {
 
     const text = document.createElement("div");
     text.className = "cm-inlineCommentText";
-    text.textContent = this.comment.text;
+    text.textContent = isCommentHighlight(this.comment)
+      ? "Highlight"
+      : this.comment.text;
 
     const body = document.createElement("div");
     body.className = "cm-inlineCommentBody";
@@ -568,6 +631,22 @@ export class InlineCommentCardWidget extends WidgetType {
   private isSaving(): boolean {
     const scope = this.actions.historyScope;
     return Boolean(scope && isCommentSaving(scope.root, this.comment.id));
+  }
+
+  private updateColor(card: HTMLElement): void {
+    const { color, origin } = this.comment;
+    card.classList.toggle(
+      "cm-inlineCommentGraphite",
+      color === "gray" && !origin,
+    );
+    if (color && !origin) {
+      const { card: background, badge } = commentColors[color];
+      card.style.setProperty("--comment-card-color", background);
+      card.style.setProperty("--comment-badge-color", badge);
+    } else {
+      card.style.removeProperty("--comment-card-color");
+      card.style.removeProperty("--comment-badge-color");
+    }
   }
 
   private configureSaving(card: HTMLElement): void {
@@ -646,7 +725,10 @@ export class InlineCommentCardWidget extends WidgetType {
     this.configureSaving(card);
     this.configureCopy(card);
     this.configureWidthControl(card.querySelector(".cm-inlineCommentControls"));
-    const attach = !this.comment.isEditing && this.actions.onAttach;
+    const attach =
+      !this.comment.isEditing &&
+      !isCommentHighlight(this.comment) &&
+      this.actions.onAttach;
     let button = card.querySelector<HTMLButtonElement>(
       ".cm-inlineCommentAttach",
     );
@@ -941,13 +1023,19 @@ export class InlineCommentCardWidget extends WidgetType {
       !this.comment.positionReset
     ) {
       primaryGroup.appendChild(
-        this.createButton("edit", "edit", "Edit comment", () => {
-          this.actions.onEdit?.(this.comment.id);
-        }),
+        this.createButton(
+          "edit",
+          "edit",
+          isCommentHighlight(this.comment) ? "Add comment" : "Edit comment",
+          () => {
+            this.actions.onEdit?.(this.comment.id);
+          },
+        ),
       );
     }
     if (
       this.actions.onResolve &&
+      !isCommentHighlight(this.comment) &&
       !this.comment.isEditing &&
       !this.comment.positionReset
     ) {
@@ -984,7 +1072,11 @@ export class InlineCommentCardWidget extends WidgetType {
   }
 
   private saveComment(text: string) {
-    if (this.isSaving()) return;
+    if (
+      this.isSaving() ||
+      (!text.trim() && (this.comment.origin || isNewCommentDraft(this.comment)))
+    )
+      return;
     this.actions.onSave?.(this.comment.id, text);
     if (this.actions.historyScope)
       closeCommentDraft(this.actions.historyScope, this.comment.id);
@@ -1011,8 +1103,7 @@ export class InlineCommentCardWidget extends WidgetType {
     // The model retains the saved text while the textarea holds local edits.
     return (
       !this.comment.origin &&
-      this.comment.number == null &&
-      !this.comment.text.trim() &&
+      isNewCommentDraft(this.comment) &&
       !!this.actions.onDelete
     );
   }
@@ -1025,7 +1116,11 @@ export class InlineCommentCardWidget extends WidgetType {
     const cancel = empty && this.canCancelDraft();
     const action = cancel ? "cancel" : "save";
     const label = this.isSaving() ? "Saving…" : cancel ? "Cancel" : "Save";
-    button.disabled = this.isSaving() || (empty && !cancel);
+    button.disabled =
+      this.isSaving() ||
+      (empty &&
+        !cancel &&
+        (!!this.comment.origin || isNewCommentDraft(this.comment)));
     button.dataset.inlineCommentAction = action;
     button.setAttribute(
       "aria-label",
@@ -1050,13 +1145,11 @@ export class InlineCommentCardWidget extends WidgetType {
 
     if (this.actions.onSave) {
       const saveButton = this.createButton("save", null, "Save comment", () => {
-        if (editor.value.trim()) {
-          this.saveComment(editor.value);
-        } else if (this.canCancelDraft()) {
+        if (!editor.value.trim() && this.canCancelDraft()) {
           this.leaveCard(controls.closest(".cm-inlineCommentCard"), () => {
             (this.actions.onCancel ?? this.actions.onDelete)?.(this.comment.id);
           });
-        }
+        } else this.saveComment(editor.value);
       });
       saveButton.classList.add("cm-inlineCommentSaveButton");
       this.updateSaveButton(saveButton, editor);
@@ -1349,8 +1442,7 @@ export class InlineCommentCardWidget extends WidgetType {
         return;
       }
       event.preventDefault();
-      const trimmed = textarea.value.trim();
-      if (trimmed) onSubmit(trimmed, textarea);
+      onSubmit(textarea.value.trim(), textarea);
     });
     return textarea;
   }
@@ -1361,6 +1453,9 @@ class InlineCommentSuperscriptWidget extends WidgetType {
     readonly commentId: string,
     readonly label: string,
     readonly agent: boolean,
+    readonly color: StoredCommentColor | undefined,
+    readonly highlight: boolean,
+    readonly onSelect?: InlineCommentActions["onSelect"],
   ) {
     super();
   }
@@ -1369,7 +1464,10 @@ class InlineCommentSuperscriptWidget extends WidgetType {
     return (
       other.commentId === this.commentId &&
       other.label === this.label &&
-      other.agent === this.agent
+      other.agent === this.agent &&
+      other.color === this.color &&
+      other.highlight === this.highlight &&
+      Boolean(other.onSelect) === Boolean(this.onSelect)
     );
   }
 
@@ -1380,12 +1478,23 @@ class InlineCommentSuperscriptWidget extends WidgetType {
     button.classList.toggle("cm-inlineCommentAgentSuperscript", this.agent);
     button.textContent = this.label;
     button.dataset.inlineCommentId = this.commentId;
-    button.setAttribute("aria-label", `Scroll to comment ${this.label}`);
+    button.setAttribute(
+      "aria-label",
+      this.highlight
+        ? `Show highlight ${this.label}`
+        : `Scroll to comment ${this.label}`,
+    );
+    if (this.color)
+      button.style.setProperty(
+        "--comment-badge-color",
+        commentColors[this.color].badge,
+      );
     button.addEventListener("mousedown", stopEditorMouseEvent);
     button.addEventListener("click", (event) => {
       event.preventDefault();
       event.stopPropagation();
-      centerInlineCommentCard(view, this.commentId);
+      if (!this.highlight) centerInlineCommentCard(view, this.commentId);
+      this.onSelect?.(this.commentId);
     });
     return button;
   }
@@ -1544,45 +1653,59 @@ function buildInlineCommentDecorations(
   if (renderModels.length === 0) return Decoration.none;
 
   const decorations = renderModels.flatMap(
-    ({ comment, displayIndex, from, lineEnd, text, to }) => [
-      ...((
-        preview?.id === comment.id
-          ? preview.range.from < preview.range.to
-          : from < to
-      )
-        ? [
-            Decoration.mark({
-              class: comment.origin
-                ? "cm-inlineCommentMark cm-inlineCommentAgentMark"
-                : "cm-inlineCommentMark",
-              attributes: { "data-inline-comment-id": comment.id },
-            }).range(
-              preview?.id === comment.id ? preview.range.from : from,
-              preview?.id === comment.id ? preview.range.to : to,
-            ),
-          ]
-        : []),
-      ...(from < to
-        ? [
-            Decoration.widget({
-              widget: new InlineCommentSuperscriptWidget(
-                comment.id,
-                commentLabel(comment),
-                !!comment.origin,
+    ({ comment, displayIndex, from, lineEnd, text, to }) => {
+      const highlight = isCommentHighlight(comment);
+      const paint = commentMarkPaint(comment.color, Boolean(comment.origin));
+      return [
+        ...((
+          preview?.id === comment.id
+            ? preview.range.from < preview.range.to
+            : from < to
+        )
+          ? [
+              Decoration.mark({
+                class: comment.origin
+                  ? "cm-inlineCommentMark cm-inlineCommentAgentMark"
+                  : "cm-inlineCommentMark",
+                attributes: {
+                  "data-inline-comment-id": comment.id,
+                  style: `background-color: ${paint.background}; border-bottom-color: ${paint.border}`,
+                },
+              }).range(
+                preview?.id === comment.id ? preview.range.from : from,
+                preview?.id === comment.id ? preview.range.to : to,
               ),
-              side: 1,
-            }).range(to),
-          ]
-        : []),
-      Decoration.widget({
-        widget: new InlineCommentCardWidget(
-          { ...comment, text },
-          displayIndex,
-          actions,
-        ),
-        side: 10 + displayIndex,
-      }).range(lineEnd),
-    ],
+            ]
+          : []),
+        ...(from < to || highlight
+          ? [
+              Decoration.widget({
+                widget: new InlineCommentSuperscriptWidget(
+                  comment.id,
+                  commentLabel(comment),
+                  !!comment.origin,
+                  comment.color,
+                  highlight,
+                  actions.onSelect,
+                ),
+                side: 1,
+              }).range(to),
+            ]
+          : []),
+        ...(!highlight || comment.isEditing || comment.positionReset
+          ? [
+              Decoration.widget({
+                widget: new InlineCommentCardWidget(
+                  { ...comment, text },
+                  displayIndex,
+                  actions,
+                ),
+                side: 10 + displayIndex,
+              }).range(lineEnd),
+            ]
+          : []),
+      ];
+    },
   );
 
   return Decoration.set(decorations, true);
@@ -1597,7 +1720,11 @@ function getInlineCommentRenderModels(
     const from = clampOffset(comment.from, state.doc.length);
     const to = clampOffset(comment.to, state.doc.length);
     const text = comment.isEditing ? comment.text : comment.text.trim();
-    if (from > to || (!text && !comment.isEditing)) return [];
+    if (
+      from > to ||
+      (!text && !comment.isEditing && !isCommentHighlight(comment))
+    )
+      return [];
 
     const lineAnchor = from < to ? Math.max(from, to - 1) : from;
     const line = state.doc.lineAt(lineAnchor);
@@ -1735,6 +1862,9 @@ export function createInlineCommentExtension(
     onEdit: value.onEdit
       ? (id) => readCurrent().actions.onEdit?.(id)
       : undefined,
+    onSelect: value.onSelect
+      ? (id) => readCurrent().actions.onSelect?.(id)
+      : undefined,
     onDelete: value.onDelete
       ? (id) => readCurrent().actions.onDelete?.(id)
       : undefined,
@@ -1825,6 +1955,17 @@ export function createInlineCommentExtension(
   });
   return [
     commentState,
+    EditorView.domEventHandlers({
+      click(event, view) {
+        if (!view.state.selection.main.empty) return false;
+        const mark = (event.target as Element).closest<HTMLElement>(
+          ".cm-inlineCommentMark",
+        );
+        if (mark?.dataset.inlineCommentId)
+          readCurrent().actions.onSelect?.(mark.dataset.inlineCommentId);
+        return false;
+      },
+    }),
     commentAnchorHistory(
       (state) => state.facet(commentDocument)?.document ?? null,
     ),
@@ -1859,7 +2000,7 @@ export const inlineCommentStyles = {
       "2px solid color-mix(in oklab, var(--color-amber-500) 70%, transparent)",
   },
   ".cm-inlineCommentSuperscript": {
-    background: "#ca8a04",
+    background: "var(--comment-badge-color, #ca8a04)",
     border: "0",
     borderRadius: "999px",
     color: "#fffbeb",
@@ -1880,7 +2021,7 @@ export const inlineCommentStyles = {
     padding: "0 4px",
   },
   ".cm-inlineCommentSuperscript:hover": {
-    background: "#a16207",
+    background: "var(--comment-badge-color, #a16207)",
   },
   ".cm-inlineCommentCard": {
     position: "relative",
@@ -1890,13 +2031,12 @@ export const inlineCommentStyles = {
     width: "calc(100% + 10px)",
     margin: "6px 0 10px -10px",
     borderRadius: "12px",
-    background: "#eab308",
+    background: "var(--comment-card-color, #eab308)",
     "--comment-pill-active-background": "#fffbeb",
-    "--comment-pill-active-color": "#ca8a04",
+    "--comment-pill-active-color": "var(--comment-badge-color, #ca8a04)",
     "--comment-selection-stroke":
-      "color-mix(in oklch, #854d0e 18%, #eab308 82%)",
-    "--comment-control-background":
-      "color-mix(in oklch, #854d0e 18%, #eab308 82%)",
+      "color-mix(in oklch, var(--comment-badge-color, #854d0e) 18%, var(--comment-card-color, #eab308) 82%)",
+    "--comment-control-background": "var(--comment-badge-color, #ca8a04)",
     boxShadow: "none",
     transition: "box-shadow 160ms ease-out",
     color: "#fff7ed",
@@ -1978,7 +2118,7 @@ export const inlineCommentStyles = {
   },
   ".cm-inlineCommentBadge": {
     alignItems: "center",
-    background: "#ca8a04",
+    background: "var(--comment-badge-color, #ca8a04)",
     borderRadius: "999px",
     color: "#fffbeb",
     display: "inline-flex",
@@ -2013,7 +2153,7 @@ export const inlineCommentStyles = {
     lineHeight: "1.15",
   },
   ".cm-inlineCommentContent": {
-    background: "#eab308",
+    background: "var(--comment-card-color, #eab308)",
     display: "grid",
     isolation: "isolate",
     margin: "0 -10px",
@@ -2022,7 +2162,16 @@ export const inlineCommentStyles = {
     width: "calc(100% + 20px)",
   },
   ".cm-inlineCommentCardEditing .cm-inlineCommentContent": {
-    background: "color-mix(in oklch, #854d0e 18%, #eab308 82%)",
+    background:
+      "var(--comment-edit-background, color-mix(in oklch, var(--comment-badge-color, #854d0e) 18%, var(--comment-card-color, #eab308) 82%))",
+  },
+  ".cm-inlineCommentGraphite": {
+    "--comment-edit-background":
+      "color-mix(in srgb, var(--comment-badge-color) 55%, var(--comment-card-color))",
+    "--comment-control-background":
+      "color-mix(in srgb, var(--comment-badge-color) 75%, var(--comment-card-color))",
+    "--comment-control-hover-background":
+      "color-mix(in srgb, var(--comment-badge-color) 35%, var(--comment-card-color))",
   },
   ".cm-inlineCommentBackgroundWipe": {
     inset: "0",
@@ -2133,7 +2282,8 @@ export const inlineCommentStyles = {
   },
   ".cm-inlineCommentButton:hover:not(:disabled), .cm-inlineCommentControls > .cm-inlineCommentButton:hover:not(:disabled)":
     {
-      background: "color-mix(in oklch, #713f12 28%, #eab308 72%)",
+      background:
+        "var(--comment-control-hover-background, color-mix(in oklch, var(--comment-control-background) 78%, var(--comment-card-color, #eab308) 22%))",
       color: "#fffbeb",
     },
   ".cm-inlineCommentFullWidthButton": {
@@ -2315,7 +2465,7 @@ export const inlineCommentStyles = {
     {
       background: "rgba(0, 0, 0, 0.25)",
     },
-  ".cm-inlineCommentCard .cm-inlineCommentControls > .cm-inlineCommentCopyButton, .cm-inlineCommentCard .cm-inlineCommentControls > .cm-inlineCommentCopyButton:hover:not(:disabled)":
+  ".cm-inlineCommentCard:not(.cm-inlineCommentGraphite) .cm-inlineCommentControls > .cm-inlineCommentCopyButton, .cm-inlineCommentCard:not(.cm-inlineCommentGraphite) .cm-inlineCommentControls > .cm-inlineCommentCopyButton:hover:not(:disabled)":
     {
       background: "transparent",
     },

@@ -22,6 +22,7 @@ import {
   type ResizePdfComment,
 } from "./use-pdf-file-comment-resize";
 import {
+  commentRangeHandleColor,
   resizeCommentRange,
   type CommentRange,
   type CommentRangeEdge,
@@ -52,7 +53,16 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { InlineCommentCard } from "../editor/inline-comment-card";
-import type { InlineCommentActions } from "../editor/inline-comments";
+import {
+  CommentSelectionToolbar,
+  previewSelectionToolbarAnchor,
+} from "../editor/selection-toolbar";
+import { commentMarkPaint } from "@/lib/comment-colors";
+import {
+  commentLabel,
+  isCommentHighlight,
+  type InlineCommentActions,
+} from "../editor/inline-comments";
 import type {
   PdfCommentSourceBox,
   createPdfCommentLookup,
@@ -87,7 +97,6 @@ export function pdfCommentTargets(
       if (
         comment.pdf ||
         comment.resolved ||
-        (!comment.text.trim() && !comment.isEditing) ||
         comment.from < 0 ||
         comment.to > content.length
       )
@@ -332,6 +341,11 @@ export function PdfCommentInteraction({
     subscribeActiveComment,
     getActiveComment,
   );
+  const [toolbarCommentId, setToolbarCommentId] = useState<string | null>(null);
+  const dismissCommentToolbar = useCallback(
+    () => setToolbarCommentId(null),
+    [],
+  );
   const [preview, setPreview] = useState<RangePreview>(null);
   const mappers = useRef(new Map<number, PointMapper>());
   const registerMapper = useCallback((page: number, mapper: PointMapper) => {
@@ -422,6 +436,8 @@ export function PdfCommentInteraction({
         observer.disconnect();
         handledRequest.current = requestKey;
         setActiveComment(requestedCommentId);
+        if (isCommentHighlight(target.comment) && !searchRequest?.fromSearch)
+          setToolbarCommentId(requestedCommentId);
         if (centerRequested) setLayoutRequest({ editorVisible });
         setFocus({
           target,
@@ -647,6 +663,28 @@ export function PdfCommentInteraction({
       onToggleFullWidth,
     ],
   );
+  const getCommentAnchor = useCallback(() => {
+    const root = surface.current;
+    if (!root || !focus || focus.target.comment.id !== toolbarCommentId)
+      return null;
+    const anchor = focus.anchor.isConnected
+      ? focus.anchor
+      : root.querySelector<HTMLElement>(
+          `[data-pdf-comment-id="${CSS.escape(toolbarCommentId)}"]`,
+        );
+    const viewport =
+      scrollElement instanceof HTMLElement
+        ? scrollElement
+        : (root.querySelector<HTMLElement>(
+            '[data-testid="pdf-scroll-container"]',
+          ) ?? root.parentElement);
+    return anchor && viewport
+      ? previewSelectionToolbarAnchor(
+          anchor.getBoundingClientRect(),
+          viewport.getBoundingClientRect(),
+        )
+      : null;
+  }, [focus, scrollElement, toolbarCommentId]);
   const [placement, setPlacement] = useState({
     left: 0,
     top: 0,
@@ -757,6 +795,7 @@ export function PdfCommentInteraction({
             : undefined,
           select: (target, anchor) => {
             setActiveComment(target.comment.id);
+            setToolbarCommentId(target.comment.id);
             setFocus({
               target,
               anchor,
@@ -781,6 +820,7 @@ export function PdfCommentInteraction({
             )
               return;
             setActiveComment(null);
+            dismissCommentToolbar();
             setFocus(null);
             setSearchRequest(null);
             context?.clearSelection?.();
@@ -795,7 +835,12 @@ export function PdfCommentInteraction({
           createPortal(
             <PdfCommentPopup
               target={
-                showInEditor || layoutRequest || layoutAnimating
+                showInEditor ||
+                layoutRequest ||
+                layoutAnimating ||
+                (selected &&
+                  isCommentHighlight(selected.comment) &&
+                  !selected.comment.isEditing)
                   ? null
                   : selected
               }
@@ -803,6 +848,61 @@ export function PdfCommentInteraction({
               placement={placement}
             />,
             host,
+          )}
+        {selected &&
+          toolbarCommentId === selected.comment.id &&
+          !selected.comment.origin &&
+          !selected.comment.isEditing &&
+          !layoutRequest &&
+          !layoutAnimating &&
+          actions.onColor && (
+            <CommentSelectionToolbar
+              key={selected.comment.id}
+              comment={selected.comment}
+              getAnchor={getCommentAnchor}
+              onDismiss={dismissCommentToolbar}
+              onColor={actions.onColor}
+              onEdit={
+                actions.onEdit &&
+                (() => {
+                  dismissCommentToolbar();
+                  actions.onEdit?.(selected.comment.id);
+                  if (showInEditor) context?.navigate(selected);
+                })
+              }
+              onDelete={
+                actions.onDelete &&
+                (() => {
+                  const viewport = surface.current?.querySelector<HTMLElement>(
+                    '[data-testid="pdf-scroll-container"]',
+                  );
+                  if (
+                    viewport &&
+                    viewport.hasAttribute("tabindex") &&
+                    actions.historyScope
+                  ) {
+                    // A compiled viewer can remove a highlight from a chapter
+                    // other than the active source file.
+                    viewport.focus({ preventScroll: true });
+                    if (document.activeElement === viewport) {
+                      viewport.dataset.fileHistoryScope = JSON.stringify(
+                        actions.historyScope,
+                      );
+                      const clearScope = () => {
+                        delete viewport.dataset.fileHistoryScope;
+                        viewport.removeEventListener("blur", clearScope);
+                        viewport.removeEventListener("pointerdown", clearScope);
+                      };
+                      viewport.addEventListener("blur", clearScope);
+                      viewport.addEventListener("pointerdown", clearScope);
+                    }
+                  }
+                  dismissCommentToolbar();
+                  actions.onDelete?.(selected.comment.id);
+                  setActiveComment(null);
+                })
+              }
+            />
           )}
       </FocusContext.Provider>
     </PdfCommentsContext.Provider>
@@ -1247,7 +1347,7 @@ export function PreviewCommentLayer({
                 hidden={!currentMatch}
                 key={edge}
                 edge={edge}
-                agent={!!target.comment.origin}
+                color={commentRangeHandleColor(target.comment)}
                 x={
                   ((match.x + (edge === "to" ? match.width : 0)) / pageWidth) *
                   100
@@ -1286,45 +1386,63 @@ export function PreviewCommentLayer({
             height: `${((block.bottom - block.top) / pageHeight) * 100}%`,
             borderRadius: "4px",
             outline: "2px dashed",
-            outlineColor: block.target.comment.origin
-              ? "color-mix(in oklab, #7252b5 70%, transparent)"
-              : "color-mix(in oklab, var(--color-amber-500) 70%, transparent)",
+            outlineColor: commentMarkPaint(
+              block.target.comment.color,
+              !!block.target.comment.origin,
+            ).border,
             outlineOffset: "2px",
           }}
         />
       ))}
       {regions.map(({ bounds, ranges }, index) => (
         <div key={index}>
-          {ranges.map(({ target, x, width }) => (
-            <Hint
-              content={target.comment.text}
-              key={`${target.comment.id}:${x}:${width}`}
-            >
-              <button
-                data-pdf-comment-highlight="true"
-                data-pdf-comment-id={target.comment.id}
-                aria-pressed={isSelected(target)}
-                type="button"
-                aria-label={`Show ${target.comment.origin ? "agent" : "human"} comment: ${target.comment.text}`}
-                className={`pointer-events-none absolute cursor-pointer rounded-[1px] border-b-2 focus-visible:outline-2 ${
-                  target.comment.origin
-                    ? "border-[#7252b5]/70 bg-[#7252b5]/25 hover:bg-[#7252b5]/45 focus-visible:outline-[#7252b5]"
-                    : "border-amber-500/70 bg-amber-300/25 hover:bg-amber-300/45 focus-visible:outline-amber-600"
-                }`}
-                style={{
-                  left: `${(x / pageWidth) * 100}%`,
-                  top: `${(bounds.y / pageHeight) * 100}%`,
-                  width: `${(width / pageWidth) * 100}%`,
-                  height: `${(bounds.h / pageHeight) * 100}%`,
-                }}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  if (focus) focus.select(target, event.currentTarget);
-                  else context.navigate(target);
-                }}
-              />
-            </Hint>
-          ))}
+          {ranges.map(({ target, x, width }) => {
+            const { comment } = target;
+            const highlight = isCommentHighlight(comment);
+            const label = highlight
+              ? `Highlight ${commentLabel(comment)}`
+              : comment.text;
+            const paint = commentMarkPaint(comment.color);
+            return (
+              <Hint content={label} key={`${target.comment.id}:${x}:${width}`}>
+                <button
+                  data-pdf-comment-highlight="true"
+                  data-pdf-comment-id={target.comment.id}
+                  aria-pressed={isSelected(target)}
+                  type="button"
+                  aria-label={
+                    highlight
+                      ? `Show highlight ${commentLabel(comment)}`
+                      : `Show ${comment.origin ? "agent" : "human"} comment: ${comment.text}`
+                  }
+                  className={`pointer-events-none absolute cursor-pointer rounded-[1px] border-b-2 focus-visible:outline-2 ${
+                    comment.origin
+                      ? "border-[#7252b5]/70 bg-[#7252b5]/25 hover:bg-[#7252b5]/45 focus-visible:outline-[#7252b5]"
+                      : comment.color
+                        ? "border-[var(--highlight-border)] bg-[var(--highlight-background)] hover:bg-[var(--highlight-hover)] focus-visible:outline-[var(--highlight-stroke)]"
+                        : "border-amber-500/70 bg-amber-300/25 hover:bg-amber-300/45 focus-visible:outline-amber-600"
+                  }`}
+                  style={
+                    {
+                      left: `${(x / pageWidth) * 100}%`,
+                      top: `${(bounds.y / pageHeight) * 100}%`,
+                      width: `${(width / pageWidth) * 100}%`,
+                      height: `${(bounds.h / pageHeight) * 100}%`,
+                      "--highlight-background": paint.background,
+                      "--highlight-hover": paint.hover,
+                      "--highlight-border": paint.border,
+                      "--highlight-stroke": paint.stroke,
+                    } as React.CSSProperties
+                  }
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    if (focus) focus.select(target, event.currentTarget);
+                    else context.navigate(target);
+                  }}
+                />
+              </Hint>
+            );
+          })}
         </div>
       ))}
     </div>

@@ -10,7 +10,7 @@ import {
   type MinimapLayer,
   type MinimapMarker,
 } from "../editor/editor-minimap-model";
-import { commentLabel } from "../editor/inline-comments";
+import { commentLabel, isCommentHighlight } from "../editor/inline-comments";
 import {
   PdfCommentsContext,
   useRevealPdfComment,
@@ -190,7 +190,9 @@ export function PdfMinimap({
     endLine: page,
     from: index,
     title: `Comment ${commentLabel(target.comment)}`,
-    detail: target.comment.text.trim().slice(0, 260),
+    detail: isCommentHighlight(target.comment)
+      ? "Highlight"
+      : target.comment.text.trim().slice(0, 260),
   }));
   return (
     <DocumentMinimap

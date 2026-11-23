@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 
 for (const mode of ["artisan", "duet"]) {
   for (const source of ["editor", "pdf"]) {
-    test(`${mode} ${source} selection offers only Comment`, async ({
+    test(`${mode} ${source} selection offers comments and highlights`, async ({
       page,
     }) => {
       if (source === "editor") {
@@ -60,7 +60,23 @@ for (const mode of ["artisan", "duet"]) {
       const toolbar = page.locator("[data-selection-toolbar]");
       await expect(toolbar).toBeVisible();
       await toolbar.hover();
-      await expect(toolbar.getByRole("button")).toHaveCount(1);
+      await expect(
+        toolbar.getByRole("button", { name: /^Set color to / }),
+      ).toHaveCount(6);
+      await expect(
+        toolbar.getByRole("button", { name: "Set color to Yellow" }),
+      ).toHaveAttribute("aria-pressed", "true");
+      await expect(toolbar.getByRole("button")).toHaveText([
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "Highlight",
+        "Comment",
+      ]);
+      await expect(toolbar.getByRole("button")).toHaveCount(8);
       const comment = toolbar.getByRole("button", {
         name: "Comment",
         exact: true,
@@ -70,10 +86,44 @@ for (const mode of ["artisan", "duet"]) {
         path: test.info().outputPath(`${mode}-${source}-selection.png`),
         animations: "disabled",
       });
-      await comment.click();
+      const graphite = toolbar.getByRole("button", {
+        name: "Set color to Graphite",
+      });
+      await graphite.press("Space");
+      await expect(graphite).toHaveAttribute("aria-pressed", "true");
+      const input = page.getByRole("textbox", {
+        name: "Comment text",
+        exact: true,
+      });
+      await expect(input).toHaveCount(0);
+      await page.keyboard.press("Tab");
       await expect(
-        page.getByRole("textbox", { name: "Comment text", exact: true }),
-      ).toBeVisible();
+        toolbar.getByRole("button", { name: "Highlight", exact: true }),
+      ).toBeFocused();
+      await page.keyboard.press("Tab");
+      await expect(comment).toBeFocused();
+      await page.keyboard.press("Enter");
+      await expect(input).toBeVisible();
+      await input.fill("A colored comment");
+      await page
+        .getByRole("button", { name: "Save comment", exact: true })
+        .click();
+      const readSavedColor = () =>
+        page.evaluate((source) => {
+          const project =
+            source === "editor"
+              ? "/tmp/comment-harness"
+              : "/tmp/catalex-pdf-comments-harness";
+          const files: Record<string, { text: string; color?: string }[]> =
+            JSON.parse(
+              localStorage.getItem(`catalex-harness-comments:${project}`) ??
+                "{}",
+            );
+          return Object.values(files)
+            .flat()
+            .find((item) => item.text === "A colored comment")?.color;
+        }, source);
+      await expect.poll(readSavedColor).toBe("gray");
     });
   }
 }

@@ -28,6 +28,13 @@ import {
 } from "../document-navigation-styles";
 import { setCommentDraft } from "../editor/comment-draft-history";
 import {
+  beginCommentEdit,
+  isCommentHighlight,
+  isNewCommentDraft,
+  saveCommentText,
+} from "../editor/inline-comments";
+import { storedCommentColor, type CommentColor } from "@/lib/comment-colors";
+import {
   attachCommentToChat,
   commentChatContext,
 } from "@/lib/comment-chat-context";
@@ -111,6 +118,7 @@ import { MERGE_PREVIEW_REFRESH_EVENT } from "@/lib/workspace-events";
 import { ErrorBoundary } from "react-error-boundary";
 import {
   SelectionToolbar,
+  previewSelectionToolbarAnchor,
   type ToolbarAction,
 } from "@/components/workspace/editor/selection-toolbar";
 import { save } from "@/lib/desktop/dialog";
@@ -698,16 +706,38 @@ export function PdfPreview({
             true,
           );
         },
-        onSave: (_id: string, text: string) => {
-          if (text.trim())
-            update((comment) => ({ ...comment, text, isEditing: false }));
+        onSave: (_id: string, text: string) =>
+          update((comment) => saveCommentText(comment, text)),
+        onEdit: () => {
+          update(beginCommentEdit);
+          if (projectRoot && isCommentHighlight(target.comment))
+            setCommentDraft(
+              { root: projectRoot, filePath: target.filePath },
+              target.comment.id,
+              {
+                comment: beginCommentEdit(target.comment),
+                text: "",
+              },
+            );
         },
-        onEdit: () => update((comment) => ({ ...comment, isEditing: true })),
         onCancel: () =>
           update((comment) =>
-            comment.text.trim() ? { ...comment, isEditing: false } : null,
+            isNewCommentDraft(comment)
+              ? null
+              : { ...comment, isEditing: false },
           ),
-        onResolve: () => update((comment) => ({ ...comment, resolved: true })),
+        onResolve: () =>
+          update((comment) =>
+            isCommentHighlight(comment)
+              ? comment
+              : { ...comment, resolved: true },
+          ),
+        onColor: (color: CommentColor) =>
+          update((comment) =>
+            comment.origin
+              ? comment
+              : { ...comment, color: storedCommentColor(color) },
+          ),
         onDelete: () => update(() => null),
       };
     },
@@ -1403,8 +1433,8 @@ export function PdfPreview({
   );
 
   const handlePdfToolbarAction = useCallback(
-    async (actionId: string) => {
-      if (!pdfSelection || actionId !== "comment") return;
+    (highlightColor?: CommentColor) => {
+      if (!pdfSelection) return;
       if (!commentsLoaded) return;
       const fileComment =
         canCommentOnPdfFile && pdfSelection.regions && pdfFingerprint
@@ -1444,27 +1474,32 @@ export function PdfPreview({
         pdf: fileComment,
         ...range,
         text: "",
+        color: storedCommentColor(
+          highlightColor ?? useSettingsStore.getState().lastCommentColor,
+        ),
         createdAt: new Date().toISOString(),
 
-        isEditing: true,
+        isEditing: highlightColor === undefined,
       };
       setProjectComments((current) => ({
         ...current,
         [filePath]: [
           ...(current[filePath] ?? []).filter(
-            (comment) => comment.text.trim() || !comment.isEditing,
+            (comment) => !isNewCommentDraft(comment),
           ),
           draftComment,
         ],
       }));
-      if (projectRoot)
+      if (projectRoot && draftComment.isEditing)
         setCommentDraft({ root: projectRoot, filePath }, id, {
           comment: draftComment,
           text: "",
         });
-      setCenterRequestedComment(false);
-      setNewCommentId(id);
-      setCommentRequestRevision((revision) => revision + 1);
+      if (draftComment.isEditing) {
+        setCenterRequestedComment(false);
+        setNewCommentId(id);
+        setCommentRequestRevision((revision) => revision + 1);
+      }
       if (choice.approximate) {
         toast.info("Matched approximately—check the highlighted source.", {
           duration: 10000,
@@ -1517,7 +1552,7 @@ export function PdfPreview({
       label: commentTool?.label ?? "Comment",
       visible: !!commentTool,
       enabled: !!pdfSelection && !commentTool?.disabled,
-      run: () => handlePdfToolbarAction("comment"),
+      run: () => handlePdfToolbarAction(),
       menu: { group: "Edit", section: 0, order: 0, submenu: "Comments" },
     },
     commentTarget ? "active" : "inactive",
@@ -1538,25 +1573,10 @@ export function PdfPreview({
     if (!pdfSelection) return null;
     const rect = pdfSelection.getBounds();
     if (!rect) return null;
-    const viewport = pdfSelection.viewport.getBoundingClientRect();
-    const bounds = {
-      top: Math.max(0, viewport.top) + 8,
-      bottom: Math.min(window.innerHeight, viewport.bottom) - 8,
-      left: Math.max(0, viewport.left) + 8,
-      right: Math.min(window.innerWidth, viewport.right) - 8,
-    };
-    if (
-      rect.width <= 0 ||
-      rect.height <= 0 ||
-      bounds.right <= bounds.left ||
-      bounds.bottom <= bounds.top ||
-      rect.bottom <= Math.max(0, viewport.top) ||
-      rect.top >= Math.min(window.innerHeight, viewport.bottom) ||
-      rect.right <= Math.max(0, viewport.left) ||
-      rect.left >= Math.min(window.innerWidth, viewport.right)
-    )
-      return null;
-    return { top: rect.top, left: rect.left - 42 - 8, bounds };
+    return previewSelectionToolbarAnchor(
+      rect,
+      pdfSelection.viewport.getBoundingClientRect(),
+    );
   }, [pdfSelection]);
 
   useEffect(() => {
@@ -3414,6 +3434,8 @@ export function PdfPreview({
           contextLabel={pdfContextLabel}
           selectionContext={pdfSelectionContext}
           actions={pdfToolbarActions}
+          commentColorsDisabled={commentTool?.disabled}
+          onHighlight={commentTool ? handlePdfToolbarAction : undefined}
           onAction={addCommentAction.run}
           onDismiss={handlePdfToolbarDismiss}
         />

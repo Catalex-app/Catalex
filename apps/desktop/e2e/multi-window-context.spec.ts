@@ -304,7 +304,9 @@ for (const source of ["editor", "pdf"] as const) {
     });
     let toolbar = page.locator("[data-selection-toolbar]");
     await toolbar.hover();
-    await expect(toolbar.getByRole("button")).toHaveCount(1);
+    await expect(
+      toolbar.getByRole("button", { name: /^Set color to / }),
+    ).toHaveCount(6);
     await expect(
       toolbar.getByRole("button", { name: "Send to chat", exact: true }),
     ).toHaveCount(0);
@@ -331,6 +333,21 @@ for (const source of ["editor", "pdf"] as const) {
     if (source === "editor") await selectEditor(reference);
     else await selectPdf(reference);
     toolbar = reference.locator("[data-selection-toolbar]");
+    await toolbar.hover();
+    await expect(toolbar).toHaveCSS("width", "184px");
+    const rows = toolbar.locator(":scope > *");
+    await expect(rows).toHaveCount(4);
+    await expect(rows.nth(0)).toHaveAccessibleName("Send to chat");
+    await expect(rows.nth(1)).toHaveRole("separator");
+    await expect(rows.nth(2)).toHaveAccessibleName("Color");
+    await expect(rows.nth(3).getByRole("button")).toHaveText([
+      "Highlight",
+      "Comment",
+    ]);
+    await toolbar.screenshot({
+      path: test.info().outputPath(`${source}-pop-out-toolbar.png`),
+      animations: "disabled",
+    });
     await toolbar
       .getByRole("button", { name: "Send to chat", exact: true })
       .click();

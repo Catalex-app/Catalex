@@ -5,7 +5,11 @@ import { ButtonGroup } from "@/components/ui/button-group";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { MessageSquareTextIcon, XIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { InlineEditorComment } from "./inline-comments";
+import {
+  isCommentHighlight,
+  type InlineEditorComment,
+} from "./inline-comments";
+import { commentColors } from "@/lib/comment-colors";
 import type { EditorCommentFilter } from "@/stores/settings-store";
 import { getActiveComment, subscribeActiveComment } from "./active-comment";
 import {
@@ -176,7 +180,12 @@ export function CommentsPanel({
         }}
       />
       {current ? (
-        <Hint content={current.text || "Unsaved comment"}>
+        <Hint
+          content={
+            current.text ||
+            (isCommentHighlight(current) ? "Highlight" : "Unsaved comment")
+          }
+        >
           <button
             type="button"
             onClick={() => onNavigate(current)}
@@ -188,12 +197,18 @@ export function CommentsPanel({
                 "shrink-0 rounded-full px-1.5 py-0.5 font-semibold text-[10px] text-white",
                 current.origin ? "bg-[#7352b3]" : "bg-[#d49a00]",
               )}
+              style={
+                current.color
+                  ? { backgroundColor: commentColors[current.color].badge }
+                  : undefined
+              }
             >
               {current.origin ? "A" : "H"}-
               {current.number ?? current.expectedNumber ?? 1}
             </span>
             <span className="min-w-0 flex-1 truncate text-foreground">
-              {current.text || "Unsaved comment"}
+              {current.text ||
+                (isCommentHighlight(current) ? "Highlight" : "Unsaved comment")}
             </span>
           </button>
         </Hint>

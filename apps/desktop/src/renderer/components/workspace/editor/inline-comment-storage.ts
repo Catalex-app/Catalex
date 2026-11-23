@@ -16,6 +16,7 @@ import { remapCommentDraftPaths } from "./comment-draft-history";
 import { useDocumentStore } from "@/stores/document-store";
 import { createDocumentChangeSet } from "./document-changes";
 import {
+  isNewCommentDraft,
   mapInlineCommentsThroughChanges,
   resetCommentPosition,
 } from "./inline-comments";
@@ -60,6 +61,7 @@ function stored(comment: InlineEditorComment): InlineEditorComment {
     to: comment.to,
     line: comment.line,
     text: comment.text,
+    color: comment.color,
     createdAt: comment.createdAt,
     origin: comment.origin,
     resolved: comment.resolved || undefined,
@@ -82,12 +84,12 @@ export function commentPatches(
     if (before[filePath] === after[filePath]) continue;
     const previous = new Map(
       (before[filePath] ?? [])
-        .filter((c) => c.text.trim())
+        .filter((c) => !isNewCommentDraft(c))
         .map((c) => [c.id, c]),
     );
     const next = new Map(
       (after[filePath] ?? [])
-        .filter((c) => c.text.trim())
+        .filter((c) => !isNewCommentDraft(c))
         .map((c) => [c.id, c]),
     );
     for (const id of new Set([...previous.keys(), ...next.keys()])) {
@@ -101,6 +103,7 @@ export function commentPatches(
         oldComment &&
         newComment &&
         oldComment.text === newComment.text &&
+        oldComment.color === newComment.color &&
         Boolean(oldComment.resolved) === Boolean(newComment.resolved) &&
         equal(oldComment.pdf, newComment.pdf)
       )
@@ -176,7 +179,7 @@ export function applyCommentPatch(
       removedAnchor: patch.after.removedAnchor,
     });
   }
-  for (const key of ["text", "resolved"] as const) {
+  for (const key of ["text", "color", "resolved"] as const) {
     if (
       key === "resolved"
         ? Boolean(current[key]) === Boolean(patch.before[key])
@@ -520,7 +523,7 @@ function rebaseComment(
   let after = patch.after;
   if (after && current.after) {
     after = { ...current.after };
-    for (const key of ["text", "resolved"] as const) {
+    for (const key of ["text", "color", "resolved"] as const) {
       if (!patch.before || !equal(patch.before[key], patch.after![key]))
         Object.assign(after, { [key]: patch.after![key] });
     }

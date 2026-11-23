@@ -1238,7 +1238,9 @@ describe("inline editor comments", () => {
     ]);
 
     const cardRule = getInlineCommentCardStyleRule();
-    expect(cardRule).toContain("background: #eab308");
+    expect(cardRule).toContain(
+      "background: var(--comment-card-color, #eab308)",
+    );
     expect(cardRule).toContain("color: #fff7ed");
     expect(cardRule).toContain("overflow: hidden");
     expect(cardRule).not.toContain("linear-gradient");

@@ -272,6 +272,7 @@ pub(super) async fn create(
         to: 0,
         line: location.page,
         text: input.text.trim().into(),
+        color: None,
         created_at: Some(chrono::Utc::now().to_rfc3339()),
         resolved: false,
         proposal: None,

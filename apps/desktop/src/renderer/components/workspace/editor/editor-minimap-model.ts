@@ -2,7 +2,11 @@ import type { Text } from "@codemirror/state";
 import type { ThreeWayRegion } from "./three-way-merge-extension";
 import type { Chunk } from "@codemirror/merge";
 import { computeLineDiffOps, type GitLineChange } from "./git-line-changes";
-import { commentLabel, type InlineEditorComment } from "./inline-comments";
+import {
+  commentLabel,
+  isCommentHighlight,
+  type InlineEditorComment,
+} from "./inline-comments";
 import type { DiagnosticItem } from "./problems-panel";
 
 export type MinimapLayer =
@@ -235,7 +239,11 @@ export function buildMinimapMarkers(
       endLine: doc.lineAt(clampPosition(doc, Math.max(from, comment.to - 1)))
         .number,
       title: `Comment ${commentLabel(comment)}`,
-      detail: snippet(comment.text || comment.draftText || "Unsaved comment"),
+      detail: snippet(
+        comment.text ||
+          comment.draftText ||
+          (isCommentHighlight(comment) ? "Highlight" : "Unsaved comment"),
+      ),
       commentId: comment.id,
     });
   }

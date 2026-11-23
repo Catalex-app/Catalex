@@ -451,6 +451,7 @@ test("read-only comment cards select from their padding and show chat selection"
   const chips = drawer.locator('[data-comment-chip="true"]');
   await first.click({ position: { x: 6, y: 6 } });
   await expect(chips).toHaveCount(1);
+  await expect(chips).toHaveCSS("background-color", "rgb(114, 82, 181)");
   await expect(drawer.locator('[data-selection-chip="true"]')).toHaveCount(0);
   await expect(first).toHaveClass(/cm-inlineCommentSelected/);
   await expect(first.locator(".cm-inlineCommentAttach")).toHaveAttribute(
@@ -461,6 +462,28 @@ test("read-only comment cards select from their padding and show chat selection"
   await expect(second).toHaveClass(/cm-inlineCommentSelected/);
   await expect(first).not.toHaveClass(/cm-inlineCommentSelected/);
   await expect(chips).toHaveCount(1);
+  await expect(chips).toHaveCSS("background-color", "rgb(234, 179, 8)");
+  await page.evaluate(async () => {
+    const { invoke } = await import(
+      /* @vite-ignore */ "/src/renderer/lib/desktop/core.ts"
+    );
+    const projectRoot = "/browser-demo/Comment Review";
+    const filePath = "manuscript.md";
+    const before = JSON.parse(
+      localStorage.getItem(`catalex-harness-comments:${projectRoot}`)!,
+    )[filePath].find((record: { id: string }) => record.id === "H-1");
+    await invoke("update_project_comment", {
+      projectRoot,
+      patch: {
+        filePath,
+        id: before.id,
+        before,
+        after: { ...before, color: "gray" },
+      },
+    });
+  });
+  await expect(second).toHaveCSS("background-color", "rgb(86, 90, 94)");
+  await expect(chips).toHaveCSS("background-color", "rgb(86, 90, 94)");
   await drawer.evaluate(async (el) => {
     await Promise.all(
       el
@@ -617,7 +640,7 @@ test("Markdown preview cards follow chat comment selection without a width toggl
   await expect(chip).toHaveCount(0);
 });
 
-for (const action of ["resolve", "delete"] as const) {
+for (const action of ["resolve", "delete", "highlight"] as const) {
   for (const pinned of [false, true]) {
     test(`${action} removes ${pinned ? "pinned" : "live"} comment badges from drafts`, async ({
       page,
@@ -628,49 +651,58 @@ for (const action of ["resolve", "delete"] as const) {
       const chips = page.locator(
         '[data-chat-drawer-panel="true"] [data-comment-chip="true"]',
       );
+      const id = action === "highlight" ? "H-1" : "A-7";
       await editor
-        .getByRole("button", { name: "Add comment A-7 to chat", exact: true })
+        .getByRole("button", { name: `Add comment ${id} to chat`, exact: true })
         .click();
       await expect(chips).toHaveCount(1);
       if (pinned)
         await chips
           .getByRole("button", { name: "Pin comment", exact: true })
           .click();
-      await page.evaluate(async (action) => {
-        // @ts-expect-error Vite browser module
-        const { useAgentChatStore } = await import(
-          "/src/renderer/stores/agent-chat-store.ts"
-        );
-        const state = useAgentChatStore.getState();
-        const active = state.tabs.find(
-          (tab: { id: string }) => tab.id === state.activeTabId,
-        );
-        useAgentChatStore.setState({
-          tabs: [
-            ...state.tabs,
-            {
-              ...active,
-              id: "inactive-draft",
-              draft: { ...active.draft, input: "Keep this draft" },
+      await page.evaluate(
+        async ({ action, id }) => {
+          // @ts-expect-error Vite browser module
+          const { useAgentChatStore } = await import(
+            "/src/renderer/stores/agent-chat-store.ts"
+          );
+          const state = useAgentChatStore.getState();
+          const active = state.tabs.find(
+            (tab: { id: string }) => tab.id === state.activeTabId,
+          );
+          useAgentChatStore.setState({
+            tabs: [
+              ...state.tabs,
+              {
+                ...active,
+                id: "inactive-draft",
+                draft: { ...active.draft, input: "Keep this draft" },
+              },
+            ],
+          });
+          // @ts-expect-error Vite browser module
+          const { invoke } = await import("/src/renderer/lib/desktop/core.ts");
+          const projectRoot = "/browser-demo/Comment Review";
+          const before = JSON.parse(
+            localStorage.getItem(`catalex-harness-comments:${projectRoot}`)!,
+          )["manuscript.md"].find((c: { id: string }) => c.id === id);
+          await invoke("update_project_comment", {
+            projectRoot,
+            patch: {
+              filePath: "manuscript.md",
+              id: before.id,
+              before,
+              after:
+                action === "resolve"
+                  ? { ...before, resolved: true }
+                  : action === "highlight"
+                    ? { ...before, text: "" }
+                    : null,
             },
-          ],
-        });
-        // @ts-expect-error Vite browser module
-        const { invoke } = await import("/src/renderer/lib/desktop/core.ts");
-        const projectRoot = "/browser-demo/Comment Review";
-        const before = JSON.parse(
-          localStorage.getItem(`catalex-harness-comments:${projectRoot}`)!,
-        )["manuscript.md"].find((c: { id: string }) => c.id === "A-7");
-        await invoke("update_project_comment", {
-          projectRoot,
-          patch: {
-            filePath: "manuscript.md",
-            id: before.id,
-            before,
-            after: action === "resolve" ? { ...before, resolved: true } : null,
-          },
-        });
-      }, action);
+          });
+        },
+        { action, id },
+      );
       await expect(chips).toHaveCount(0);
       const drafts = await page.evaluate(async () => {
         // @ts-expect-error Vite browser module

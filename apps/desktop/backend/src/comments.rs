@@ -87,6 +87,16 @@ pub struct PdfCommentAnchor {
     pub regions: Vec<PdfCommentRegion>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum CommentColor {
+    Orange,
+    Green,
+    Blue,
+    Pink,
+    Gray,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Comment {
@@ -107,6 +117,8 @@ pub struct Comment {
     pub to: usize,
     pub line: usize,
     pub text: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<CommentColor>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub created_at: Option<String>,
     #[serde(default)]
@@ -222,7 +234,8 @@ pub(crate) fn is_sidecar(name: &str) -> bool {
 
 fn validate(comment: &Comment) -> Result<(), String> {
     if comment.id.is_empty()
-        || comment.text.trim().is_empty()
+        || (comment.text.trim().is_empty() && (comment.origin.is_some() || comment.resolved))
+        || (comment.origin.is_some() && comment.color.is_some())
         || comment.text.len() > 20_000
         || comment.from > comment.to
         || comment.line == 0
@@ -479,6 +492,7 @@ fn merge_comment(
             }; }
             field!(pdf);
             field!(text);
+            field!(color);
             field!(resolved);
             field!(position_reset);
             field!(removed_anchor);
@@ -1165,6 +1179,9 @@ fn manage_comment_in(
             files.entry(path).or_default().extend(comments);
         }
         let mut shown = 0;
+        for comments in files.values_mut() {
+            comments.retain(|comment| !comment.text.trim().is_empty());
+        }
         let files: Vec<_> = files
             .iter()
             .filter(|(_, comments)| !comments.is_empty())
@@ -1200,6 +1217,7 @@ fn manage_comment_on(root: &Path, storage: &Path, db: &store::Connection, sessio
                 .flatten()
                 .cloned()
         })
+        .filter(|comment| !comment.text.trim().is_empty())
         .collect();
     if tool == "list_comments" {
         if input.id.is_some()
@@ -1263,6 +1281,9 @@ fn manage_comment_on(root: &Path, storage: &Path, db: &store::Connection, sessio
     }
     let mut after = before.clone();
     if let Some(text) = input.text {
+        if text.trim().is_empty() {
+            return Err("invalid_comment: comment text is required".into());
+        }
         after.text = text;
     }
     if tool == "resolve_comment" {
@@ -1577,6 +1598,7 @@ fn anchored_comment(
         line: source[..end].bytes().filter(|b| *b == b'\n').count()
             + usize::from(!input.passage.ends_with('\n')),
         text: input.text.trim().into(),
+        color: None,
         created_at: Some(chrono::Utc::now().to_rfc3339()),
         resolved: false,
         proposal: None,
@@ -2315,6 +2337,7 @@ mod tests {
             to: 4,
             line: 1,
             text: "Clarify this".into(),
+            color: None,
             created_at: Some("2026-09-09T00:00:00Z".into()),
             resolved: false,
             proposal: None,
@@ -3190,6 +3213,58 @@ mod tests {
         assert!(validate_numbers(&side).is_err());
         side.files.get_mut("main.tex").unwrap()[0].number = Some(12);
         assert!(validate_numbers(&side).is_ok());
+    }
+
+    #[test]
+    fn highlights_share_comment_storage_and_numbering_but_stay_out_of_agent_tools() {
+        let root = TempDir::new().unwrap();
+        let storage = TempDir::new().unwrap();
+        fs::write(root.path().join("main.tex"), "text").unwrap();
+        let apply = |before, after| {
+            apply_patch(root.path(), storage.path(), &patch(before, Some(after)), false)
+                .unwrap()
+                .after
+                .unwrap()
+        };
+        let mut highlight = comment("highlight", false);
+        highlight.text.clear();
+        highlight.color = Some(CommentColor::Blue);
+        let saved = apply(None, highlight);
+
+        let mut recolored = saved.clone();
+        recolored.color = Some(CommentColor::Gray);
+        apply(Some(saved.clone()), recolored);
+        let mut with_text = saved.clone();
+        with_text.text = "Review this passage".into();
+        let annotated = apply(Some(saved.clone()), with_text);
+        assert_eq!(annotated.color, Some(CommentColor::Gray));
+        assert_eq!(
+            read_author_comments(root.path(), storage.path(), false).unwrap()["main.tex"][0],
+            annotated
+        );
+        assert_eq!(serde_json::to_value(&annotated).unwrap()["color"], "gray");
+        assert_eq!(annotated.number, saved.number);
+
+        let mut cleared = annotated.clone();
+        cleared.text.clear();
+        cleared.color = None;
+        let cleared = apply(Some(annotated), cleared);
+        assert_eq!(cleared.number, saved.number);
+        assert_eq!(
+            read_author_comments(root.path(), storage.path(), false).unwrap()["main.tex"][0],
+            cleared
+        );
+        assert!(serde_json::to_value(&cleared).unwrap().get("color").is_none());
+        for (args, key) in [(json!({}), "files"), (json!({"filePath":"main.tex"}), "comments")] {
+            let (listed, _) = manage_comment(root.path(), storage.path(), "list_comments", args).unwrap();
+            assert_eq!(listed[key], json!([]));
+        }
+        let mutation = json!({"filePath":"main.tex","id":cleared.id,"revision":comment_revision(&cleared)});
+        assert!(manage_comment(root.path(), storage.path(), "delete_comment", mutation)
+            .unwrap_err().contains("comment_not_found"));
+        let mut agent = comment("agent", true);
+        agent.text.clear();
+        assert!(validate(&agent).is_err());
     }
 
     #[test]

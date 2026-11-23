@@ -28,11 +28,19 @@ import {
   PDF_COMMENT_NAVIGATE_EVENT,
   SELECTION_OWNER_EVENT,
 } from "@/lib/workspace-events";
-import type {
-  InlineEditorComment,
-  InlineCommentActions,
+import {
+  beginCommentEdit,
+  isCommentHighlight,
+  isNewCommentDraft,
+  saveCommentText,
+  type InlineEditorComment,
+  type InlineCommentActions,
 } from "../editor/inline-comments";
-import { SelectionToolbar } from "../editor/selection-toolbar";
+import { storedCommentColor, type CommentColor } from "@/lib/comment-colors";
+import {
+  SelectionToolbar,
+  previewSelectionToolbarAnchor,
+} from "../editor/selection-toolbar";
 import { useProjectComments } from "../editor/use-project-comments";
 import { setCommentDraft } from "../editor/comment-draft-history";
 import {
@@ -483,13 +491,29 @@ export function MarkdownComments({
             }),
             true,
           ),
-        onSave: (_id, text) => {
-          if (text.trim()) update((c) => ({ ...c, text, isEditing: false }));
+        onSave: (_id, text) => update((c) => saveCommentText(c, text)),
+        onEdit: () => {
+          update(beginCommentEdit);
+          if (projectRoot && isCommentHighlight(target.comment))
+            setCommentDraft(
+              { root: projectRoot, filePath },
+              target.comment.id,
+              {
+                comment: beginCommentEdit(target.comment),
+                text: "",
+              },
+            );
         },
-        onEdit: () => update((c) => ({ ...c, isEditing: true })),
         onCancel: () =>
-          update((c) => (c.text.trim() ? { ...c, isEditing: false } : null)),
-        onResolve: () => update((c) => ({ ...c, resolved: true })),
+          update((c) =>
+            isNewCommentDraft(c) ? null : { ...c, isEditing: false },
+          ),
+        onResolve: () =>
+          update((c) => (isCommentHighlight(c) ? c : { ...c, resolved: true })),
+        onColor: (color) =>
+          update((c) =>
+            c.origin ? c : { ...c, color: storedCommentColor(color) },
+          ),
         onDelete: () => update(() => null),
       };
     },
@@ -499,22 +523,21 @@ export function MarkdownComments({
     const frame =
       frameDocument.defaultView?.frameElement?.getBoundingClientRect();
     const rect = selection?.range.getBoundingClientRect();
-    if (!frame || !rect || rect.bottom <= 0 || rect.top >= frame.height)
-      return null;
-    return {
-      top: frame.top + rect.top,
-      left: frame.left + rect.left - 50,
-      bounds: {
-        top: Math.max(0, frame.top) + 8,
-        bottom: Math.min(window.innerHeight, frame.bottom) - 8,
-        left: Math.max(0, frame.left) + 8,
-        right: Math.min(window.innerWidth, frame.right) - 8,
+    if (!frame || !rect) return null;
+    return previewSelectionToolbarAnchor(
+      {
+        top: frame.top + rect.top,
+        bottom: frame.top + rect.bottom,
+        left: frame.left + rect.left,
+        right: frame.left + rect.right,
       },
-    };
+      frame,
+    );
   }, [frameDocument, selection]);
   const dismiss = useCallback(() => setSelection(null), []);
   const addComment = (
     sourceRange: ReturnType<typeof markdownSelectionRange>,
+    highlightColor?: CommentColor,
   ) => {
     if (!sourceRange || !commentsLoaded) return;
     const id = crypto.randomUUID();
@@ -522,25 +545,28 @@ export function MarkdownComments({
       id,
       ...sourceRange,
       text: "",
+      color: storedCommentColor(
+        highlightColor ?? useSettingsStore.getState().lastCommentColor,
+      ),
       createdAt: new Date().toISOString(),
-      isEditing: true,
+      isEditing: highlightColor === undefined,
     };
     setFiles((current) => ({
       ...current,
       [filePath]: [
-        ...(current[filePath] ?? []).filter(
-          (c) => c.text.trim() || !c.isEditing,
-        ),
+        ...(current[filePath] ?? []).filter((c) => !isNewCommentDraft(c)),
         draftComment,
       ],
     }));
-    if (projectRoot)
+    if (projectRoot && draftComment.isEditing)
       setCommentDraft({ root: projectRoot, filePath }, id, {
         comment: draftComment,
         text: "",
       });
-    setRequestRevision(0);
-    setRequestedCommentId(id);
+    if (draftComment.isEditing) {
+      setRequestRevision(0);
+      setRequestedCommentId(id);
+    }
     frameDocument.getSelection()?.removeAllRanges();
     setSelection(null);
   };
@@ -687,6 +713,8 @@ export function MarkdownComments({
                 : "Couldn’t locate the source. Select more surrounding text.",
             },
           ]}
+          commentColorsDisabled={!addCommentAction.enabled}
+          onHighlight={(color) => addComment(selection.sourceRange, color)}
           onDismiss={dismiss}
           onAction={addCommentAction.run}
         />

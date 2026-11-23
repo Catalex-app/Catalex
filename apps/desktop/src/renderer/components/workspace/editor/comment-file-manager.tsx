@@ -23,7 +23,11 @@ import { useDocumentStore } from "@/stores/document-store";
 import { ActionSelector } from "../action-selector";
 import { setCommentDraft } from "./comment-draft-history";
 import { reconnectTrackedComments } from "./comment-paths";
-import { commentLabel, type PdfCommentAnchor } from "./inline-comments";
+import {
+  commentLabel,
+  isCommentHighlight,
+  type PdfCommentAnchor,
+} from "./inline-comments";
 import {
   withCommentPathMutation,
   type InlineCommentsByFile,
@@ -113,7 +117,7 @@ export function CommentFileManager({
                 className="border-border border-b py-2 pl-6 text-muted-foreground text-sm last:border-b-0"
               >
                 <p className="whitespace-pre-wrap break-words">
-                  {comment.text}
+                  {isCommentHighlight(comment) ? "Highlight" : comment.text}
                 </p>
                 <p className="mt-1 text-xs">
                   {commentLabel(comment)} · {comment.origin ? "Agent" : "Human"}{" "}
