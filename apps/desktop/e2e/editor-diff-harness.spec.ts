@@ -157,8 +157,8 @@ test("AI review puts reject actions before accept actions", async ({
       .locator('.cm-chunkButtons button[name="accept"]')
       .first()
       .boundingBox(),
-    page.getByRole("button", { name: "Reject All ⌘N" }).boundingBox(),
-    page.getByRole("button", { name: "Accept All ⌘Y" }).boundingBox(),
+    page.getByRole("button", { name: "Reject All", exact: true }).boundingBox(),
+    page.getByRole("button", { name: "Accept All", exact: true }).boundingBox(),
   ]);
   expect(blockReject?.x).toBeLessThan(blockAccept?.x ?? 0);
   expect(rejectAll?.x).toBeLessThan(acceptAll?.x ?? 0);
@@ -207,7 +207,7 @@ test("pending AI review survives Home navigation and an app reload", async ({
     fullPage: true,
   });
 
-  await page.getByRole("button", { name: "Accept All ⌘Y" }).click();
+  await page.getByRole("button", { name: "Accept All", exact: true }).click();
   await expect(proposalPanel).toHaveCount(0);
   const resolvedAfterReopen = await page.evaluate(() => {
     window.__editorDiffHarness?.leavePersistentReviewProject?.();
@@ -533,10 +533,10 @@ test("accepted agent edits remain undoable and redoable", async ({ page }) => {
   });
   expect(activated).toBe(true);
   await expect(
-    page.getByRole("button", { name: "Accept All ⌘Y" }),
+    page.getByRole("button", { name: "Accept All", exact: true }),
   ).toBeVisible();
   await expect(
-    page.getByRole("button", { name: "Reject All ⌘N" }),
+    page.getByRole("button", { name: "Reject All", exact: true }),
   ).toBeVisible();
   await page.screenshot({
     path: "test-results/editor-proposed-actions.png",
@@ -549,7 +549,7 @@ test("accepted agent edits remain undoable and redoable", async ({ page }) => {
   expect(beforeAcceptState?.cmSelection?.empty).toBe(true);
   expect(beforeAcceptState?.cmSelection?.from).toBeGreaterThan(0);
 
-  await page.getByRole("button", { name: "Accept All ⌘Y" }).click();
+  await page.getByRole("button", { name: "Accept All", exact: true }).click();
 
   const editor = page.locator(".cm-content");
   await expect(editor).toContainText("Revised Draft");
