@@ -243,6 +243,53 @@ test("ignored files hide Git line markers while untracked files keep them", asyn
   });
 });
 
+test("a narrow two-way Git review keeps its navigator with the title", async ({
+  page,
+}) => {
+  await page.goto("/?debug=editor-diff&gitConflict=multi", {
+    waitUntil: "domcontentloaded",
+  });
+
+  const bar = page.locator("[data-git-conflict-panel]");
+  const title = bar.getByText("Resolve Git Conflict", { exact: true });
+  const navigation = bar.getByRole("group", { name: "Conflict navigation" });
+  const keep = bar.getByRole("button", { name: "Keep All Current" });
+  const incoming = bar.getByRole("button", { name: "Use All Incoming" });
+  await expect(bar).toBeVisible();
+  await keep.focus();
+
+  await bar.evaluate((element) => {
+    element.style.width = "280px";
+  });
+  await expect(keep.locator("kbd")).toBeHidden();
+  await expect(incoming.locator("kbd")).toBeHidden();
+  const [titleBox, navigationBox, keepBox, incomingBox, barBox] =
+    await Promise.all(
+      [title, navigation, keep, incoming, bar].map((item) =>
+        item.boundingBox(),
+      ),
+    );
+  expect(titleBox).not.toBeNull();
+  expect(navigationBox).not.toBeNull();
+  expect(keepBox).not.toBeNull();
+  expect(incomingBox).not.toBeNull();
+  expect(barBox).not.toBeNull();
+  expect(navigationBox!.y).toBeLessThan(titleBox!.y + titleBox!.height);
+  expect(keepBox!.y).toBeGreaterThan(navigationBox!.y + navigationBox!.height);
+  expect(incomingBox!.y).toBe(keepBox!.y);
+  expect(incomingBox!.x + incomingBox!.width).toBeLessThan(
+    barBox!.x + barBox!.width,
+  );
+  await expect(keep).toBeFocused();
+
+  await bar.evaluate((element) => {
+    element.style.width = "308px";
+  });
+  await expect(keep.locator("kbd")).toBeVisible();
+  await expect(incoming.locator("kbd")).toBeVisible();
+  await expect(keep).toBeFocused();
+});
+
 test("Git conflicts use a Current versus Incoming merge review", async ({
   page,
 }) => {

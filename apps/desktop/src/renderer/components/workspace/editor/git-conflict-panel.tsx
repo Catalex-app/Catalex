@@ -1,15 +1,12 @@
 import { Hint } from "@/components/ui/tooltip";
 import { DocumentBarNavigation } from "../document-bar-navigation";
-import {
-  documentBarClassName,
-  documentBarGapClassName,
-} from "../document-navigation-styles";
+import { documentBarGapClassName } from "../document-navigation-styles";
+import { ReviewBarLayout } from "../review-bar-layout";
 import {
   GIT_ANCESTOR_ACTION_CLASS,
   GIT_CURRENT_ACTION_CLASS,
   GIT_INCOMING_ACTION_CLASS,
 } from "./git-conflict-styles";
-import { cn } from "@/lib/utils";
 import { type FC } from "react";
 
 interface GitConflictPanelProps {
@@ -42,66 +39,42 @@ export const GitConflictPanel: FC<GitConflictPanelProps> = ({
   onKeepCurrent,
 }) => {
   const isWholeFileConflict = currentDeleted || incomingDeleted;
-  const wrapActions =
-    threeWay || isWholeFileConflict || ancestorContent !== undefined;
   return (
     <>
-      <div
+      <ReviewBarLayout
         data-git-conflict-panel="true"
-        className={cn(
-          documentBarClassName,
-          "justify-between bg-muted/50",
-          wrapActions && "flex-wrap",
-          threeWay && "@container/review-bar",
-        )}
-      >
-        <div
-          className={cn(
-            "flex min-w-0 items-center text-sm",
-            documentBarGapClassName,
-            threeWay && "flex-1",
-          )}
-        >
-          <span className="shrink-0 font-medium text-foreground">
-            Resolve Git Conflict
-          </span>
-          {error && (
-            <Hint content={error}>
-              <span className="min-w-0 truncate text-destructive text-xs">
-                {error}
-              </span>
-            </Hint>
-          )}
-        </div>
-
-        <div
-          className={cn(
-            "flex @max-[532px]/review-bar:contents shrink-0 items-center",
-            documentBarGapClassName,
-            wrapActions && "ml-auto max-w-full flex-wrap justify-end",
-          )}
-        >
-          {mergeChunkInfo.total > 0 && (
-            <>
-              <DocumentBarNavigation
-                label="Conflict navigation"
-                previousLabel="Previous conflict"
-                nextLabel="Next conflict"
-                itemLabel="Conflict"
-                current={mergeChunkInfo.current}
-                total={mergeChunkInfo.total}
-                onPrevious={onPreviousChunk}
-                onNext={onNextChunk}
-              />
-              <div className="@max-[532px]/review-bar:hidden h-4 w-px bg-border" />
-            </>
-          )}
+        heading={
           <div
-            className={cn(
-              "@max-[532px]/review-bar:flex contents @max-[532px]/review-bar:w-full @max-[532px]/review-bar:flex-wrap @max-[532px]/review-bar:justify-end",
-              documentBarGapClassName,
-            )}
+            className={`flex min-w-0 items-center text-sm ${documentBarGapClassName}`}
           >
+            <span className="shrink-0 font-medium text-foreground">
+              Resolve Git Conflict
+            </span>
+            {error && (
+              <Hint content={error}>
+                <span className="min-w-0 truncate text-destructive text-xs">
+                  {error}
+                </span>
+              </Hint>
+            )}
+          </div>
+        }
+        navigation={
+          mergeChunkInfo.total > 0 && (
+            <DocumentBarNavigation
+              label="Conflict navigation"
+              previousLabel="Previous conflict"
+              nextLabel="Next conflict"
+              itemLabel="Conflict"
+              current={mergeChunkInfo.current}
+              total={mergeChunkInfo.total}
+              onPrevious={onPreviousChunk}
+              onNext={onNextChunk}
+            />
+          )
+        }
+        actions={
+          <>
             {onUseStarting && (threeWay || ancestorContent != null) && (
               <button
                 type="button"
@@ -129,7 +102,7 @@ export const GitConflictPanel: FC<GitConflictPanelProps> = ({
                       ? "Keep current"
                       : "Keep All Current"}
               {!resolving && (
-                <kbd className="ml-1 @max-[317px]/review-bar:hidden rounded bg-white/20 px-1 py-0.5 font-mono text-[10px]">
+                <kbd className="ml-1 rounded bg-white/20 px-1 py-0.5 font-mono text-[10px]">
                   ⌘N
                 </kbd>
               )}
@@ -151,14 +124,14 @@ export const GitConflictPanel: FC<GitConflictPanelProps> = ({
                       ? "Use incoming"
                       : "Use All Incoming"}
               {!resolving && (
-                <kbd className="ml-1 @max-[317px]/review-bar:hidden rounded bg-white/20 px-1 py-0.5 font-mono text-[10px]">
+                <kbd className="ml-1 rounded bg-white/20 px-1 py-0.5 font-mono text-[10px]">
                   ⌘Y
                 </kbd>
               )}
             </button>
-          </div>
-        </div>
-      </div>
+          </>
+        }
+      />
       {!threeWay && ancestorContent !== undefined && (
         <details
           className="max-h-48 shrink-0 overflow-auto border-slate-500/30 border-b bg-slate-500/10"

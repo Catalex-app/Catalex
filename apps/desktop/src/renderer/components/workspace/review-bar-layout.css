@@ -1,0 +1,40 @@
+.review-bar {
+  container-type: inline-size;
+}
+
+.review-bar-heading {
+  flex: 1 1 max-content;
+  max-inline-size: 100%;
+}
+
+.review-bar-actions {
+  flex: 0 1 max-content;
+}
+
+.review-bar-with-navigation {
+  column-gap: calc(var(--spacing) * 2 + 1px);
+}
+
+/* The heading fills the available width when the actions wrap, leaving no divider. */
+.review-bar-with-navigation > .review-bar-heading::after {
+  content: "";
+  position: absolute;
+  inset-inline-start: calc(100% + var(--spacing));
+  top: 50%;
+  translate: 0 -50%;
+  width: clamp(0px, calc(100cqw - 100% - var(--spacing)), 1px);
+  height: calc(var(--spacing) * 4);
+  background: var(--color-border);
+  pointer-events: none;
+}
+
+.review-bar-actions[data-measuring] {
+  flex: none;
+  flex-wrap: nowrap;
+  inline-size: max-content;
+  max-inline-size: none;
+}
+
+.review-bar-actions[data-hide-shortcuts]:not([data-measuring]) kbd {
+  display: none;
+}
