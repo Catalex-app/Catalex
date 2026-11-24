@@ -32,16 +32,21 @@ import type { WorkspaceMode } from "./ui-theme";
 export function openPanelWindow(
   kind: PanelWindowKind,
   mode: WorkspaceMode,
-  target: { fileId?: string; chatId?: string } = {},
+  target: {
+    fileId?: string;
+    chatId?: string;
+    initialScroll?: PanelWindowSession["initialScroll"];
+  } = {},
 ) {
   const state = useDocumentStore.getState();
   if (!state.projectRoot) return;
-  // A compiled preview belongs to its root document, regardless of which
-  // included file opened it. Other panel kinds remain pinned to their file.
+  const requestedFileId = target.fileId ?? state.activeFileId;
+  const requestedFile = state.files.find((file) => file.id === requestedFileId);
+  // Only a LaTeX preview belongs to a compilation root.
   const fileId =
-    kind === "preview"
-      ? resolveTexRoot(target.fileId ?? state.activeFileId, state.files)
-      : (target.fileId ?? state.activeFileId);
+    kind === "preview" && requestedFile?.type === "tex"
+      ? resolveTexRoot(requestedFileId, state.files)
+      : requestedFileId;
   const chatId =
     kind === "chat"
       ? (target.chatId ?? useAgentChatStore.getState().activeTabId)
@@ -86,6 +91,7 @@ export function openPanelWindow(
     mode,
     fileId,
     chatId,
+    initialScroll: target.initialScroll,
     projectRoot: state.projectRoot,
     document: useDocumentStore,
     stores: {

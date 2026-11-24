@@ -54,6 +54,7 @@ import {
   pdfPageRenderKey,
 } from "./pdf-render-policy";
 import { getPdfViewerBytes, type PdfViewerDataSource } from "./pdf-data-source";
+import { getPanelWindowSession } from "@/lib/panel-window-runtime";
 
 const log = createLogger("pdf-viewer");
 
@@ -245,6 +246,24 @@ export function PdfViewer({
         ? dataSource.data
         : dataSource.data.id,
   );
+
+  useEffect(() => {
+    const session = getPanelWindowSession();
+    const initial = session?.initialScroll;
+    const position = initial?.pdf;
+    if (
+      !isActive ||
+      session?.fileId !== rootFileId ||
+      !position ||
+      !pageSizes[position.page - 1]
+    )
+      return;
+    const frame = requestAnimationFrame(() => {
+      delete initial.pdf;
+      readingAnchor.align(position);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [displayScale, isActive, pageSizes, readingAnchor, rootFileId]);
 
   // Scroll preservation across recompile
   const isFirstLoad = useRef(true);

@@ -1,5 +1,5 @@
 import { WorkspacePanelHeader } from "../workspace-panel";
-import { useCallback, useMemo } from "react";
+import { useCallback, useLayoutEffect, useMemo, useRef } from "react";
 import { Columns3Icon, PlusIcon, Rows3Icon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -9,6 +9,7 @@ import {
   type CsvDocument,
 } from "@/lib/csv";
 import { useDocumentStore } from "@/stores/document-store";
+import { getPanelWindowSession } from "@/lib/panel-window-runtime";
 
 function delimiterLabel(delimiter: CsvDocument["delimiter"]): string {
   if (delimiter === "\t") return "Tab separated";
@@ -30,6 +31,19 @@ export function CsvTable() {
   const csv = useMemo(() => parseCsv(source), [source]);
   const columnCount = Math.max(1, ...csv.rows.map((row) => row.length));
   const visibleRows = csv.rows.length > 0 ? csv.rows : [[""]];
+  const gridRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const session = getPanelWindowSession();
+    const initial = session?.initialScroll;
+    if (
+      session?.fileId !== activeFile?.id ||
+      activeFile?.content === undefined ||
+      !initial?.pixels
+    )
+      return;
+    gridRef.current?.scrollTo(initial.pixels);
+    delete initial.pixels;
+  }, [activeFile?.id, activeFile?.content]);
 
   const commitRows = useCallback(
     (rows: string[][]) => {
@@ -156,7 +170,11 @@ export function CsvTable() {
         </div>
       </WorkspacePanelHeader>
 
-      <div className="min-h-0 flex-1 overflow-auto" data-testid="csv-grid">
+      <div
+        ref={gridRef}
+        className="min-h-0 flex-1 overflow-auto"
+        data-testid="csv-grid"
+      >
         <table className="min-w-full table-fixed border-separate border-spacing-0 text-sm">
           <thead className="sticky top-0 z-20 bg-muted/95 backdrop-blur-sm">
             <tr>

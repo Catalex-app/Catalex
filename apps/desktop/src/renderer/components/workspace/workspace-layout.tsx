@@ -76,9 +76,14 @@ import {
   SplitSquareHorizontalIcon,
 } from "lucide-react";
 import { Sidebar } from "./sidebar";
-import { LatexEditor } from "./editor/latex-editor";
+import { LatexEditor, readEditorScroll } from "./editor/latex-editor";
 import { PdfPreview, type PdfLayoutTarget } from "./preview/pdf-preview";
-import { MarkdownPreview } from "./preview/markdown-preview";
+import {
+  MarkdownPreview,
+  sourcePositionAtPreviewCenter,
+} from "./preview/markdown-preview";
+import type { PdfReadingAnchorControl } from "./preview/pdf-reading-anchor";
+import { readChatScroll } from "@/components/agent-chat/chat-messages";
 import { CsvTable } from "./preview/csv-table";
 import { ExternalAppSelector } from "./external-app-selector";
 import { GitActionsControl } from "./git-actions-control";
@@ -98,6 +103,7 @@ import {
 import { APP_VISIBILITY_RESTORED } from "@/lib/debug/log-store";
 import { isMarkdownFile, isMarkdownPath } from "@/lib/markdown";
 import { openPanelWindow } from "@/lib/panel-windows";
+import type { PanelWindowSession } from "@/lib/panel-window-runtime";
 import { shouldMuteLatexScrollSync } from "@/lib/latex-project";
 import { cn } from "@/lib/utils";
 import {
@@ -634,6 +640,8 @@ function ProjectWorkspaceLayout() {
   const contentAreaRef = useRef<HTMLDivElement | null>(null);
   const editorPanelRef = useRef<HTMLDivElement | null>(null);
   const pdfPanelRef = useRef<HTMLDivElement | null>(null);
+  const inlinePdfAnchorRef = useRef<PdfReadingAnchorControl | null>(null);
+  const previewPdfAnchorRef = useRef<PdfReadingAnchorControl | null>(null);
   const incomingPanelRef = useRef<HTMLDivElement | null>(null);
   const sidebarTransitionTimerRef = useRef<ReturnType<
     typeof setTimeout
@@ -841,6 +849,41 @@ function ProjectWorkspaceLayout() {
       column !== "incoming" &&
       !hasWholeFileComparison
         ? () => {
+            let initialScroll: PanelWindowSession["initialScroll"];
+            if (column === "chat") {
+              initialScroll = {
+                chat: readChatScroll(
+                  projectRoot,
+                  useAgentChatStore.getState().activeTabId,
+                ),
+              };
+            } else if (column === "editor") {
+              initialScroll =
+                activeFileType === "pdf"
+                  ? { pdf: inlinePdfAnchorRef.current?.read() ?? undefined }
+                  : { editor: readEditorScroll(editorPanelRef.current) };
+            } else if (isMarkdownDocument) {
+              const frame =
+                pdfPanelRef.current?.querySelector("iframe")?.contentDocument;
+              if (frame?.scrollingElement?.scrollTop) {
+                initialScroll = {
+                  markdown: sourcePositionAtPreviewCenter(frame),
+                };
+              }
+            } else if (isCsvDocument) {
+              const grid = pdfPanelRef.current?.querySelector(
+                '[data-testid="csv-grid"]',
+              );
+              if (grid) {
+                initialScroll = {
+                  pixels: { top: grid.scrollTop, left: grid.scrollLeft },
+                };
+              }
+            } else {
+              initialScroll = {
+                pdf: previewPdfAnchorRef.current?.read() ?? undefined,
+              };
+            }
             openPanelWindow(
               column === "pdf"
                 ? "preview"
@@ -848,6 +891,7 @@ function ProjectWorkspaceLayout() {
                   ? "chat"
                   : "editor",
               workspaceMode,
+              { initialScroll },
             );
             setExpandedPanel(null);
           }
@@ -3179,6 +3223,7 @@ function ProjectWorkspaceLayout() {
                                 className="h-full min-h-0"
                               >
                                 <LatexEditor
+                                  pdfAnchorRef={inlinePdfAnchorRef}
                                   searchAvailable={editorPaneVisible}
                                   layoutAnimating={isColumnLayoutAnimating}
                                   layoutTarget={pdfLayoutTargets?.editor}
@@ -3453,6 +3498,9 @@ function ProjectWorkspaceLayout() {
                                       />
                                     ) : (
                                       <PdfPreview
+                                        panelReadingAnchorRef={
+                                          previewPdfAnchorRef
+                                        }
                                         layoutTarget={pdfLayoutTargets?.pdf}
                                         aiEnabled={workspaceMode !== "artisan"}
                                         onRevealSource={() => {

@@ -208,6 +208,126 @@ test("panel actions stay visible while expanded and restore through the same men
   await expect(control).toHaveCSS("transition-duration", "0s");
 });
 
+for (const fileType of ["Markdown", "CSV"] as const) {
+  for (const control of ["header button", "panel menu"] as const) {
+    test(`${fileType} preview pop-out from the ${control} keeps its file and reading position`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width: 1440, height: 900 });
+      await page.goto("/?debug=comment-workspace&pdf");
+      await expect(page.locator(".mupdf-text-layer").first()).toBeVisible();
+
+      const fileName = fileType === "Markdown" ? "scroll.md" : "scroll.csv";
+      await page.evaluate(async (name) => {
+        const documentsPath = "/src/renderer/stores/document-store.ts";
+        const settingsPath = "/src/renderer/stores/settings-store.ts";
+        const { useDocumentStore } = await import(documentsPath);
+        const { useSettingsStore } = await import(settingsPath);
+        const { files, projectRoot, setActiveFile } =
+          useDocumentStore.getState();
+        const tex = files.find((file) => file.id === "sample.tex")!;
+        const content = name.endsWith(".md")
+          ? Array.from(
+              { length: 120 },
+              (_, row) => `# Section ${row}\n\nBody ${row}\n`,
+            ).join("\n")
+          : Array.from({ length: 120 }, (_, row) =>
+              Array.from(
+                { length: 20 },
+                (_, col) => `Row ${row} column ${col}`,
+              ).join(","),
+            ).join("\n");
+        useDocumentStore.setState({
+          files: [
+            ...files,
+            {
+              ...tex,
+              id: "main.tex",
+              name: "main.tex",
+              relativePath: "main.tex",
+              absolutePath: `${projectRoot}/main.tex`,
+            },
+            {
+              id: name,
+              type: name.endsWith(".md") ? "other" : "csv",
+              name,
+              relativePath: name,
+              absolutePath: `${projectRoot}/${name}`,
+              content,
+              isDirty: false,
+            },
+          ],
+        });
+        useSettingsStore.getState().setFileScrollSync(projectRoot, name, false);
+        setActiveFile(name);
+      }, fileName);
+
+      const label = fileType === "Markdown" ? "Preview" : "Table";
+      if (control === "header button") {
+        await (await openExpandAction(page, label)).click();
+        await expect(
+          page.getByRole("dialog", { name: `${label} expanded` }),
+        ).toBeVisible();
+      }
+      const frame = (view: Page) =>
+        view.locator('[data-testid="markdown-preview"] iframe');
+      const grid = (view: Page) => view.getByTestId("csv-grid");
+      const section = "Section 56";
+      const markdownPosition = (view: Page) =>
+        frame(view).evaluate(async (element: HTMLIFrameElement) => {
+          const modulePath =
+            "/src/renderer/components/workspace/preview/markdown-preview.tsx";
+          const { sourcePositionAtPreviewCenter } = await import(modulePath);
+          return sourcePositionAtPreviewCenter(element.contentDocument);
+        });
+      const csvPosition = (view: Page) =>
+        grid(view).evaluate(({ scrollTop, scrollLeft }) => [
+          scrollTop,
+          scrollLeft,
+        ]);
+
+      if (fileType === "Markdown") {
+        await page
+          .frameLocator('[data-testid="markdown-preview"] iframe')
+          .getByRole("heading", { name: section, exact: true })
+          .evaluate((element) => element.scrollIntoView({ block: "center" }));
+      } else {
+        await grid(page).evaluate((element) =>
+          element.scrollTo({ top: 950, left: 310 }),
+        );
+      }
+      const position = fileType === "Markdown" ? markdownPosition : csvPosition;
+      const before = await position(page);
+      expect(before).toBeDefined();
+      if (fileType === "CSV") expect(before).toEqual([950, 310]);
+      else expect(before).toBeGreaterThan(0);
+
+      const opened = page.waitForEvent("popup");
+      if (control === "header button") {
+        await page
+          .getByRole("button", { name: `Pop out ${label}`, exact: true })
+          .click();
+      } else {
+        await page
+          .getByRole("button", {
+            name: `More ${label} view actions`,
+            exact: true,
+          })
+          .click();
+        await page
+          .getByRole("menuitem", { name: `Pop out ${label}`, exact: true })
+          .click();
+      }
+      const child = await opened;
+      await expect(child.locator("[data-panel-window-title]")).toHaveText(
+        fileName,
+      );
+      await expect.poll(() => position(child)).toEqual(before);
+      await child.close();
+    });
+  }
+}
+
 test("browser demo opens synchronized editor and PDF pop-outs", async ({
   page,
 }) => {

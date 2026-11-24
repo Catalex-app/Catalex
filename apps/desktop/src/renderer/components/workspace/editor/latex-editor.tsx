@@ -51,7 +51,10 @@ import {
 import { getActiveComment, setActiveComment } from "./active-comment";
 import { attachCommentToChat } from "@/lib/comment-chat-context";
 import { captureProposedDraft } from "@/lib/chat-context";
-import { isReferencePanelWindow } from "@/lib/panel-window-runtime";
+import {
+  getPanelWindowSession,
+  isReferencePanelWindow,
+} from "@/lib/panel-window-runtime";
 import {
   commentChangeTransaction,
   commentHistoryEffect,
@@ -219,6 +222,7 @@ import {
   PdfPreview,
   type PdfLayoutTarget,
 } from "@/components/workspace/preview/pdf-preview";
+import type { PdfReadingAnchorControl } from "@/components/workspace/preview/pdf-reading-anchor";
 import { openPdfSource, type PdfSource } from "@/lib/mupdf/pdf-source";
 import { createLogger } from "@/lib/debug/logger";
 import { isMarkdownFile } from "@/lib/markdown";
@@ -1146,7 +1150,13 @@ const editorInteractionTheme = EditorView.theme({
   },
 });
 
-interface CachedEditorState {
+export interface EditorScrollPosition {
+  scrollTop: number;
+  topLineFrom: number;
+  topLineOffset: number;
+}
+
+interface CachedEditorState extends EditorScrollPosition {
   document?: string;
   history?: Extension;
   review?: {
@@ -1162,9 +1172,6 @@ interface CachedEditorState {
   compilerDiagnostics?: CompilerMarkerSnapshot;
   cursor: number;
   reviewViewport?: ReviewViewport;
-  scrollTop: number;
-  topLineFrom: number;
-  topLineOffset: number;
 }
 
 /** Session-only editor state, isolated by project, draft workspace, and file. */
@@ -1189,20 +1196,34 @@ window.addEventListener(COMMENT_PATHS_CHANGED_EVENT, (event) => {
   }
 });
 
-function captureEditorState(view: EditorView): CachedEditorState {
+function captureEditorScroll(view: EditorView): EditorScrollPosition {
   const scrollTop = view.scrollDOM.scrollTop;
   const topBlock = view.lineBlockAtHeight(scrollTop);
   return {
-    cursor: view.state.selection.main.head,
     scrollTop,
     topLineFrom: topBlock.from,
     topLineOffset: scrollTop - topBlock.top,
   };
 }
 
+function captureEditorState(view: EditorView): CachedEditorState {
+  return {
+    cursor: view.state.selection.main.head,
+    ...captureEditorScroll(view),
+  };
+}
+
+export function readEditorScroll(panel: HTMLElement | null) {
+  const editor = panel?.querySelector<HTMLElement>(".cm-editor");
+  const view = editor && EditorView.findFromDOM(editor);
+  return view?.scrollDOM.clientHeight && view.scrollDOM.scrollTop > 0
+    ? captureEditorScroll(view)
+    : undefined;
+}
+
 function restoreEditorScroll(
   view: EditorView,
-  cached: CachedEditorState,
+  cached: EditorScrollPosition & { reviewViewport?: ReviewViewport },
 ): void {
   if (cached.reviewViewport) {
     restoreReviewViewport(view, cached.reviewViewport);
@@ -1227,6 +1248,7 @@ interface LatexEditorProps {
   searchAvailable?: boolean;
   layoutAnimating?: boolean;
   layoutTarget?: PdfLayoutTarget;
+  pdfAnchorRef?: React.RefObject<PdfReadingAnchorControl | null>;
   expansion?: WorkspacePanelExpansion;
   fileConflict?: ConflictFile | null;
   currentConflictContent?: ReactNode;
@@ -1307,6 +1329,7 @@ export function LatexEditor({
   searchAvailable = true,
   layoutAnimating = false,
   layoutTarget,
+  pdfAnchorRef,
   expansion,
   fileConflict = null,
   currentConflictContent,
@@ -3702,6 +3725,24 @@ export function LatexEditor({
 
     // Restore per-file cursor + viewport from cache
     const cached = editorStateCache.get(editorCacheKey);
+    const panel = getPanelWindowSession();
+    const initialScroll =
+      panel?.fileId === activeFileId ? panel.initialScroll : undefined;
+    if (initialScroll?.editor) {
+      const position = initialScroll.editor;
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          if (viewRef.current !== view) return;
+          delete initialScroll.editor;
+          view.dispatch({
+            effects: EditorView.scrollIntoView(
+              Math.min(position.topLineFrom, view.state.doc.length),
+              { y: "start", yMargin: -position.topLineOffset },
+            ),
+          });
+        });
+      });
+    }
     if (
       cached?.document === currentContent &&
       cached.history &&
@@ -6346,6 +6387,7 @@ export function LatexEditor({
                 layoutTarget={layoutTarget}
                 file={activeFile}
                 aiEnabled={selectionAiEnabled}
+                pdfAnchorRef={pdfAnchorRef}
               />
             )}
           {/* Image content */}
@@ -6557,11 +6599,13 @@ function InlinePdfContent({
   aiEnabled,
   layoutAnimating,
   layoutTarget,
+  pdfAnchorRef,
 }: {
   file: ProjectFile;
   aiEnabled: boolean;
   layoutAnimating: boolean;
   layoutTarget?: PdfLayoutTarget;
+  pdfAnchorRef?: React.RefObject<PdfReadingAnchorControl | null>;
 }) {
   const [pdfData, setPdfData] = useState<PdfSource | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -6593,6 +6637,7 @@ function InlinePdfContent({
           aiEnabled={aiEnabled}
           standalonePdfData={pdfData}
           standaloneRootFileId={file.id}
+          panelReadingAnchorRef={pdfAnchorRef}
         />
       </div>
     );

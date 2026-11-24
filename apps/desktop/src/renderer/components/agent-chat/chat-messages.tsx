@@ -41,13 +41,28 @@ import {
 import { MarkdownRenderer } from "./markdown-renderer";
 import { ChatImagePreview } from "./chat-image-preview";
 import { ThinkingWidget, ToolWidget } from "./tool-widgets";
+import { getPanelWindowSession } from "@/lib/panel-window-runtime";
 
 const HISTORY_WINDOW_SIZE = 600;
 
-const readingPositions = new Map<
-  string,
-  { start: number; anchor: number; offset: number }
->();
+export interface ChatReadingPosition {
+  start: number;
+  anchor: number;
+  offset: number;
+}
+
+const readingPositions = new Map<string, ChatReadingPosition>();
+const chatPanel = getPanelWindowSession();
+if (chatPanel?.kind === "chat" && chatPanel.initialScroll?.chat) {
+  readingPositions.set(
+    `${chatPanel.projectRoot}:${chatPanel.chatId}`,
+    chatPanel.initialScroll.chat,
+  );
+}
+
+export function readChatScroll(projectRoot: string | null, chatId: string) {
+  return readingPositions.get(`${projectRoot}:${chatId}`);
+}
 
 // ─── Streaming Indicator (isolated to prevent re-render storms) ───
 
@@ -249,6 +264,7 @@ const ChatMessagesForTab: FC<
   const scrollerRef = useRef<HTMLElement | null>(null);
   const atBottom = useRef(true);
   const userScrolled = useRef(false);
+  const initialPopOutPosition = useRef(chatPanel?.initialScroll?.chat);
   const scrollDirection = useRef<"up" | "down" | "search" | null>(null);
   const previousScrollTop = useRef(0);
   useEffect(() => {
@@ -309,7 +325,12 @@ const ChatMessagesForTab: FC<
     }
   };
   useEffect(() => {
-    if (history && messages.length === 0 && history.total > 0)
+    if (
+      history &&
+      messages.length === 0 &&
+      history.total > 0 &&
+      !chatPanel?.initialScroll?.chat
+    )
       void loadWindow(
         readingPositions.get(positionKey)?.start ??
           Math.max(0, history.total - HISTORY_WINDOW_SIZE),
@@ -448,6 +469,35 @@ const ChatMessagesForTab: FC<
     }),
     [activeTabId, displayMessages.length === 0],
   );
+  useEffect(() => {
+    const initial = chatPanel?.initialScroll;
+    const position = initial?.chat;
+    if (!position) return;
+    if (displayMessages.some((row) => row.messageIndex === position.anchor)) {
+      delete initial.chat;
+      return;
+    }
+
+    // The opener may be reading an older history window outside the live suffix.
+    const controller = new AbortController();
+    pendingAnchor.current = { index: position.anchor, offset: position.offset };
+    void loadMatch(position.anchor, controller.signal)
+      .catch(() => {
+        if (controller.signal.aborted) return;
+        readingPositions.delete(positionKey);
+        pendingAnchor.current = null;
+        userScrolled.current = false;
+        atBottom.current = true;
+        listRef.current?.scrollToIndex({
+          index: "LAST",
+          align: "end",
+        });
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) delete initial.chat;
+      });
+    return () => controller.abort();
+  }, [displayMessages, loadMatch, positionKey]);
   useLayoutEffect(() => {
     const anchor = pendingAnchor.current;
     if (!anchor) return;
@@ -534,15 +584,40 @@ const ChatMessagesForTab: FC<
             ? "animate-[drawer-opacity-reveal_200ms_ease-out_both] motion-reduce:animate-none"
             : "opacity-0"
       }`}
-      itemsRendered={
-        revealHistory === undefined ? undefined : revealRenderedHistory
-      }
+      itemsRendered={(items) => {
+        if (revealHistory !== undefined) revealRenderedHistory(items);
+        if (!initialPopOutPosition.current) return;
+        requestAnimationFrame(() => {
+          const viewport = scrollerRef.current;
+          const initial = initialPopOutPosition.current;
+          if (!viewport || !initial) return;
+          const row = viewport
+            .querySelector(`[data-message-index="${initial.anchor}"]`)
+            ?.getBoundingClientRect();
+          if (!row?.height) return;
+          initialPopOutPosition.current = undefined;
+          // A wider window can make the same message shorter.
+          const offset = Math.min(
+            -initial.offset,
+            Math.max(0, row.height - 20),
+          );
+          if (offset !== -initial.offset)
+            listRef.current?.scrollToIndex({
+              index: displayMessages.findIndex(
+                (message) => message.messageIndex === initial.anchor,
+              ),
+              align: "start",
+              offset,
+            });
+        });
+      }}
       data={displayMessages}
       computeItemKey={(_, row) =>
         row.message.uuid ?? `${row.message.type}-${row.messageIndex}`
       }
       initialTopMostItemIndex={initialPosition}
       onWheel={(event) => {
+        initialPopOutPosition.current = undefined;
         userScrolled.current = true;
         scrollDirection.current = event.deltaY < 0 ? "up" : "down";
         if (event.deltaY < 0) atBottom.current = false;

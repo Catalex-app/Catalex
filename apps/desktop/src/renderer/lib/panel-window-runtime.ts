@@ -9,6 +9,13 @@ export interface PanelWindowSession {
   mode: WorkspaceMode;
   fileId: string;
   chatId?: string;
+  initialScroll?: {
+    editor?: import("@/components/workspace/editor/latex-editor").EditorScrollPosition;
+    pdf?: import("@/components/workspace/preview/pdf-reading-anchor").PdfReadingAnchor;
+    markdown?: number;
+    chat?: import("@/components/agent-chat/chat-messages").ChatReadingPosition;
+    pixels?: { top: number; left: number };
+  };
   projectRoot: string;
   document: StoreApi<DocumentState>;
   stores: Record<string, unknown>;

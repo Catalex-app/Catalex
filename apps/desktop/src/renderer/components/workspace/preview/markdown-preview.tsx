@@ -31,6 +31,7 @@ import {
   useState,
 } from "react";
 import { createPortal } from "react-dom";
+import { getPanelWindowSession } from "@/lib/panel-window-runtime";
 import ReactMarkdown from "react-markdown";
 import { markdownCodeHighlighting } from "@/lib/markdown-code-highlighting";
 import { invoke } from "@/lib/desktop/core";
@@ -475,7 +476,7 @@ function sourceElementAtPreviewCenter(frameDocument: Document) {
   return closest?.element ?? null;
 }
 
-function sourcePositionAtPreviewCenter(frameDocument: Document) {
+export function sourcePositionAtPreviewCenter(frameDocument: Document) {
   const element = sourceElementAtPreviewCenter(frameDocument);
   return element ? sourceRangeFromElement(element)?.start : undefined;
 }
@@ -598,6 +599,25 @@ export function MarkdownPreview({
     typeof import("@/lib/markdown-mathjax").default | null
   >(null);
   const loadingMath = mathEngine === "mathjax" && !mathjax;
+  useEffect(() => {
+    const session = getPanelWindowSession();
+    const initial = session?.initialScroll;
+    const position = initial?.markdown;
+    if (
+      !frameDocument ||
+      loadingMath ||
+      session?.fileId !== activeFileId ||
+      !initial ||
+      position === undefined
+    )
+      return;
+    const frame = requestAnimationFrame(() => {
+      const element = sourceElementForPosition(frameDocument, position);
+      delete initial.markdown;
+      element?.scrollIntoView({ block: "center", inline: "nearest" });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [activeFileId, frameDocument, loadingMath]);
   useEffect(() => {
     if (mathEngine !== "mathjax" || mathjax) return;
     let cancelled = false;

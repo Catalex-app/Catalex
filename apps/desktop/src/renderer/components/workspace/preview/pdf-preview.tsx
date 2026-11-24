@@ -193,6 +193,7 @@ export function PdfPreview({
   standaloneRootFileId,
   isolatedSnapshot = false,
   toolbarContent,
+  panelReadingAnchorRef,
   syncNavigationRequest: requestedSyncNavigation = null,
   onSyncNavigationHandled,
   scrollSyncEnabled: requestedScrollSyncEnabled = false,
@@ -212,6 +213,7 @@ export function PdfPreview({
   /** Historical bytes only; never navigate or write to the current workspace. */
   isolatedSnapshot?: boolean;
   toolbarContent?: ReactNode;
+  panelReadingAnchorRef?: React.RefObject<PdfReadingAnchorControl | null>;
   syncNavigationRequest?: {
     id: number;
     direction: "to-editor" | "to-pdf";
@@ -273,7 +275,8 @@ export function PdfPreview({
     pageInputRef.current?.focus();
     pageInputRef.current?.select();
   }, [isEditingPage]);
-  const readingAnchorRef = useRef<PdfReadingAnchorControl | null>(null);
+  const localReadingAnchorRef = useRef<PdfReadingAnchorControl | null>(null);
+  const readingAnchorRef = panelReadingAnchorRef ?? localReadingAnchorRef;
   const linkedReadingAnchorRef = useRef<{
     source: { fileId: string; content: string; position: number };
     pdf: PdfReadingAnchor;
