@@ -25,6 +25,8 @@ describe("ProposedChangesPanel", () => {
   });
 
   it("renders as a top toolbar with navigation and file-level actions only", () => {
+    const previous = vi.fn();
+    const next = vi.fn();
     act(() => {
       root.render(
         <ProposedChangesPanel
@@ -38,8 +40,8 @@ describe("ProposedChangesPanel", () => {
             timestamp: 1,
           }}
           mergeChunkInfo={{ current: 1, total: 2 }}
-          onPreviousChunk={vi.fn()}
-          onNextChunk={vi.fn()}
+          onPreviousChunk={previous}
+          onNextChunk={next}
           onKeep={vi.fn()}
           onUndo={vi.fn()}
         />,
@@ -49,13 +51,27 @@ describe("ProposedChangesPanel", () => {
     const panel = container.querySelector(
       "[data-proposed-changes-panel='true']",
     );
-    expect(panel?.className).toContain("h-12");
+    expect(panel?.classList.contains("min-h-12")).toBe(true);
     expect(panel?.className).toContain("border-b");
     expect(panel?.className).not.toContain("border-t");
     expect(container.textContent).not.toContain("main.tex");
     expect(container.textContent).not.toContain("files");
     expect(container.textContent).not.toContain("CodexEdit");
     expect(container.textContent).toContain("1/2");
+    const navigation = panel?.querySelector('[aria-label="Change navigation"]');
+    expect(
+      navigation?.querySelector('[role="status"]')?.getAttribute("aria-label"),
+    ).toBe("Change 1 of 2");
+    act(() => {
+      navigation
+        ?.querySelector<HTMLButtonElement>('[aria-label="Previous change"]')
+        ?.click();
+      navigation
+        ?.querySelector<HTMLButtonElement>('[aria-label="Next change"]')
+        ?.click();
+    });
+    expect(previous).toHaveBeenCalledOnce();
+    expect(next).toHaveBeenCalledOnce();
     expect(container.textContent).toContain("Accept All");
     expect(container.textContent).toContain("Reject All");
     expect(container.textContent).not.toContain("Keep All");
@@ -96,7 +112,6 @@ describe("ProposedChangesPanel", () => {
       ),
     );
     const panel = container.querySelector("[data-proposed-changes-panel]")!;
-    expect(panel.className).toContain("h-12");
     const buttons = Array.from(panel.querySelectorAll("button"));
     expect(buttons.map((button) => button.textContent)).toEqual([
       "Use Ancestors",

@@ -1,4 +1,9 @@
 import { Hint } from "@/components/ui/tooltip";
+import { DocumentBarNavigation } from "../document-bar-navigation";
+import {
+  documentBarClassName,
+  documentBarGapClassName,
+} from "../document-navigation-styles";
 import {
   GIT_ANCESTOR_ACTION_CLASS,
   GIT_CURRENT_ACTION_CLASS,
@@ -6,7 +11,6 @@ import {
 } from "./git-conflict-styles";
 import { cn } from "@/lib/utils";
 import { type FC } from "react";
-import { ChevronDownIcon, ChevronUpIcon } from "lucide-react";
 
 interface GitConflictPanelProps {
   threeWay?: boolean;
@@ -38,18 +42,26 @@ export const GitConflictPanel: FC<GitConflictPanelProps> = ({
   onKeepCurrent,
 }) => {
   const isWholeFileConflict = currentDeleted || incomingDeleted;
+  const wrapActions =
+    threeWay || isWholeFileConflict || ancestorContent !== undefined;
   return (
     <>
       <div
         data-git-conflict-panel="true"
         className={cn(
-          "flex min-h-12 shrink-0 items-center justify-between gap-3 border-border border-b bg-muted/50 px-3 py-2",
-          (isWholeFileConflict ||
-            (!threeWay && ancestorContent !== undefined)) &&
-            "flex-wrap",
+          documentBarClassName,
+          "justify-between bg-muted/50",
+          wrapActions && "flex-wrap",
+          threeWay && "@container/review-bar",
         )}
       >
-        <div className="flex min-w-0 items-center gap-2 text-sm">
+        <div
+          className={cn(
+            "flex min-w-0 items-center text-sm",
+            documentBarGapClassName,
+            threeWay && "flex-1",
+          )}
+        >
           <span className="shrink-0 font-medium text-foreground">
             Resolve Git Conflict
           </span>
@@ -64,94 +76,87 @@ export const GitConflictPanel: FC<GitConflictPanelProps> = ({
 
         <div
           className={cn(
-            "flex shrink-0 items-center gap-1.5",
-            (isWholeFileConflict ||
-              (!threeWay && ancestorContent !== undefined)) &&
-              "ml-auto max-w-full flex-wrap justify-end",
+            "flex @max-[532px]/review-bar:contents shrink-0 items-center",
+            documentBarGapClassName,
+            wrapActions && "ml-auto max-w-full flex-wrap justify-end",
           )}
         >
           {mergeChunkInfo.total > 0 && (
             <>
-              <span className="px-1 font-mono text-muted-foreground text-xs">
-                {mergeChunkInfo.current}/{mergeChunkInfo.total}
-              </span>
-              <Hint content="Previous conflict">
-                <button
-                  type="button"
-                  onClick={onPreviousChunk}
-                  className="rounded p-1 text-muted-foreground transition-colors hover:bg-background hover:text-foreground"
-                  aria-label="Previous conflict"
-                >
-                  <ChevronUpIcon className="size-3.5" />
-                </button>
-              </Hint>
-              <Hint content="Next conflict">
-                <button
-                  type="button"
-                  onClick={onNextChunk}
-                  className="rounded p-1 text-muted-foreground transition-colors hover:bg-background hover:text-foreground"
-                  aria-label="Next conflict"
-                >
-                  <ChevronDownIcon className="size-3.5" />
-                </button>
-              </Hint>
-              <div className="mx-0.5 h-4 w-px bg-border" />
+              <DocumentBarNavigation
+                label="Conflict navigation"
+                previousLabel="Previous conflict"
+                nextLabel="Next conflict"
+                itemLabel="Conflict"
+                current={mergeChunkInfo.current}
+                total={mergeChunkInfo.total}
+                onPrevious={onPreviousChunk}
+                onNext={onNextChunk}
+              />
+              <div className="@max-[532px]/review-bar:hidden h-4 w-px bg-border" />
             </>
           )}
-          {onUseStarting && (threeWay || ancestorContent != null) && (
+          <div
+            className={cn(
+              "@max-[532px]/review-bar:flex contents @max-[532px]/review-bar:w-full @max-[532px]/review-bar:flex-wrap @max-[532px]/review-bar:justify-end",
+              documentBarGapClassName,
+            )}
+          >
+            {onUseStarting && (threeWay || ancestorContent != null) && (
+              <button
+                type="button"
+                disabled={resolving}
+                onClick={onUseStarting}
+                className={GIT_ANCESTOR_ACTION_CLASS}
+              >
+                {threeWay ? "Use Ancestors" : "Use starting file"}
+              </button>
+            )}
             <button
               type="button"
               disabled={resolving}
-              onClick={onUseStarting}
-              className={GIT_ANCESTOR_ACTION_CLASS}
+              onClick={onKeepCurrent}
+              aria-label={threeWay && !resolving ? "Reject All" : undefined}
+              className={GIT_CURRENT_ACTION_CLASS}
             >
-              {threeWay ? "Use Ancestors" : "Use starting file"}
+              {resolving
+                ? "Resolving…"
+                : threeWay
+                  ? "Reject All"
+                  : currentDeleted
+                    ? "Keep current (delete file)"
+                    : isWholeFileConflict
+                      ? "Keep current"
+                      : "Keep All Current"}
+              {!resolving && (
+                <kbd className="ml-1 @max-[317px]/review-bar:hidden rounded bg-white/20 px-1 py-0.5 font-mono text-[10px]">
+                  ⌘N
+                </kbd>
+              )}
             </button>
-          )}
-          <button
-            type="button"
-            disabled={resolving}
-            onClick={onKeepCurrent}
-            aria-label={threeWay && !resolving ? "Reject All" : undefined}
-            className={GIT_CURRENT_ACTION_CLASS}
-          >
-            {resolving
-              ? "Resolving…"
-              : threeWay
-                ? "Reject All"
-                : currentDeleted
-                  ? "Keep current (delete file)"
-                  : isWholeFileConflict
-                    ? "Keep current"
-                    : "Keep All Current"}
-            {!resolving && (
-              <kbd className="ml-1 rounded bg-white/20 px-1 py-0.5 font-mono text-[10px]">
-                ⌘N
-              </kbd>
-            )}
-          </button>
-          <button
-            type="button"
-            disabled={resolving}
-            onClick={onAcceptIncoming}
-            aria-label={threeWay && !resolving ? "Accept All" : undefined}
-            className={GIT_INCOMING_ACTION_CLASS}
-          >
-            {resolving
-              ? "Resolving…"
-              : threeWay
-                ? "Accept All"
-                : incomingDeleted
-                  ? "Use incoming (delete file)"
-                  : isWholeFileConflict
-                    ? "Use incoming"
-                    : "Use All Incoming"}
-            {!resolving && (
-              <kbd className="ml-1 rounded bg-white/20 px-1 py-0.5 font-mono text-[10px]">
-                ⌘Y
-              </kbd>
-            )}
-          </button>
+            <button
+              type="button"
+              disabled={resolving}
+              onClick={onAcceptIncoming}
+              aria-label={threeWay && !resolving ? "Accept All" : undefined}
+              className={GIT_INCOMING_ACTION_CLASS}
+            >
+              {resolving
+                ? "Resolving…"
+                : threeWay
+                  ? "Accept All"
+                  : incomingDeleted
+                    ? "Use incoming (delete file)"
+                    : isWholeFileConflict
+                      ? "Use incoming"
+                      : "Use All Incoming"}
+              {!resolving && (
+                <kbd className="ml-1 @max-[317px]/review-bar:hidden rounded bg-white/20 px-1 py-0.5 font-mono text-[10px]">
+                  ⌘Y
+                </kbd>
+              )}
+            </button>
+          </div>
         </div>
       </div>
       {!threeWay && ancestorContent !== undefined && (

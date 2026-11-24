@@ -8,12 +8,15 @@ for (const anotherFile of [false, true]) {
     await page.goto("/?debug=agent-file-review&textReview");
     const chunks = page.locator(".cm-deletedChunk");
     const panel = page.locator("[data-proposed-changes-panel]");
-    await expect(panel.locator("span.font-mono")).toHaveText(/\/6$/);
+    const counter = panel
+      .getByRole("group", { name: "Change navigation" })
+      .getByRole("status");
+    await expect(counter).toHaveText(/\/6$/);
     await page.waitForTimeout(900);
     await chunks.first().locator('button[name="accept"]').click();
-    await expect(panel.locator("span.font-mono")).toHaveText(/\/5$/);
+    await expect(counter).toHaveText(/\/5$/);
     await chunks.first().locator('button[name="reject"]').click();
-    await expect(panel.locator("span.font-mono")).toHaveText(/\/4$/);
+    await expect(counter).toHaveText(/\/4$/);
     if (anotherFile) {
       await page.getByText("new-figure.png", { exact: true }).first().click();
       await page
