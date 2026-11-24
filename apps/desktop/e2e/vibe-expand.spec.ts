@@ -12,6 +12,52 @@ type ScrollSyncProbeWindow = Window & {
   };
 };
 
+for (const preview of ["pdf", "markdown"] as const) {
+  test(`Locate highlight in ${preview} expires while the pointer moves`, async ({
+    page,
+  }) => {
+    const isPdf = preview === "pdf";
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await page.goto(`/?debug=comment-workspace${isPdf ? "&pdf" : ""}`);
+    const surface = isPdf
+      ? page
+      : page.frameLocator('[data-testid="markdown-preview"] iframe');
+    await expect(
+      surface.locator(isPdf ? ".mupdf-text-layer" : "#write").first(),
+    ).toBeVisible();
+
+    const sync = page.getByTestId("sync-navigation-control");
+    if ((await sync.getAttribute("data-scroll-sync-linked")) === "true")
+      await sync
+        .getByRole("button", { name: "Disable synchronized scrolling" })
+        .click();
+    await sync
+      .getByRole("button", {
+        name: `Locate ${isPdf ? "PDF" : "preview"} position`,
+        exact: true,
+      })
+      .click();
+
+    const marker = surface.locator(`[data-navigation-highlight="${preview}"]`);
+    await expect(marker).toBeInViewport();
+    const { x, y, width, height } = (await marker.boundingBox())!;
+    let across = false;
+    await expect
+      .poll(
+        async () => {
+          across = !across;
+          await page.mouse.move(
+            x + width * (across ? 0.25 : 0.75),
+            y + height / 2,
+          );
+          return marker.count();
+        },
+        { intervals: [40], timeout: 1900 },
+      )
+      .toBe(0);
+  });
+}
+
 test("Duet workspace expands a live panel and restores the split and chat draft", async ({
   page,
 }) => {

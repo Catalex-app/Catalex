@@ -8,6 +8,7 @@
 - Open a workspace panel as a pop-out at your current reading position.
 - Fixed Markdown and CSV preview pop-outs opening the project's LaTeX PDF.
 - Switching between source and preview in Full chat highlights your reading position. Switch back without scrolling to return to the exact spot you left.
+- Fixed Locate highlights that stayed on screen in the Markdown preview.
 
 ## [0.3.1]
 

@@ -32,7 +32,7 @@ export function highlightNavigationTarget(
   let resizeObserver: ResizeObserver | undefined;
   const clear = () => {
     win.cancelAnimationFrame(frame);
-    win.clearTimeout(timer);
+    window.clearTimeout(timer);
     scrollTarget.removeEventListener("scroll", clear);
     win.removeEventListener("resize", clear);
     resizeObserver?.disconnect();
@@ -101,7 +101,8 @@ export function highlightNavigationTarget(
         clear();
     });
     resizeObserver.observe(scroller);
-    timer = win.setTimeout(clear, HIGHLIGHT_DURATION_MS);
+    // Sandboxed Markdown previews cannot run their own timer callbacks.
+    timer = window.setTimeout(clear, HIGHLIGHT_DURATION_MS);
   });
   highlights.set(scroller, clear);
 }
