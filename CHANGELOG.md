@@ -4,6 +4,7 @@
 
 - Choose from six colors, including Graphite, for highlights and comments in the source editor, Markdown preview, and PDF preview. Pick a color before choosing Highlight or Comment. Recolor or remove an existing highlight from its toolbar. Add a note to a highlight or clear a comment's text to turn it back into a highlight.
 - Use the same layout for agent review and Git conflict bars. In narrow panels, the navigator stays beside the title, the buttons move to a second row, and shortcut badges hide when space runs out.
+- Jump to the first change in a new agent proposal while keeping your place in chat. Reopening the same proposal keeps your reading position.
 
 ## [0.3.1]
 

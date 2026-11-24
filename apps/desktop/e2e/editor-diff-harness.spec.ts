@@ -782,6 +782,60 @@ test("editor diff harness centers the first AI change after comment layout is re
   expect(metrics?.deltaFromCenter).toBeLessThanOrEqual(48);
 });
 
+test("new proposals center the first change without interrupting chat typing", async ({
+  page,
+}) => {
+  await page.goto("/?debug=editor-diff&deferDiff=1&withChat");
+  await page.waitForFunction(() => window.__editorDiffHarness?.ready);
+  await page.getByRole("button", { name: "Toggle drawer" }).click();
+  const chat = page
+    .locator('[data-chat-drawer-panel="true"] textarea:visible')
+    .last();
+  await chat.fill("Keep this feedback draft");
+  await chat.evaluate((input) => {
+    (input as HTMLTextAreaElement).setSelectionRange(9, 9);
+  });
+
+  expect(
+    await page.evaluate(() =>
+      window.__editorDiffHarness?.activateDiffWithLongUnchangedPrefix?.(),
+    ),
+  ).toBe(true);
+  const waitForFirstChange = () =>
+    page.waitForFunction(() => {
+      const metrics =
+        window.__editorDiffHarness?.getFirstDiffViewportMetrics?.();
+      return metrics && metrics.deltaFromCenter <= 48;
+    });
+  await waitForFirstChange();
+  await expect(chat).toBeFocused();
+  await expect(chat).toHaveValue("Keep this feedback draft");
+  await expect(chat).toHaveJSProperty("selectionStart", 9);
+  await expect(chat).toHaveJSProperty("selectionEnd", 9);
+
+  await page.evaluate(async () => {
+    const path = "/src/renderer/stores/proposed-changes-store.ts";
+    const { useProposedChangesStore } = await import(path);
+    const proposals = useProposedChangesStore.getState();
+    const first = proposals.changes[0];
+    window.__editorDiffHarness?.setScrollTop?.(0);
+    (document.activeElement as HTMLElement).blur();
+    proposals.addChange({
+      ...first,
+      id: "replacement-proposal",
+      newContent: first.newContent.replace(
+        "has a proposed change from the assistant",
+        "has a replacement proposal",
+      ),
+    });
+  });
+  await waitForFirstChange();
+  await expect(page.locator(".cm-content")).toBeFocused();
+  await expect(page.locator(".cm-content")).toContainText(
+    "has a replacement proposal",
+  );
+});
+
 test("proposal originals remain selectable and read-only with Git indicators", async ({
   page,
 }) => {

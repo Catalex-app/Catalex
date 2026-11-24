@@ -1153,6 +1153,7 @@ interface CachedEditorState {
     change: EditorMergeChange;
     original: string;
     baseline: EditorHistorySnapshot;
+    needsCenter: boolean;
     threeWayRegions?: readonly ThreeWayRegion[];
     threeWaySelections?: Readonly<
       Record<number, "ancestor" | "current" | "agent">
@@ -1709,6 +1710,7 @@ export function LatexEditor({
     (view: EditorView) => boolean
   >(() => false);
   const mergeAutoCenterTokenRef = useRef(0);
+  const proposalNeedsCenterRef = useRef(false);
   const handleKeepAllRef = useRef<() => void>(() => {});
   const handleUndoAllRef = useRef<() => void>(() => {});
   const diagnosticsRef = useRef<DiagnosticItem[]>([]);
@@ -2602,6 +2604,10 @@ export function LatexEditor({
     if (!view) return;
     const chunks = getReviewRanges(view.state);
     if (index < 0 || index >= chunks.length) return;
+    if (pendingChangeRef.current?.source === "proposal") {
+      proposalNeedsCenterRef.current = false;
+      mergeAutoCenterTokenRef.current += 1;
+    }
     const chunk = chunks[index];
     view.dispatch({
       selection: { anchor: chunk.fromB },
@@ -2610,50 +2616,56 @@ export function LatexEditor({
     view.focus();
   };
 
-  const centerFirstMergeChunkAfterLayout = useCallback((view: EditorView) => {
-    const token = ++mergeAutoCenterTokenRef.current;
-    let attempts = 0;
-    const maxAttempts = 10;
+  const centerFirstMergeChunkAfterLayout = useCallback(
+    (view: EditorView, proposal = false) => {
+      const token = ++mergeAutoCenterTokenRef.current;
+      let attempts = 0;
+      const maxAttempts = 10;
 
-    const schedule = () => {
-      window.requestAnimationFrame(() => {
-        window.requestAnimationFrame(center);
-      });
-    };
+      const schedule = () => {
+        window.requestAnimationFrame(() => {
+          window.requestAnimationFrame(center);
+        });
+      };
 
-    const center = () => {
-      if (mergeAutoCenterTokenRef.current !== token) return;
-      if (!isMergeActiveRef.current || viewRef.current !== view) return;
-      const focused = document.activeElement;
-      if (
-        focused instanceof Element &&
-        !view.dom.contains(focused) &&
-        focused.closest("input, textarea, [contenteditable='true']")
-      )
-        return;
+      const center = () => {
+        if (mergeAutoCenterTokenRef.current !== token) return;
+        if (!isMergeActiveRef.current || viewRef.current !== view) return;
+        const focused = view.dom.ownerDocument.activeElement;
+        const keepInputFocus =
+          focused instanceof Element &&
+          !view.dom.contains(focused) &&
+          !!focused.closest("input, textarea, [contenteditable='true']");
+        if (keepInputFocus && !proposal) return;
 
-      const firstChunk = getReviewRanges(view.state)[0];
-      if (!firstChunk) {
+        const firstChunk = getReviewRanges(view.state)[0];
+        if (!firstChunk) {
+          attempts += 1;
+          if (attempts < maxAttempts) schedule();
+          return;
+        }
+
+        if (proposal && proposalNeedsCenterRef.current) {
+          proposalNeedsCenterRef.current = false;
+          cancelReviewViewport(view);
+        }
+        const anchor = firstChunk.fromB;
+        view.dispatch({
+          selection: { anchor },
+          effects: EditorView.scrollIntoView(anchor, {
+            y: "center",
+          }),
+        });
+        if (!keepInputFocus) view.focus();
+
         attempts += 1;
-        if (attempts < maxAttempts) schedule();
-        return;
-      }
+        if (attempts < 2) schedule();
+      };
 
-      const anchor = firstChunk.fromB;
-      view.dispatch({
-        selection: { anchor },
-        effects: EditorView.scrollIntoView(anchor, {
-          y: "center",
-        }),
-      });
-      view.focus();
-
-      attempts += 1;
-      if (attempts < 2) schedule();
-    };
-
-    schedule();
-  }, []);
+      schedule();
+    },
+    [],
+  );
 
   useEffect(() => {
     const view = viewRef.current;
@@ -3552,11 +3564,25 @@ export function LatexEditor({
       !view.state.readOnly && view.state.facet(EditorView.editable),
     );
     setEditorReadyRevision((revision) => revision + 1);
-    // Initial review centering must yield to a user's text-selection gesture.
-    const stopMergeAutoCenter = () => {
+    // Initial review centering must yield to manual editor navigation.
+    const stopMergeAutoCenter = (event: Event) => {
+      if (
+        event.type !== "pointerdown" &&
+        pendingChangeRef.current?.source !== "proposal"
+      )
+        return;
       mergeAutoCenterTokenRef.current += 1;
+      proposalNeedsCenterRef.current = false;
     };
-    view.dom.addEventListener("pointerdown", stopMergeAutoCenter, true);
+    const reviewNavigationEvents = [
+      "pointerdown",
+      "wheel",
+      "touchstart",
+      "keydown",
+    ];
+    for (const event of reviewNavigationEvents) {
+      view.dom.addEventListener(event, stopMergeAutoCenter, true);
+    }
 
     let outlineScrollFrame: number | null = null;
     let outlineClickOwnsHighlight = false;
@@ -3745,7 +3771,9 @@ export function LatexEditor({
     return () => {
       window.removeEventListener(COMMENT_PATHS_CHANGED_EVENT, moved);
       cancelNavigationScroll(view.scrollDOM);
-      view.dom.removeEventListener("pointerdown", stopMergeAutoCenter, true);
+      for (const event of reviewNavigationEvents) {
+        view.dom.removeEventListener(event, stopMergeAutoCenter, true);
+      }
       // Save per-file cursor + viewport before destroying.
       const markers = view.state.field(compileDiagnosticField, false);
       editorStateCache.set(retainedCacheKey, {
@@ -3766,6 +3794,7 @@ export function LatexEditor({
                 change: pendingChangeRef.current,
                 original: getOriginalDoc(view.state).toString(),
                 baseline: pendingHistoryRef.current,
+                needsCenter: proposalNeedsCenterRef.current,
                 threeWayRegions: getThreeWayRegions(view.state),
                 threeWaySelections: getThreeWaySelections(view.state),
               }
@@ -3791,6 +3820,7 @@ export function LatexEditor({
         viewRef.current = null;
         setIsTextEditorEditable(false);
         isMergeActiveRef.current = false;
+        proposalNeedsCenterRef.current = false;
         pendingChangeRef.current = null;
         pendingHistoryRef.current = null;
       }
@@ -4105,7 +4135,11 @@ export function LatexEditor({
               ? cached.document!
               : activeMergeChange.newContent,
           },
-          selection: { anchor: 0 },
+          selection: {
+            anchor: resumeReview
+              ? Math.min(cached.cursor, cached.document!.length)
+              : 0,
+          },
           effects: [
             mergeCompartmentRef.current.reconfigure([
               unifiedMergeView({
@@ -4169,7 +4203,12 @@ export function LatexEditor({
           });
         }
         log.debug("merge view activated successfully");
-        centerFirstMergeChunkAfterLayout(view);
+        if (activeMergeChange.source === "proposal") {
+          proposalNeedsCenterRef.current =
+            !resumeReview || savedReview.needsCenter;
+        } else {
+          centerFirstMergeChunkAfterLayout(view);
+        }
       } catch (err) {
         log.error("failed to activate merge view", { error: String(err) });
         isMergeActiveRef.current = false;
@@ -4193,6 +4232,16 @@ export function LatexEditor({
       log.debug(
         `UPDATING merge view (stacked edit) for: ${activeMergeChange.filePath}`,
       );
+      const previous = pendingChangeRef.current;
+      const newProposal =
+        activeMergeChange.source === "proposal" &&
+        (previous?.id !== activeMergeChange.id ||
+          previous.workspaceSessionId !==
+            activeMergeChange.workspaceSessionId ||
+          (previous.newContent !== activeMergeChange.newContent &&
+            (!activeMergeChange.proposalRevision ||
+              previous.proposalRevision !==
+                activeMergeChange.proposalRevision)));
       pendingChangeRef.current = activeMergeChange;
       clearSelectionUiState();
       try {
@@ -4256,6 +4305,7 @@ export function LatexEditor({
               ),
             ),
           });
+          if (newProposal) proposalNeedsCenterRef.current = true;
         }
         log.debug("merge view updated successfully (stacked edit)");
       } catch (err) {
@@ -4282,6 +4332,7 @@ export function LatexEditor({
         effects: mergeCompartmentRef.current.reconfigure([]),
       });
       isMergeActiveRef.current = false;
+      proposalNeedsCenterRef.current = false;
       if (historySnapshot) {
         view.dispatch({
           effects: historyCompartmentRef.current.reconfigure(
@@ -4298,6 +4349,27 @@ export function LatexEditor({
     clearSelectionUiState,
     editorReadyRevision,
     isTextFile,
+  ]);
+
+  useEffect(() => {
+    const view = viewRef.current;
+    if (
+      !view ||
+      !proposalNeedsCenterRef.current ||
+      !searchAvailable ||
+      layoutAnimating
+    )
+      return;
+    centerFirstMergeChunkAfterLayout(view, true);
+    return () => {
+      mergeAutoCenterTokenRef.current += 1;
+    };
+  }, [
+    activeMergeChange,
+    centerFirstMergeChunkAfterLayout,
+    editorReadyRevision,
+    layoutAnimating,
+    searchAvailable,
   ]);
 
   // A review can be visible in several windows. Mirror its live draft and
@@ -4351,6 +4423,10 @@ export function LatexEditor({
   useEffect(() => {
     const view = viewRef.current;
     if (!view || jumpToPosition === null) return;
+    if (pendingChangeRef.current?.source === "proposal") {
+      proposalNeedsCenterRef.current = false;
+      mergeAutoCenterTokenRef.current += 1;
+    }
     if (scrollSyncEnabled) {
       lastScrollSyncPositionRef.current = jumpToPosition;
       ignoreScrollSyncUntilRef.current = performance.now() + 250;
