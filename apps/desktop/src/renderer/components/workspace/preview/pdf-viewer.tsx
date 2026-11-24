@@ -1,3 +1,4 @@
+import { restorePdfPosition } from "../reading-position";
 import { PdfMinimap } from "./pdf-minimap";
 import { useSettingsStore } from "@/stores/settings-store";
 import { pdfOpenArgument, type PdfSource } from "@/lib/mupdf/pdf-source";
@@ -260,7 +261,7 @@ export function PdfViewer({
       return;
     const frame = requestAnimationFrame(() => {
       delete initial.pdf;
-      readingAnchor.align(position);
+      restorePdfPosition(readingAnchor, position);
     });
     return () => cancelAnimationFrame(frame);
   }, [displayScale, isActive, pageSizes, readingAnchor, rootFileId]);

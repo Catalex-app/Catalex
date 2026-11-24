@@ -33,16 +33,15 @@ export function scrollToEditorPosition(
   scrollForNavigation(
     scroll,
     destination,
-    highlight
-      ? () =>
-          highlightNavigationTarget(scroll, "editor", () => {
-            if (targetPosition > view.state.doc.length) return null;
-            const { node } = view.domAtPos(targetPosition);
-            const element = node instanceof Element ? node : node.parentElement;
-            return (
-              element?.closest(".cm-line")?.getBoundingClientRect() ?? null
-            );
-          })
-      : undefined,
+    highlight ? () => highlightEditorPosition(view, targetPosition) : undefined,
   );
+}
+
+export function highlightEditorPosition(view: EditorView, position: number) {
+  highlightNavigationTarget(view.scrollDOM, "editor", () => {
+    if (position > view.state.doc.length) return null;
+    const { node } = view.domAtPos(position);
+    const element = node instanceof Element ? node : node.parentElement;
+    return element?.closest(".cm-line")?.getBoundingClientRect() ?? null;
+  });
 }

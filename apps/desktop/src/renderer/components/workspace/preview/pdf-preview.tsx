@@ -78,6 +78,7 @@ import {
 } from "lucide-react";
 import {
   useDocumentStore,
+  type ProjectFile,
   getCurrentPdfBytes,
   hasPdfData,
 } from "@/stores/document-store";
@@ -184,6 +185,57 @@ export interface PdfLayoutTarget {
   currentWidth: number;
 }
 
+export { synctexEdit as lookupPdfSource };
+
+export async function lookupSourceInPdf(
+  projectRoot: string,
+  file: ProjectFile,
+  position: number,
+  lines = createSourceLineIndex(file.content ?? ""),
+): Promise<PdfReadingAnchor | undefined> {
+  const { line, column } = lines.lineAndColumn(position);
+  const result = await synctexView(
+    projectRoot,
+    file.relativePath,
+    line,
+    column,
+  );
+  if (result) return { page: result.page, pdfX: result.x, pdfY: result.y };
+}
+
+export function revealPdfSource(
+  result: SynctexResult,
+  allowFileSwitch = true,
+  activeLines?: {
+    fileId: string;
+    index: ReturnType<typeof createSourceLineIndex>;
+  },
+) {
+  const state = useDocumentStore.getState();
+  const normalize = (path: string) =>
+    path.replace(/\\/g, "/").replace(/^\.\//, "");
+  const normalizedTarget = normalize(result.file);
+  const file = state.files.find(
+    (file) => normalize(file.relativePath) === normalizedTarget,
+  );
+  if (!file) return;
+
+  const needsSwitch = state.activeFileId !== file.id;
+  if (needsSwitch && !allowFileSwitch) return;
+  if (needsSwitch) state.setActiveFile(file.id);
+  const content = file.content ?? "";
+  const lines =
+    activeLines?.fileId === file.id
+      ? activeLines.index
+      : createSourceLineIndex(content);
+  return {
+    fileId: file.id,
+    content,
+    position: lines.offset(result.line, Math.max(0, result.column)),
+    needsSwitch,
+  };
+}
+
 export function PdfPreview({
   aiEnabled: requestedAiEnabled = false,
   editorVisible = false,
@@ -255,7 +307,6 @@ export function PdfPreview({
     (s) => s.setProjectAutoCompile,
   );
   const files = useDocumentStore((s) => s.files);
-  const setActiveFile = useDocumentStore((s) => s.setActiveFile);
   const activeFile = useDocumentStore((s) => {
     return s.files.find((f) => f.id === s.activeFileId) ?? null;
   });
@@ -1135,52 +1186,40 @@ export function PdfPreview({
   const navigateSynctexResultToSource = useCallback(
     (result: SynctexResult, navigation: "locate" | "sync") => {
       if (isolatedSnapshot) return;
-      const normalize = (path: string) =>
-        path.replace(/\\/g, "/").replace(/^\.\//, "");
-      const normalizedTarget = normalize(result.file);
-      const targetFile = files.find(
-        (file) => normalize(file.relativePath) === normalizedTarget,
+      const { projectRoot } = useDocumentStore.getState();
+      const found = revealPdfSource(
+        result,
+        navigation === "locate" || scrollSyncEnabled,
+        activeFile?.id
+          ? { fileId: activeFile.id, index: sourceLinesRef.current }
+          : undefined,
       );
-      if (!targetFile) return;
-
-      const state = useDocumentStore.getState();
-      const needsSwitch = state.activeFileId !== targetFile.id;
-      if (navigation === "sync" && !scrollSyncEnabled && needsSwitch) return;
-      if (needsSwitch) setActiveFile(targetFile.id);
-
-      const fileContent = targetFile.content ?? "";
-      const lines =
-        targetFile.id === activeFile?.id
-          ? sourceLinesRef.current
-          : createSourceLineIndex(fileContent);
-      const offset = lines.offset(result.line, Math.max(0, result.column));
-
+      if (!found) return;
+      const { needsSwitch, ...source } = found;
       const navigate = () => {
         if (navigation === "locate") {
           const current = useDocumentStore.getState();
           if (
-            current.projectRoot !== state.projectRoot ||
-            current.activeFileId !== targetFile.id
+            current.projectRoot !== projectRoot ||
+            current.activeFileId !== source.fileId
           )
             return;
         }
         if (navigation === "sync") {
-          onScrollSyncToEditor?.(offset);
+          onScrollSyncToEditor?.(source.position);
         } else {
-          requestJumpToPosition(offset, navigation === "locate");
+          requestJumpToPosition(source.position, navigation === "locate");
         }
       };
       if (needsSwitch) setTimeout(navigate, 100);
       else navigate();
-      return { fileId: targetFile.id, content: fileContent, position: offset };
+      return source;
     },
     [
-      files,
       activeFile?.id,
       isolatedSnapshot,
       onScrollSyncToEditor,
       requestJumpToPosition,
-      setActiveFile,
       scrollSyncEnabled,
     ],
   );
@@ -1784,16 +1823,13 @@ export function PdfPreview({
         readingAnchorRef.current?.align(linked.pdf, !suppressFeedback);
         return;
       }
-      const { line, column } =
-        sourceLinesRef.current.lineAndColumn(clampedPosition);
-
-      const result = await synctexView(
+      const pdf = await lookupSourceInPdf(
         projectRoot,
-        currentFile.relativePath,
-        line,
-        column,
+        currentFile,
+        clampedPosition,
+        sourceLinesRef.current,
       );
-      if (!result) return;
+      if (!pdf) return;
       const latest = useDocumentStore.getState();
       if (
         latest.projectRoot !== projectRoot ||
@@ -1812,7 +1848,6 @@ export function PdfPreview({
       if (suppressFeedback) {
         ignorePdfScrollSyncUntilRef.current = performance.now() + 400;
       }
-      const pdf = { page: result.page, pdfX: result.x, pdfY: result.y };
       linkedReadingAnchorRef.current = {
         source: { fileId: currentFile.id, content, position: clampedPosition },
         pdf,

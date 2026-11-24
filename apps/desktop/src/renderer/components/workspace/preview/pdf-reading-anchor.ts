@@ -23,6 +23,7 @@ export interface PdfReadingAnchorControl {
     to: PdfReadingAnchor,
     fraction: number,
   ) => PdfReadingAnchor;
+  highlight: (anchor: PdfReadingAnchor) => void;
   restore: () => void;
   preserving: () => boolean;
 }
@@ -93,44 +94,7 @@ export function alignPdfReadingAnchor(
       container.clientHeight * (anchor.viewportY ?? 0.5);
   if (animate) {
     scrollForNavigation(container, { top, left }, () =>
-      highlightNavigationTarget(container, "pdf", () => {
-        if (!page.isConnected) return null;
-        const bounds = page.getBoundingClientRect();
-        const x = bounds.left + (anchor.pdfX / size.width) * bounds.width;
-        const y = bounds.top + (anchor.pdfY / size.height) * bounds.height;
-        const lines = Array.from(
-          page.querySelectorAll(".mupdf-text-layer text"),
-          (line) => line.getBoundingClientRect(),
-        ).filter((line) => line.width > 0 && line.height > 0);
-        let closest: DOMRect | null = null;
-        let distance = 16;
-        for (const text of lines) {
-          const gap = Math.hypot(
-            Math.max(text.left - x, x - text.right, 0),
-            Math.max(text.top - y, y - text.bottom, 0),
-          );
-          if (gap < distance) {
-            closest = text;
-            distance = gap;
-          }
-        }
-        if (!closest) return new DOMRect(x - 16, y - 8, 32, 16);
-
-        // MuPDF can return separate text runs for a heading number and title.
-        const centerY = closest.top + closest.height / 2;
-        let { left, top, right, bottom } = closest;
-        for (const line of lines) {
-          const sameRow =
-            Math.abs(line.top + line.height / 2 - centerY) < closest.height / 2;
-          const horizontalGap = Math.max(line.left - right, left - line.right);
-          if (!sameRow || horizontalGap > closest.height * 1.5) continue;
-          left = Math.min(left, line.left);
-          right = Math.max(right, line.right);
-          top = Math.min(top, line.top);
-          bottom = Math.max(bottom, line.bottom);
-        }
-        return new DOMRect(left, top, right - left, bottom - top);
-      }),
+      highlightPdfPosition(container, sizes, anchor),
     );
   } else {
     cancelNavigationScroll(container);
@@ -138,6 +102,54 @@ export function alignPdfReadingAnchor(
     container.scrollLeft = left;
   }
   return rect;
+}
+
+export function highlightPdfPosition(
+  container: HTMLElement,
+  sizes: PageSize[],
+  anchor: PdfReadingAnchor,
+) {
+  const page = pdfPageElement(container, anchor.page);
+  const size = sizes[anchor.page - 1];
+  if (!page || !size) return;
+  highlightNavigationTarget(container, "pdf", () => {
+    if (!page.isConnected) return null;
+    const bounds = page.getBoundingClientRect();
+    const x = bounds.left + (anchor.pdfX / size.width) * bounds.width;
+    const y = bounds.top + (anchor.pdfY / size.height) * bounds.height;
+    const lines = Array.from(
+      page.querySelectorAll(".mupdf-text-layer text"),
+      (line) => line.getBoundingClientRect(),
+    ).filter((line) => line.width > 0 && line.height > 0);
+    let closest: DOMRect | null = null;
+    let distance = 16;
+    for (const text of lines) {
+      const gap = Math.hypot(
+        Math.max(text.left - x, x - text.right, 0),
+        Math.max(text.top - y, y - text.bottom, 0),
+      );
+      if (gap < distance) {
+        closest = text;
+        distance = gap;
+      }
+    }
+    if (!closest) return new DOMRect(x - 16, y - 8, 32, 16);
+
+    // MuPDF can return separate text runs for a heading number and title.
+    const centerY = closest.top + closest.height / 2;
+    let { left, top, right, bottom } = closest;
+    for (const line of lines) {
+      const sameRow =
+        Math.abs(line.top + line.height / 2 - centerY) < closest.height / 2;
+      const horizontalGap = Math.max(line.left - right, left - line.right);
+      if (!sameRow || horizontalGap > closest.height * 1.5) continue;
+      left = Math.min(left, line.left);
+      right = Math.max(right, line.right);
+      top = Math.min(top, line.top);
+      bottom = Math.max(bottom, line.bottom);
+    }
+    return new DOMRect(left, top, right - left, bottom - top);
+  });
 }
 
 export const PDF_PAGE_GAP = 12;

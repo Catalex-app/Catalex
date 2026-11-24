@@ -1,10 +1,15 @@
-import { expect, test } from "@playwright/test";
+import { expect, type Page, test } from "@playwright/test";
 
 type ScrollSyncProbeWindow = Window & {
   __TAURI_INTERNALS__: {
     invoke: (cmd: string, args?: Record<string, unknown>) => Promise<unknown>;
   };
-  __scrollSyncProbe: { lines: number[]; release?: () => void };
+  __scrollSyncProbe: {
+    lines: number[];
+    inverse?: { page: number; y: number }[];
+    release?: () => void;
+    releaseInverse?: () => void;
+  };
 };
 
 test("Duet workspace expands a live panel and restores the split and chat draft", async ({
@@ -105,26 +110,17 @@ test("Duet workspace expands a live panel and restores the split and chat draft"
   expect((await chat.boundingBox())!.width).toBeCloseTo(initial!.width, 0);
 });
 
-test("Duet workspace applies scroll mappings after switching to the destination panel", async ({
+const editorHighlight = (page: Page) =>
+  page.locator('[data-navigation-highlight="editor"]');
+const pdfHighlight = (page: Page) =>
+  page.locator('[data-navigation-highlight="pdf"]');
+
+test("Full chat follows PDF reading points and restores both sides without drift", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("/?debug=comment-workspace&pdf");
   await expect(page.locator(".mupdf-text-layer").first()).toBeVisible();
-  await page.evaluate(() => {
-    const win = window as unknown as {
-      __TAURI_INTERNALS__: {
-        invoke: (cmd: string, ...args: unknown[]) => Promise<unknown>;
-      };
-    };
-    const invoke = win.__TAURI_INTERNALS__.invoke;
-    win.__TAURI_INTERNALS__.invoke = async (cmd, ...args) => {
-      if (cmd === "synctex_view") return { page: 3, x: 100, y: 300 };
-      if (cmd === "synctex_edit")
-        return { file: "sample.tex", line: 90, column: 1 };
-      return invoke(cmd, ...args);
-    };
-  });
   await page
     .getByRole("button", { name: "Toggle drawer", exact: true })
     .locator("..")
@@ -141,42 +137,150 @@ test("Duet workspace applies scroll mappings after switching to the destination 
   };
   await mode.getByRole("tab", { name: "Editor", exact: true }).click();
   await settle();
-  await editor.evaluate((el) => {
-    el.scrollTop = 900;
+  await page.evaluate(() => {
+    const win = window as ScrollSyncProbeWindow;
+    const invoke = win.__TAURI_INTERNALS__.invoke;
+    const probe = {
+      lines: [] as number[],
+      inverse: [] as { page: number; y: number }[],
+    };
+    win.__scrollSyncProbe = probe;
+    win.__TAURI_INTERNALS__.invoke = async (cmd, args) => {
+      if (cmd === "synctex_view") {
+        probe.lines.push(Number(args?.line));
+        return { page: 3, x: 100, y: 300 };
+      }
+      if (cmd === "synctex_edit") {
+        probe.inverse.push({ page: Number(args?.page), y: Number(args?.y) });
+        return { file: "sample.tex", line: 90, column: 1 };
+      }
+      return invoke(cmd, args);
+    };
   });
-  await page.waitForTimeout(150);
+  await setLocateSourceLine(page, 45);
+  await editor.evaluate((el) => {
+    el.scrollTop += 800;
+  });
+  await expect(editor.locator(".cm-activeLine")).not.toBeInViewport();
+  const readingLine = await editor.evaluate((scroller) => {
+    const center =
+      scroller.getBoundingClientRect().top + scroller.clientHeight / 2;
+    const line = Array.from(
+      scroller.querySelectorAll(".cm-lineNumbers .cm-gutterElement"),
+    ).find((element) => {
+      const { top, bottom } = element.getBoundingClientRect();
+      return top <= center && center < bottom;
+    });
+    return Number(line?.textContent);
+  });
+  expect(readingLine).toBeGreaterThan(45);
   await mode.getByRole("tab", { name: "PDF", exact: true }).click();
-  await settle();
+  await expect(pdfHighlight(page)).toBeInViewport();
   await expect
     .poll(() => pdf.evaluate((el) => el.scrollTop))
     .toBeGreaterThan(500);
-  await pdf.evaluate((el) => {
-    el.scrollTop += 400;
+  const pdfScroll = await pdf.evaluate((el) => {
+    const bounds = el.getBoundingClientRect();
+    const page = el
+      .querySelector('[data-page-number="3"]')!
+      .getBoundingClientRect();
+    el.scrollTop +=
+      page.top + page.height / 5 - bounds.top - el.clientHeight / 2;
+    return el.scrollTop;
   });
-  await page.waitForTimeout(200);
-  await mode.getByRole("tab", { name: "Editor", exact: true }).click();
-  await settle();
+  await switchToEditorWithoutScroll(page);
   await expect
     .poll(() => editor.evaluate((el) => el.scrollTop))
     .toBeGreaterThan(2500);
-  const visibleSource = await editor.locator(".cm-line").allTextContents();
-  await mode.getByRole("tab", { name: "PDF", exact: true }).click();
-  await settle();
-  await mode.getByRole("tab", { name: "Editor", exact: true }).click();
-  await settle();
-  // Virtualized editor heights may change; verify the source region, not pixels.
-  const reopenedSource = await editor.locator(".cm-line").allTextContents();
-  expect(
-    reopenedSource.some(
-      (line) => line.trim().length > 20 && visibleSource.includes(line),
-    ),
-  ).toBe(true);
+  const editorScroll = await editor.evaluate((el) => el.scrollTop);
+  for (let count = 0; count < 3; count++) {
+    await mode.getByRole("tab", { name: "PDF", exact: true }).click();
+    await expect(pdfHighlight(page)).toBeInViewport();
+    expect(await pdf.evaluate((el) => el.scrollTop)).toBe(pdfScroll);
+    await switchToEditorWithoutScroll(page);
+    expect(await editor.evaluate((el) => el.scrollTop)).toBe(editorScroll);
+  }
+  const { lines, inverse } = await page.evaluate(
+    () => (window as ScrollSyncProbeWindow).__scrollSyncProbe,
+  );
+  expect(lines).toEqual([readingLine]);
+  expect(inverse).toHaveLength(1);
+  expect(inverse?.[0].page).toBe(3);
+  // The demo is Letter size. The selected reading point is one fifth down the page.
+  expect(Math.abs(inverse![0].y - 792 / 5)).toBeLessThan(2);
   await page.screenshot({
     path: test.info().outputPath("vibe-scroll-sync.png"),
   });
 });
 
-test("Duet workspace ignores an old PDF mapping after switching to a newer source region", async ({
+async function switchToEditorWithoutScroll(page: Page) {
+  await page.evaluate(() => {
+    const descriptor = Object.getOwnPropertyDescriptor(
+      Element.prototype,
+      "scrollTop",
+    )!;
+    const editor = document.querySelector<HTMLElement>(".cm-scroller")!;
+    const column = editor.closest<HTMLElement>("[data-panel]")!;
+    editor.dataset.visibleScrollWrites = "";
+    Object.defineProperty(editor, "scrollTop", {
+      configurable: true,
+      get: () => descriptor.get!.call(editor),
+      set: (value: number) => {
+        const previous = descriptor.get!.call(editor);
+        descriptor.set!.call(editor, value);
+        const current = descriptor.get!.call(editor);
+        if (column.clientWidth > 1 && current !== previous)
+          editor.dataset.visibleScrollWrites += `${current} `;
+      },
+    });
+  });
+  await page
+    .getByRole("tablist", { name: "Chat workspace content" })
+    .getByRole("tab", { name: "Editor", exact: true })
+    .click();
+  await expect(editorHighlight(page)).toBeInViewport();
+  const writes = await page
+    .locator(".cm-scroller[data-visible-scroll-writes]")
+    .evaluate((editor: HTMLElement) => {
+      Reflect.deleteProperty(editor, "scrollTop");
+      const positions = editor.dataset.visibleScrollWrites;
+      delete editor.dataset.visibleScrollWrites;
+      return positions;
+    });
+  expect(writes).toBe("");
+}
+
+async function setLocateSourceLine(page: Page, line: number) {
+  await page.evaluate(async (lineNumber) => {
+    const path = "/src/renderer/stores/document-store.ts";
+    const { useDocumentStore } = await import(path);
+    const state = useDocumentStore.getState();
+    const file = state.files.find(({ id }) => id === state.activeFileId);
+    const start =
+      file.content
+        .split("\n")
+        .slice(0, lineNumber - 1)
+        .join("\n").length + 1;
+    const { isNavigationScrolling } = await import(
+      "/src/renderer/lib/navigation-scroll.ts"
+    );
+    state.requestJumpToPosition(start);
+    const editor = document.querySelector<HTMLElement>(".cm-scroller")!;
+    await new Promise<void>((resolve) => {
+      const settled = () => {
+        if (
+          useDocumentStore.getState().jumpToPosition === null &&
+          !isNavigationScrolling(editor)
+        )
+          resolve();
+        else requestAnimationFrame(settled);
+      };
+      requestAnimationFrame(settled);
+    });
+  }, line);
+}
+
+test("Full chat ignores an old PDF Locate result after switching again", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -188,7 +292,6 @@ test("Duet workspace ignores an old PDF mapping after switching to a newer sourc
     .hover();
   await page.getByRole("button", { name: "Full", exact: true }).click();
   const mode = page.getByRole("tablist", { name: "Chat workspace content" });
-  const editor = page.locator(".cm-scroller");
   const pdf = page.getByTestId("pdf-scroll-container");
   const settle = async () => {
     await expect(
@@ -218,10 +321,7 @@ test("Duet workspace ignores an old PDF mapping after switching to a newer sourc
       return invoke(cmd, args);
     };
   });
-  await editor.evaluate((element) => {
-    element.scrollTop = 900;
-  });
-  await page.waitForTimeout(150);
+  await setLocateSourceLine(page, 45);
   await mode.getByRole("tab", { name: "PDF", exact: true }).click();
   await expect
     .poll(() =>
@@ -234,10 +334,7 @@ test("Duet workspace ignores an old PDF mapping after switching to a newer sourc
   // Leave while the first native lookup is still pending, then scroll elsewhere.
   await mode.getByRole("tab", { name: "Editor", exact: true }).click();
   await settle();
-  await editor.evaluate((element) => {
-    element.scrollTop = 2_000;
-  });
-  await page.waitForTimeout(150);
+  await setLocateSourceLine(page, 85);
   await mode.getByRole("tab", { name: "PDF", exact: true }).click();
   await settle();
   await expect
@@ -260,4 +357,164 @@ test("Duet workspace ignores an old PDF mapping after switching to a newer sourc
   await page.screenshot({
     path: test.info().outputPath("vibe-scroll-sync-latest.png"),
   });
+
+  await page.evaluate(() => {
+    const win = window as ScrollSyncProbeWindow;
+    const invoke = win.__TAURI_INTERNALS__.invoke;
+    win.__TAURI_INTERNALS__.invoke = async (cmd, args) => {
+      if (cmd === "synctex_edit") {
+        return new Promise((resolve) => {
+          win.__scrollSyncProbe.releaseInverse = () =>
+            resolve({ file: "sample.tex", line: 90, column: 1 });
+        });
+      }
+      return invoke(cmd, args);
+    };
+  });
+  await pdf.evaluate((el) => {
+    el.scrollTop += 200;
+  });
+  await mode.getByRole("tab", { name: "Editor", exact: true }).click();
+  await page.waitForFunction(
+    () => !!(window as ScrollSyncProbeWindow).__scrollSyncProbe.releaseInverse,
+  );
+  await page.locator('[data-sidebar-file-id="manuscript.md"]').click();
+  await expect(
+    mode.getByRole("tab", { name: "Preview", exact: true }),
+  ).toHaveAttribute("aria-selected", "true");
+  await page.evaluate(() =>
+    (window as ScrollSyncProbeWindow).__scrollSyncProbe.releaseInverse?.(),
+  );
+  await page.waitForTimeout(200);
+  await expect(
+    mode.getByRole("tab", { name: "Preview", exact: true }),
+  ).toHaveAttribute("aria-selected", "true");
+  await expect(editorHighlight(page)).toHaveCount(0);
+});
+
+test("Full chat highlights and restores exact Markdown positions with live sync off", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/?debug=comment-workspace");
+  const frame = page.frameLocator('[data-testid="markdown-preview"] iframe');
+  await expect(frame.locator("#write")).toBeVisible();
+  await page.evaluate(async () => {
+    const documentPath = "/src/renderer/stores/document-store.ts";
+    const settingsPath = "/src/renderer/stores/settings-store.ts";
+    const { useDocumentStore } = await import(documentPath);
+    const { useSettingsStore } = await import(settingsPath);
+    const state = useDocumentStore.getState();
+    state.updateFileContent(
+      state.activeFileId,
+      Array.from(
+        { length: 85 },
+        (_, i) => `# Section ${i}\n\nParagraph ${i}.\n`,
+      ).join("\n"),
+    );
+    useSettingsStore
+      .getState()
+      .setFileScrollSync(state.projectRoot, state.activeFileId, false);
+  });
+  await page
+    .getByRole("button", { name: "Toggle drawer", exact: true })
+    .locator("..")
+    .hover();
+  await page.getByRole("button", { name: "Full", exact: true }).click();
+  const mode = page.getByRole("tablist", { name: "Chat workspace content" });
+  await mode.getByRole("tab", { name: "Editor", exact: true }).click();
+  await expect(
+    page.locator("[data-workspace-layout-animating]"),
+  ).toHaveAttribute("data-workspace-layout-animating", "false");
+  await expect(editorHighlight(page)).toBeInViewport();
+  await setLocateSourceLine(page, 161);
+  await mode.getByRole("tab", { name: "Preview", exact: true }).click();
+  const highlight = frame.locator('[data-navigation-highlight="markdown"]');
+  await expect(highlight).toBeInViewport();
+  await expect(
+    frame.getByRole("heading", { name: "Section 40", exact: true }),
+  ).toBeInViewport();
+
+  const heading = frame.getByRole("heading", {
+    name: "Section 65",
+    exact: true,
+  });
+  await heading.evaluate((element) => {
+    const { top, height } = element.getBoundingClientRect();
+    const viewport = element.ownerDocument.documentElement;
+    element.ownerDocument.scrollingElement!.scrollTop +=
+      top + (height - viewport.clientHeight) / 2;
+  });
+  await expect
+    .poll(() =>
+      heading.evaluate((element) => {
+        const { top, height } = element.getBoundingClientRect();
+        return Math.abs(
+          top +
+            (height - element.ownerDocument.documentElement.clientHeight) / 2,
+        );
+      }),
+    )
+    .toBeLessThan(1);
+  const markdownScroll = await frame
+    .locator("html")
+    .evaluate((el) => el.scrollTop);
+  await switchToEditorWithoutScroll(page);
+  await expect(
+    page.locator(".cm-line").getByText("# Section 65", { exact: true }),
+  ).toBeInViewport();
+  const editor = page.locator(".cm-scroller");
+  const editorScroll = await editor.evaluate((el) => el.scrollTop);
+  for (let count = 0; count < 3; count++) {
+    await mode.getByRole("tab", { name: "Preview", exact: true }).click();
+    await expect(highlight).toBeInViewport();
+    expect(await frame.locator("html").evaluate((el) => el.scrollTop)).toBe(
+      markdownScroll,
+    );
+    await switchToEditorWithoutScroll(page);
+    expect(await editor.evaluate((el) => el.scrollTop)).toBe(editorScroll);
+  }
+});
+
+test("Full chat highlights the PDF reading point when there is no mapping", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/?debug=comment-workspace&pdf");
+  await expect(page.locator(".mupdf-text-layer").first()).toBeVisible();
+  await page.evaluate(() => {
+    const win = window as ScrollSyncProbeWindow;
+    const invoke = win.__TAURI_INTERNALS__.invoke;
+    win.__scrollSyncProbe = { lines: [] };
+    win.__TAURI_INTERNALS__.invoke = async (cmd, args) => {
+      if (cmd === "synctex_edit") return null;
+      if (cmd === "synctex_view") {
+        win.__scrollSyncProbe.lines.push(Number(args?.line));
+        return null;
+      }
+      return invoke(cmd, args);
+    };
+  });
+  await page
+    .getByRole("button", { name: "Toggle drawer", exact: true })
+    .locator("..")
+    .hover();
+  await page.getByRole("button", { name: "Full", exact: true }).click();
+  const mode = page.getByRole("tablist", { name: "Chat workspace content" });
+  await mode.getByRole("tab", { name: "Editor", exact: true }).click();
+  await expect(
+    page.locator("[data-workspace-layout-animating]"),
+  ).toHaveAttribute("data-workspace-layout-animating", "false");
+  await setLocateSourceLine(page, 50);
+  const pdf = mode.getByRole("tab", { name: "PDF", exact: true });
+  await pdf.click();
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () => (window as ScrollSyncProbeWindow).__scrollSyncProbe.lines,
+      ),
+    )
+    .toContain(50);
+  await expect(pdf).toHaveAttribute("aria-selected", "true");
+  await expect(pdfHighlight(page)).toBeInViewport();
 });

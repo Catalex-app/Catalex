@@ -1,3 +1,12 @@
+import {
+  restoreMarkdownPosition,
+  sourceElementForPosition,
+  sourcePositionAtPreviewCenter,
+  sourceRangeFromElement,
+  SOURCE_ELEMENT_SELECTOR,
+} from "../reading-position";
+
+export { sourcePositionAtPreviewCenter } from "../reading-position";
 import { useAppAction } from "@/hooks/use-app-actions";
 import {
   WorkspacePanelHeader,
@@ -103,7 +112,6 @@ import {
 const PROJECT_MARKDOWN_THEME_PREFIX = "__catalex_project_theme__:";
 const FRAME_SOURCE =
   '<!doctype html><html><head><meta charset="utf-8"></head><body><main id="write"></main></body></html>';
-const SOURCE_ELEMENT_SELECTOR = "[data-markdown-source-start]";
 const PDF_MARGIN_POINTS = 36;
 const MAX_PDF_CANVAS_PIXELS = 32_000_000;
 const MAX_PDF_CANVAS_SIDE = 32_000;
@@ -414,73 +422,6 @@ function sourceRangeFromNode(
   return { start, end: Math.max(start, end ?? start) };
 }
 
-function sourceRangeFromElement(element: HTMLElement) {
-  const start = Number(element.dataset.markdownSourceStart);
-  const end = Number(element.dataset.markdownSourceEnd);
-  if (!Number.isFinite(start)) return null;
-  return {
-    start,
-    end: Number.isFinite(end) ? Math.max(start, end) : start,
-  };
-}
-
-function sourceElements(frameDocument: Document) {
-  return Array.from(
-    frameDocument.querySelectorAll<HTMLElement>(SOURCE_ELEMENT_SELECTOR),
-  );
-}
-
-function sourceElementForPosition(frameDocument: Document, position: number) {
-  let closest: { element: HTMLElement; distance: number } | null = null;
-  let containing: { element: HTMLElement; span: number } | null = null;
-
-  for (const element of sourceElements(frameDocument)) {
-    const range = sourceRangeFromElement(element);
-    if (!range) continue;
-    if (position >= range.start && position <= range.end) {
-      const span = range.end - range.start;
-      if (!containing || span < containing.span) {
-        containing = { element, span };
-      }
-      continue;
-    }
-    const distance = Math.min(
-      Math.abs(position - range.start),
-      Math.abs(position - range.end),
-    );
-    if (!closest || distance < closest.distance) {
-      closest = { element, distance };
-    }
-  }
-
-  return containing?.element ?? closest?.element ?? null;
-}
-
-function sourceElementAtPreviewCenter(frameDocument: Document) {
-  const viewport = frameDocument.documentElement;
-  const centerX = viewport.clientWidth / 2;
-  const centerY = viewport.clientHeight / 2;
-  const target = frameDocument.elementFromPoint(centerX, centerY);
-  const targetSource = target?.closest<HTMLElement>(SOURCE_ELEMENT_SELECTOR);
-  if (targetSource) return targetSource;
-
-  let closest: { element: HTMLElement; distance: number } | null = null;
-  for (const element of sourceElements(frameDocument)) {
-    const rect = element.getBoundingClientRect();
-    if (rect.bottom < 0 || rect.top > viewport.clientHeight) continue;
-    const distance = Math.abs(rect.top + rect.height / 2 - centerY);
-    if (!closest || distance < closest.distance) {
-      closest = { element, distance };
-    }
-  }
-  return closest?.element ?? null;
-}
-
-export function sourcePositionAtPreviewCenter(frameDocument: Document) {
-  const element = sourceElementAtPreviewCenter(frameDocument);
-  return element ? sourceRangeFromElement(element)?.start : undefined;
-}
-
 export function MarkdownPreview({
   editorVisible = false,
   layoutAnimating = false,
@@ -612,9 +553,8 @@ export function MarkdownPreview({
     )
       return;
     const frame = requestAnimationFrame(() => {
-      const element = sourceElementForPosition(frameDocument, position);
       delete initial.markdown;
-      element?.scrollIntoView({ block: "center", inline: "nearest" });
+      restoreMarkdownPosition(frameDocument, position);
     });
     return () => cancelAnimationFrame(frame);
   }, [activeFileId, frameDocument, loadingMath]);

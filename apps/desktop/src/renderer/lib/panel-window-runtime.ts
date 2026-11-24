@@ -10,7 +10,7 @@ export interface PanelWindowSession {
   fileId: string;
   chatId?: string;
   initialScroll?: {
-    editor?: import("@/components/workspace/editor/latex-editor").EditorScrollPosition;
+    editor?: import("@/components/workspace/reading-position").EditorScrollPosition;
     pdf?: import("@/components/workspace/preview/pdf-reading-anchor").PdfReadingAnchor;
     markdown?: number;
     chat?: import("@/components/agent-chat/chat-messages").ChatReadingPosition;

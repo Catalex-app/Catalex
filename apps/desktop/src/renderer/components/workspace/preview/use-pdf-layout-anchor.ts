@@ -4,6 +4,7 @@ import { cancelNavigationScroll } from "@/lib/navigation-scroll";
 import {
   alignPdfReadingAnchor,
   createPdfAnchorInterpolator,
+  highlightPdfPosition,
   readPdfReadingAnchor,
   type PdfReadingAnchor,
   type PdfReadingAnchorControl,
@@ -46,6 +47,10 @@ export function usePdfLayoutAnchor(
     },
     interpolate: (from, to, fraction) =>
       interpolateRef.current(from, to, fraction),
+    highlight: (point) => {
+      const container = containerRef.current;
+      if (container) highlightPdfPosition(container, sizesRef.current, point);
+    },
     restore: () => {
       const container = containerRef.current;
       if (

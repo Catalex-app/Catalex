@@ -74,6 +74,11 @@ import {
 } from "@/lib/navigation-scroll";
 import { scrollToEditorPosition } from "./editor-navigation";
 import {
+  captureEditorScroll,
+  restoreEditorPosition,
+  type EditorScrollPosition,
+} from "../reading-position";
+import {
   diagnosticChatMode,
   type DiagnosticChatIssue,
 } from "./diagnostic-chat";
@@ -1150,12 +1155,6 @@ const editorInteractionTheme = EditorView.theme({
   },
 });
 
-export interface EditorScrollPosition {
-  scrollTop: number;
-  topLineFrom: number;
-  topLineOffset: number;
-}
-
 interface CachedEditorState extends EditorScrollPosition {
   document?: string;
   history?: Extension;
@@ -1196,29 +1195,11 @@ window.addEventListener(COMMENT_PATHS_CHANGED_EVENT, (event) => {
   }
 });
 
-function captureEditorScroll(view: EditorView): EditorScrollPosition {
-  const scrollTop = view.scrollDOM.scrollTop;
-  const topBlock = view.lineBlockAtHeight(scrollTop);
-  return {
-    scrollTop,
-    topLineFrom: topBlock.from,
-    topLineOffset: scrollTop - topBlock.top,
-  };
-}
-
 function captureEditorState(view: EditorView): CachedEditorState {
   return {
     cursor: view.state.selection.main.head,
     ...captureEditorScroll(view),
   };
-}
-
-export function readEditorScroll(panel: HTMLElement | null) {
-  const editor = panel?.querySelector<HTMLElement>(".cm-editor");
-  const view = editor && EditorView.findFromDOM(editor);
-  return view?.scrollDOM.clientHeight && view.scrollDOM.scrollTop > 0
-    ? captureEditorScroll(view)
-    : undefined;
 }
 
 function restoreEditorScroll(
@@ -3734,12 +3715,7 @@ export function LatexEditor({
         requestAnimationFrame(() => {
           if (viewRef.current !== view) return;
           delete initialScroll.editor;
-          view.dispatch({
-            effects: EditorView.scrollIntoView(
-              Math.min(position.topLineFrom, view.state.doc.length),
-              { y: "start", yMargin: -position.topLineOffset },
-            ),
-          });
+          restoreEditorPosition(view, position, true);
         });
       });
     }

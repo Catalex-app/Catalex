@@ -76,12 +76,16 @@ import {
   SplitSquareHorizontalIcon,
 } from "lucide-react";
 import { Sidebar } from "./sidebar";
-import { LatexEditor, readEditorScroll } from "./editor/latex-editor";
+import { LatexEditor } from "./editor/latex-editor";
 import { PdfPreview, type PdfLayoutTarget } from "./preview/pdf-preview";
+import { MarkdownPreview } from "./preview/markdown-preview";
 import {
-  MarkdownPreview,
+  markdownFrame,
+  readEditorScroll,
+  readPdfPosition,
   sourcePositionAtPreviewCenter,
-} from "./preview/markdown-preview";
+} from "./reading-position";
+import { useFullChatReadingPosition } from "./use-full-chat-reading-position";
 import type { PdfReadingAnchorControl } from "./preview/pdf-reading-anchor";
 import { readChatScroll } from "@/components/agent-chat/chat-messages";
 import { CsvTable } from "./preview/csv-table";
@@ -860,11 +864,10 @@ function ProjectWorkspaceLayout() {
             } else if (column === "editor") {
               initialScroll =
                 activeFileType === "pdf"
-                  ? { pdf: inlinePdfAnchorRef.current?.read() ?? undefined }
+                  ? { pdf: readPdfPosition(inlinePdfAnchorRef.current) }
                   : { editor: readEditorScroll(editorPanelRef.current) };
             } else if (isMarkdownDocument) {
-              const frame =
-                pdfPanelRef.current?.querySelector("iframe")?.contentDocument;
+              const frame = markdownFrame(pdfPanelRef.current);
               if (frame?.scrollingElement?.scrollTop) {
                 initialScroll = {
                   markdown: sourcePositionAtPreviewCenter(frame),
@@ -881,7 +884,7 @@ function ProjectWorkspaceLayout() {
               }
             } else {
               initialScroll = {
-                pdf: previewPdfAnchorRef.current?.read() ?? undefined,
+                pdf: readPdfPosition(previewPdfAnchorRef.current),
               };
             }
             openPanelWindow(
@@ -1026,13 +1029,13 @@ function ProjectWorkspaceLayout() {
     openPairKey === "editor|pdf" || openPairKey === "editor|incoming";
 
   const updateWorkspaceContentMode = useCallback(
-    (mode: WorkspaceContentMode) => {
-      if (!activeFileId || !isPreviewableFile) return;
+    (mode: WorkspaceContentMode, fileId = activeFileId) => {
+      if (!fileId || !isPreviewableFile) return;
       setWorkspaceChatRenderableFileModes((current) => {
-        if (current[activeFileId] === mode) return current;
+        if (current[fileId] === mode) return current;
         return {
           ...current,
-          [activeFileId]: mode,
+          [fileId]: mode,
         };
       });
     },
@@ -2635,6 +2638,44 @@ function ProjectWorkspaceLayout() {
     );
     setViewMode(nextMode);
   };
+  const fullChatReading = useFullChatReadingPosition({
+    enabled:
+      isWorkspaceChat &&
+      isPreviewableFile &&
+      !isCsvDocument &&
+      !hasWholeFileComparison,
+    mode: workspaceChatRightPanelMode,
+    visible:
+      workspaceChatRightPanelMode === "editor"
+        ? editorPaneVisible
+        : isPdfVisible,
+    animating: isColumnLayoutAnimating,
+    fileId: activeFileId,
+    markdown: isMarkdownDocument,
+    editor: editorPanelRef,
+    preview: pdfPanelRef,
+    pdf: previewPdfAnchorRef,
+    paneWidth: (side) => {
+      const panels = editorPanelRef.current
+        ?.closest("[data-panel-group]")
+        ?.querySelectorAll(":scope > [data-panel]");
+      const width = Array.from(panels ?? []).reduce(
+        (sum, panel) => sum + panel.getBoundingClientRect().width,
+        0,
+      );
+      return Math.round(
+        (width *
+          computeLayoutFromOpenColumns(["chat", side])[getColumnIndex(side)]) /
+          100,
+      );
+    },
+    selectMode: updateWorkspaceContentMode,
+    clearSyncTargets: () => {
+      setMarkdownPreviewScrollTarget(null);
+      setLatexPdfScrollTarget(null);
+      setEditorScrollSyncTarget(null);
+    },
+  });
   const workspaceActions = useAppActions(
     (isPreviewableFile ? workspaceViewOptions : [])
       .filter((option) => !isWorkspaceChat || option.value !== "split")
@@ -2647,8 +2688,9 @@ function ProjectWorkspaceLayout() {
         type: "radio" as const,
         run: () => {
           if (isWorkspaceChat) {
-            if (option.value !== "split")
-              updateWorkspaceContentMode(option.value);
+            if (option.value === "split") return;
+            if (isCsvDocument) updateWorkspaceContentMode(option.value);
+            else void fullChatReading.switchTo(option.value);
           } else changeViewMode(option.value);
         },
       })),
@@ -3254,13 +3296,20 @@ function ProjectWorkspaceLayout() {
                                         isLatexScrollSyncEnabled
                                   }
                                   scrollSyncPaused={
-                                    !isEditorVisible || isColumnLayoutAnimating
+                                    fullChatReading.switching ||
+                                    !isEditorVisible ||
+                                    isColumnLayoutAnimating
                                   }
                                   outlineTrackingEnabled={
                                     isEditorVisible && !isColumnLayoutAnimating
                                   }
-                                  scrollSyncTarget={editorScrollSyncTarget}
+                                  scrollSyncTarget={
+                                    fullChatReading.switching
+                                      ? null
+                                      : editorScrollSyncTarget
+                                  }
                                   onScrollPositionChange={(position) => {
+                                    if (fullChatReading.muted()) return;
                                     setEditorScrollSyncTarget(null);
                                     if (isMarkdownDocument) {
                                       if (!isScrollSyncLocked) return;
@@ -3472,9 +3521,10 @@ function ProjectWorkspaceLayout() {
                                           !isColumnLayoutAnimating
                                         }
                                         scrollSyncPaused={
-                                          isWorkspaceChat &&
-                                          (!isPdfVisible ||
-                                            isColumnLayoutAnimating)
+                                          fullChatReading.switching ||
+                                          (isWorkspaceChat &&
+                                            (!isPdfVisible ||
+                                              isColumnLayoutAnimating))
                                         }
                                         scrollSyncEnabled={
                                           isScrollSyncLocked || isPreviewOnly
@@ -3483,6 +3533,7 @@ function ProjectWorkspaceLayout() {
                                           markdownPreviewScrollTarget
                                         }
                                         onScrollSyncToEditor={(position) => {
+                                          if (fullChatReading.muted()) return;
                                           if (isPreviewOnly)
                                             useDocumentStore.setState({
                                               outlineScrollPosition: position,
@@ -3535,9 +3586,10 @@ function ProjectWorkspaceLayout() {
                                           !isColumnLayoutAnimating
                                         }
                                         scrollSyncPaused={
-                                          isWorkspaceChat &&
-                                          (!isPdfVisible ||
-                                            isColumnLayoutAnimating)
+                                          fullChatReading.switching ||
+                                          (isWorkspaceChat &&
+                                            (!isPdfVisible ||
+                                              isColumnLayoutAnimating))
                                         }
                                         scrollSyncEnabled={
                                           isLatexScrollSyncEnabled
@@ -3546,6 +3598,7 @@ function ProjectWorkspaceLayout() {
                                           latexPdfScrollTarget
                                         }
                                         onScrollSyncToEditor={(position) => {
+                                          if (fullChatReading.muted()) return;
                                           if (isPreviewOnly)
                                             useDocumentStore.setState({
                                               outlineScrollPosition: position,

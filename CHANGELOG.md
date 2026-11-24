@@ -7,6 +7,7 @@
 - Jump to the first change in a new agent proposal while keeping your place in chat. Reopening the same proposal keeps your reading position.
 - Open a workspace panel as a pop-out at your current reading position.
 - Fixed Markdown and CSV preview pop-outs opening the project's LaTeX PDF.
+- Switching between source and preview in Full chat highlights your reading position. Switch back without scrolling to return to the exact spot you left.
 
 ## [0.3.1]
 
