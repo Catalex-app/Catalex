@@ -9,6 +9,7 @@ pub(crate) enum Provider {
     Claude,
     Codex,
     Pi,
+    Antigravity,
 }
 
 impl Provider {
@@ -18,6 +19,7 @@ impl Provider {
             Self::Claude => format!("the {}:{name} skill", crate::branding::NAMESPACE),
             Self::Codex => format!("${name}"),
             Self::Pi => format!("the {name} skill"),
+            Self::Antigravity => format!("the `/{name}` skill"),
         }
     }
     /// The provider's own question tool, which the app's UI cannot show.
@@ -26,12 +28,13 @@ impl Provider {
             Self::Claude => " instead of AskUserQuestion",
             Self::Codex => " instead of request_user_input",
             Self::Pi => "",
+            Self::Antigravity => " instead of ask_question",
         }
     }
     fn plan(self) -> &'static str {
         match self {
             Self::Claude => "plan first with TodoWrite and mark each step done as you go",
-            Self::Codex | Self::Pi => "plan first and work through the plan one step at a time",
+            Self::Codex | Self::Pi | Self::Antigravity => "plan first and work through the plan one step at a time",
         }
     }
 }
@@ -43,7 +46,7 @@ fn comment_rules() -> &'static str {
 }
 
 pub(crate) fn system_prompt(provider: Provider) -> &'static str {
-    static TEXTS: [OnceLock<String>; 3] = [OnceLock::new(), OnceLock::new(), OnceLock::new()];
+    static TEXTS: [OnceLock<String>; 4] = [const { OnceLock::new() }; 4];
     TEXTS[provider as usize].get_or_init(|| {
         [
             format!("You are working inside {PRODUCT_NAME}, a desktop app for writing LaTeX and Markdown documents."),
@@ -67,6 +70,7 @@ pub(crate) fn app_instructions(provider: &str) -> Result<&'static str, String> {
         "claude" => Ok(system_prompt(Provider::Claude)),
         "codex" => Ok(system_prompt(Provider::Codex)),
         "pi" => Ok(system_prompt(Provider::Pi)),
+        "antigravity" => Ok(system_prompt(Provider::Antigravity)),
         other => Err(format!("Unknown agent provider: {other}")),
     }
 }
@@ -77,7 +81,7 @@ mod tests {
 
     #[test]
     fn every_provider_gets_the_same_rules_in_its_own_terms() {
-        let texts = [Provider::Claude, Provider::Codex, Provider::Pi].map(system_prompt);
+        let texts = [Provider::Claude, Provider::Codex, Provider::Pi, Provider::Antigravity].map(system_prompt);
         for text in texts {
             for needed in [PRODUCT_NAME, "draft", "earlier drafts", "ask_user", "list_comments", "when \"accepted\"", "catalex-guide", "catalex-verify-latex", "review-document"] {
                 assert!(text.contains(needed), "{needed}");
@@ -89,6 +93,7 @@ mod tests {
         assert!(texts[0].contains("the catalex:catalex-guide skill") && texts[0].contains("TodoWrite"));
         assert!(texts[1].contains("$catalex-guide") && texts[1].contains("request_user_input"));
         assert!(texts[2].contains("the catalex-guide skill") && !texts[2].contains("instead of"));
+        assert!(texts[3].contains("the `/catalex-guide` skill") && texts[3].contains("instead of ask_question"));
     }
 
     #[test]
@@ -96,6 +101,7 @@ mod tests {
         assert_eq!(app_instructions("claude").unwrap(), system_prompt(Provider::Claude));
         assert_eq!(app_instructions("codex").unwrap(), system_prompt(Provider::Codex));
         assert_eq!(app_instructions("pi").unwrap(), system_prompt(Provider::Pi));
+        assert_eq!(app_instructions("antigravity").unwrap(), system_prompt(Provider::Antigravity));
         assert!(app_instructions("other").is_err());
     }
 }

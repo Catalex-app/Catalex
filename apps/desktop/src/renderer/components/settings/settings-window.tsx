@@ -83,6 +83,8 @@ import {
   Trash2Icon,
 } from "lucide-react";
 import { open } from "@/lib/desktop/dialog";
+import { open as shellOpen } from "@/lib/desktop/shell";
+import { useAntigravitySetupStore } from "@/stores/antigravity-setup-store";
 import { useAppTheme } from "@/lib/app-theme";
 import {
   type KeyboardEvent as ReactKeyboardEvent,
@@ -259,6 +261,7 @@ export const AGENT_OPTIONS: Array<{
   { value: "codex", label: "Codex" },
   { value: "claude", label: "Claude Code" },
   { value: "pi", label: "Pi" },
+  { value: "antigravity", label: "Antigravity" },
 ];
 
 const FALLBACK_CODEX_MODEL_OPTIONS: Array<{
@@ -791,7 +794,10 @@ export function SettingsWindow() {
     const provider = new URLSearchParams(window.location.search).get(
       "provider",
     );
-    return provider === "claude" || provider === "codex" || provider === "pi"
+    return provider === "claude" ||
+      provider === "codex" ||
+      provider === "pi" ||
+      provider === "antigravity"
       ? provider
       : useSettingsStore.getState().defaultAgent;
   });
@@ -809,7 +815,8 @@ export function SettingsWindow() {
         payload === "agent" ||
         payload === "claude" ||
         payload === "codex" ||
-        payload === "pi"
+        payload === "pi" ||
+        payload === "antigravity"
       ) {
         if (payload !== "agent") setAgentProvider(payload);
         setActiveSection("agent");
@@ -858,6 +865,17 @@ export function SettingsWindow() {
     (s) => s.setDefaultCodexReasoningEffort,
   );
   const pi = usePiSetupStore();
+  const antigravity = useAntigravitySetupStore();
+  const antigravityBinaryPath = useSettingsStore(
+    (s) => s.antigravityBinaryPath,
+  );
+  const antigravityEnabled = useSettingsStore(
+    (s) => s.enabledProviders.antigravity,
+  );
+  const checkAntigravity = antigravity.checkStatus;
+  useEffect(() => {
+    void checkAntigravity();
+  }, [checkAntigravity, antigravityBinaryPath, antigravityEnabled]);
   const piPathSettings = usePiPathSettings();
   const piBinaryPath = useSettingsStore((s) => s.piBinaryPath);
   const piConfigDirectory = useSettingsStore((s) => s.piConfigDirectory);
@@ -2472,80 +2490,82 @@ export function SettingsWindow() {
                               aria-label="Agent provider"
                               className="flex h-8 w-fit min-w-64 items-center"
                             >
-                              {(["codex", "claude", "pi"] as const).map(
-                                (provider) => (
-                                  <button
-                                    key={provider}
-                                    type="button"
-                                    role="tab"
-                                    id={`agent-tab-${provider}`}
-                                    aria-controls="agent-provider-panel"
-                                    aria-selected={agentProvider === provider}
-                                    tabIndex={
-                                      agentProvider === provider ? 0 : -1
-                                    }
+                              {(
+                                [
+                                  "codex",
+                                  "claude",
+                                  "pi",
+                                  "antigravity",
+                                ] as const
+                              ).map((provider) => (
+                                <button
+                                  key={provider}
+                                  type="button"
+                                  role="tab"
+                                  id={`agent-tab-${provider}`}
+                                  aria-controls="agent-provider-panel"
+                                  aria-selected={agentProvider === provider}
+                                  tabIndex={agentProvider === provider ? 0 : -1}
+                                  className={cn(
+                                    "flex h-6 flex-1 items-center justify-center whitespace-nowrap rounded-md px-2 font-medium text-xs transition-colors focus-visible:z-10 focus-visible:outline-2 focus-visible:outline-ring",
+                                    agentProvider === provider
+                                      ? "bg-background text-foreground shadow-sm"
+                                      : "text-muted-foreground hover:bg-background/70 hover:text-foreground",
+                                  )}
+                                  onClick={() => selectAgentProvider(provider)}
+                                  onKeyDown={(event) => {
+                                    if (
+                                      ![
+                                        "ArrowLeft",
+                                        "ArrowRight",
+                                        "Home",
+                                        "End",
+                                      ].includes(event.key)
+                                    )
+                                      return;
+                                    event.preventDefault();
+                                    const providers = [
+                                      "codex",
+                                      "claude",
+                                      "pi",
+                                      "antigravity",
+                                    ] as const;
+                                    const next =
+                                      event.key === "Home"
+                                        ? providers[0]
+                                        : event.key === "End"
+                                          ? providers[providers.length - 1]
+                                          : providers[
+                                              (providers.indexOf(provider) +
+                                                (event.key === "ArrowLeft"
+                                                  ? providers.length - 1
+                                                  : 1)) %
+                                                providers.length
+                                            ];
+                                    selectAgentProvider(next);
+                                    document
+                                      .getElementById(`agent-tab-${next}`)
+                                      ?.focus();
+                                  }}
+                                >
+                                  <span>
+                                    {getOptionLabel(AGENT_OPTIONS, provider)}
+                                  </span>
+                                  <span
+                                    aria-hidden={enabledProviders[provider]}
                                     className={cn(
-                                      "flex h-6 flex-1 items-center justify-center whitespace-nowrap rounded-md px-2 font-medium text-xs transition-colors focus-visible:z-10 focus-visible:outline-2 focus-visible:outline-ring",
-                                      agentProvider === provider
-                                        ? "bg-background text-foreground shadow-sm"
-                                        : "text-muted-foreground hover:bg-background/70 hover:text-foreground",
+                                      "inline-flex shrink-0 overflow-hidden transition-[width,opacity] duration-[180ms] ease-out motion-reduce:transition-none",
+                                      enabledProviders[provider]
+                                        ? "w-0 opacity-0"
+                                        : "w-7 opacity-100",
                                     )}
-                                    onClick={() =>
-                                      selectAgentProvider(provider)
-                                    }
-                                    onKeyDown={(event) => {
-                                      if (
-                                        ![
-                                          "ArrowLeft",
-                                          "ArrowRight",
-                                          "Home",
-                                          "End",
-                                        ].includes(event.key)
-                                      )
-                                        return;
-                                      event.preventDefault();
-                                      const providers = [
-                                        "codex",
-                                        "claude",
-                                        "pi",
-                                      ] as const;
-                                      const next =
-                                        event.key === "Home"
-                                          ? providers[0]
-                                          : event.key === "End"
-                                            ? providers[2]
-                                            : providers[
-                                                (providers.indexOf(provider) +
-                                                  (event.key === "ArrowLeft"
-                                                    ? 2
-                                                    : 1)) %
-                                                  providers.length
-                                              ];
-                                      selectAgentProvider(next);
-                                      document
-                                        .getElementById(`agent-tab-${next}`)
-                                        ?.focus();
-                                    }}
                                   >
-                                    <span>
-                                      {getOptionLabel(AGENT_OPTIONS, provider)}
+                                    <span className="ml-1.5 shrink-0 rounded bg-muted px-1 py-0.5 font-medium text-[9px] text-muted-foreground leading-none">
+                                      Off
                                     </span>
-                                    <span
-                                      aria-hidden={enabledProviders[provider]}
-                                      className={cn(
-                                        "inline-flex shrink-0 overflow-hidden transition-[width,opacity] duration-[180ms] ease-out motion-reduce:transition-none",
-                                        enabledProviders[provider]
-                                          ? "w-0 opacity-0"
-                                          : "w-7 opacity-100",
-                                      )}
-                                    >
-                                      <span className="ml-1.5 shrink-0 rounded bg-muted px-1 py-0.5 font-medium text-[9px] text-muted-foreground leading-none">
-                                        Off
-                                      </span>
-                                    </span>
-                                  </button>
-                                ),
-                              )}
+                                  </span>
+                                </button>
+                              ))}
                             </ButtonGroup>
                           </div>
                           <div
@@ -2570,7 +2590,12 @@ export function SettingsWindow() {
                                       checked
                                         ? agentProvider
                                         : ((
-                                            ["codex", "claude", "pi"] as const
+                                            [
+                                              "codex",
+                                              "claude",
+                                              "pi",
+                                              "antigravity",
+                                            ] as const
                                           ).find(
                                             (provider) =>
                                               provider !== agentProvider &&
@@ -2753,7 +2778,100 @@ export function SettingsWindow() {
                                   )}
                                 </>
                               )}
-                              {agentProvider !== "pi" && (
+                              {agentProvider === "antigravity" && (
+                                <>
+                                  <SettingsRow
+                                    id="agent-antigravity-executable"
+                                    title="Antigravity executable"
+                                  >
+                                    <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
+                                      <span
+                                        className="min-w-0 truncate text-xs"
+                                        title={antigravityBinaryPath}
+                                      >
+                                        {antigravityBinaryPath ||
+                                          "Detect automatically"}
+                                      </span>
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        onClick={() => {
+                                          void open({
+                                            title:
+                                              "Choose Antigravity executable",
+                                            noResolveAliases: true,
+                                          }).then((chosen) => {
+                                            if (chosen)
+                                              useSettingsStore.setState({
+                                                antigravityBinaryPath: chosen,
+                                                antigravityModel: "",
+                                                antigravityThinkingEffort: "",
+                                              });
+                                          });
+                                        }}
+                                      >
+                                        Browse
+                                      </Button>
+                                      {antigravityBinaryPath && (
+                                        <Button
+                                          size="sm"
+                                          variant="ghost"
+                                          onClick={() => {
+                                            useSettingsStore.setState({
+                                              antigravityBinaryPath: "",
+                                              antigravityModel: "",
+                                              antigravityThinkingEffort: "",
+                                            });
+                                          }}
+                                        >
+                                          Reset
+                                        </Button>
+                                      )}
+                                    </div>
+                                  </SettingsRow>
+                                  <SettingsRow
+                                    id="agent-antigravity-status"
+                                    title="Setup"
+                                  >
+                                    <div className="flex flex-wrap items-center justify-end gap-2">
+                                      <span
+                                        aria-live="polite"
+                                        className="text-xs"
+                                      >
+                                        {antigravity.status === "checking"
+                                          ? "Checking…"
+                                          : antigravity.status === "ready"
+                                            ? `CLI detected · v${antigravity.version}`
+                                            : antigravity.error}
+                                      </span>
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        onClick={() => void checkAntigravity()}
+                                      >
+                                        Check
+                                      </Button>
+                                      <Button
+                                        size="sm"
+                                        variant="link"
+                                        onClick={() =>
+                                          void shellOpen(
+                                            "https://antigravity.google/docs/getting-started?tab=cli",
+                                          )
+                                        }
+                                      >
+                                        Install CLI
+                                      </Button>
+                                    </div>
+                                  </SettingsRow>
+                                  <p className="px-4 pb-3 text-muted-foreground text-xs">
+                                    Sign in by running <code>agy</code> in your
+                                    terminal.
+                                  </p>
+                                </>
+                              )}
+                              {(agentProvider === "claude" ||
+                                agentProvider === "codex") && (
                                 <div
                                   data-settings-row-id="agent-custom-models"
                                   className="grid grid-cols-[minmax(6rem,0.36fr)_minmax(0,1fr)] gap-x-4 border-border/45 border-t"
@@ -2773,7 +2891,8 @@ export function SettingsWindow() {
                       </section>
                       {!enabledProviders.claude &&
                       !enabledProviders.codex &&
-                      !enabledProviders.pi ? (
+                      !enabledProviders.pi &&
+                      !enabledProviders.antigravity ? (
                         <p
                           role="status"
                           className="border-border/45 border-t py-6 text-muted-foreground text-sm"

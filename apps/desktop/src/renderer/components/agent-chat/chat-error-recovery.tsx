@@ -1,3 +1,4 @@
+import { useAntigravitySetupStore } from "@/stores/antigravity-setup-store";
 import { usePiSetupStore } from "@/stores/pi-setup-store";
 import { useEffect, useRef, useState } from "react";
 import { RefreshCw } from "lucide-react";
@@ -31,20 +32,25 @@ export function ChatErrorRecovery({
     return !!tab?.isSettling || tab?.turnPhase === "starting";
   });
   const setup =
-    provider === "pi"
-      ? usePiSetupStore
-      : provider === "claude"
-        ? useClaudeSetupStore
-        : useCodexSetupStore;
+    provider === "antigravity"
+      ? useAntigravitySetupStore
+      : provider === "pi"
+        ? usePiSetupStore
+        : provider === "claude"
+          ? useClaudeSetupStore
+          : useCodexSetupStore;
   const claudeStatus = useClaudeSetupStore((s) => s.status);
   const codexStatus = useCodexSetupStore((s) => s.status);
   const piStatus = usePiSetupStore((s) => s.status);
+  const antigravityStatus = useAntigravitySetupStore((s) => s.status);
   const setupStatus =
-    provider === "pi"
-      ? piStatus
-      : provider === "claude"
-        ? claudeStatus
-        : codexStatus;
+    provider === "antigravity"
+      ? antigravityStatus
+      : provider === "pi"
+        ? piStatus
+        : provider === "claude"
+          ? claudeStatus
+          : codexStatus;
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const inFlight = useRef(false);

@@ -80,7 +80,7 @@ export interface InlineEditorComment {
   isNewDraft?: boolean;
   resolved?: boolean;
   origin?: {
-    provider: "claude" | "codex" | "pi";
+    provider: "claude" | "codex" | "pi" | "antigravity";
     sessionId: string;
     model?: string;
     thinkingEffort?: string;
@@ -588,7 +588,10 @@ export class InlineCommentCardWidget extends WidgetType {
     return [
       this.comment.origin?.provider === "pi"
         ? piModelLabel(this.comment.origin.model ?? null)
-        : this.comment.origin?.model?.trim() || "Agent",
+        : this.comment.origin?.model?.trim() ||
+          (this.comment.origin?.provider === "antigravity"
+            ? "Antigravity"
+            : "Agent"),
       this.comment.origin?.thinkingEffort?.trim(),
     ]
       .filter(Boolean)

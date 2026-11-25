@@ -252,7 +252,7 @@ fn validate(comment: &Comment) -> Result<(), String> {
         { return Err("invalid_comment: invalid PDF anchor".into()); }
     }
     if let Some(origin) = &comment.origin {
-        if !matches!(origin.provider.as_str(), "claude" | "codex" | "pi")
+        if !matches!(origin.provider.as_str(), "claude" | "codex" | "pi" | "antigravity")
             || origin.session_id.is_empty()
         {
             return Err("invalid_comment: invalid agent provenance".into());

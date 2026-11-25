@@ -1,6 +1,7 @@
 mod agent_prompt;
 mod agent_questions;
 mod agent_workspace;
+mod antigravity;
 mod branding;
 mod builtin_skills;
 mod claude;

@@ -246,6 +246,16 @@ async fn dispatch(
         "cancel_pi_execution" | "dispose_pi_session" => {
             result(pi::cancel_pi_execution(window, argument(&args, "tabId")?).await)
         }
+        "check_antigravity_status" => result(
+            antigravity::check_status(argument(&args, "binaryPath")?).await,
+        ),
+        "execute_antigravity_code" | "resume_antigravity_code" => result(
+            antigravity::start_turn(window, serde_json::from_value(args)
+                .map_err(|_| json!("Invalid Antigravity turn arguments."))?).await,
+        ),
+        "cancel_antigravity_execution" | "dispose_antigravity_session" => {
+            result(antigravity::cancel(window, argument(&args, "tabId")?).await)
+        }
         "check_codex_status" => result(codex::check_codex_status().await),
         "list_codex_models" => result(codex::list_codex_models(window).await),
         "read_codex_subscription_usage" => {

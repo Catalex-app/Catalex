@@ -74,13 +74,17 @@ export function chatModelSectionLabels(
         ? "Claude"
         : settings.provider === "codex"
           ? "Codex"
-          : "Pi";
+          : settings.provider === "antigravity"
+            ? "Antigravity"
+            : "Pi";
     const model = settings.model
       ? settings.provider === "claude"
         ? formatClaudeModelName(settings.model)
         : settings.provider === "codex"
           ? formatCodexModelName(settings.model)
-          : piModelLabel(settings.model)
+          : settings.provider === "antigravity"
+            ? settings.model
+            : piModelLabel(settings.model)
       : undefined;
     return [
       provider,

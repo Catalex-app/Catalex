@@ -85,7 +85,9 @@ function formatRelativeTime(unixSeconds: number): string {
 }
 
 function normalizeChatProvider(raw: string | undefined): ChatProvider {
-  return raw === "pi" ? "pi" : raw === "codex" ? "codex" : "claude";
+  return raw === "pi" || raw === "codex" || raw === "antigravity"
+    ? raw
+    : "claude";
 }
 
 function normalizeClaudeModel(
@@ -113,6 +115,11 @@ function providerLabel(provider: ChatProvider): {
   label: string;
   className: string;
 } {
+  if (provider === "antigravity")
+    return {
+      label: "Antigravity",
+      className: "text-violet-700 dark:text-violet-300",
+    };
   if (provider === "pi")
     return { label: "Pi", className: "text-emerald-700 dark:text-emerald-300" };
   if (provider === "codex") {

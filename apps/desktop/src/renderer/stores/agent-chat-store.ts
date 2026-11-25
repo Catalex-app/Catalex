@@ -172,7 +172,9 @@ function getDefaultProvider(): ChatProvider {
         ? "codex"
         : enabledProviders.pi
           ? "pi"
-          : defaultAgent;
+          : enabledProviders.antigravity
+            ? "antigravity"
+            : defaultAgent;
 }
 
 function getAgentDefaults() {
@@ -1577,6 +1579,7 @@ const createAgentChatState: StateCreator<AgentChatState> = (set, get) => ({
     );
     if (
       !tab ||
+      tab.provider === "antigravity" ||
       state.isLeavingProject ||
       !useDocumentStore.getState().projectRoot ||
       (state.chatProjectRoot &&
@@ -1665,6 +1668,7 @@ const createAgentChatState: StateCreator<AgentChatState> = (set, get) => ({
     if (
       !tab ||
       !head ||
+      tab.provider === "antigravity" ||
       (head.provider && head.provider !== tab.provider) ||
       dispatchingPromptQueues.has(tab.runtimeSessionKey) ||
       tab.promptQueuePaused ||
@@ -1781,6 +1785,11 @@ const createAgentChatState: StateCreator<AgentChatState> = (set, get) => ({
     )
       return;
     const requestedProvider = requestedState.provider;
+    if (
+      requestedProvider === "antigravity" &&
+      requestedTab !== get().activeTabId
+    )
+      return;
     const compact = userPrompt.trim().match(/^\/compact(?:\s+([\s\S]*))?$/);
     if (compact) {
       if (!HARNESSES[requestedProvider].compact) {
@@ -2112,13 +2121,17 @@ const createAgentChatState: StateCreator<AgentChatState> = (set, get) => ({
         ? selectedClaudeModel
         : selectedProvider === "pi"
           ? selectedPiModel
-          : selectedCodexModel;
+          : selectedProvider === "antigravity"
+            ? useSettingsStore.getState().antigravityModel
+            : selectedCodexModel;
     const requestEffort =
       selectedProvider === "claude"
         ? claudeEffort
         : selectedProvider === "pi"
           ? piEffort
-          : selectedCodexReasoningEffort;
+          : selectedProvider === "antigravity"
+            ? useSettingsStore.getState().antigravityThinkingEffort
+            : selectedCodexReasoningEffort;
     const sessionId = activeTab?.sessionId ?? null;
     const runtimeSessionKey =
       activeTab?.runtimeSessionKey ?? nextRuntimeSessionKey();
@@ -2133,7 +2146,9 @@ const createAgentChatState: StateCreator<AgentChatState> = (set, get) => ({
         ? claudeExecutionMode
         : selectedProvider === "pi"
           ? selectedPiExecutionMode
-          : codexExecutionMode;
+          : selectedProvider === "antigravity"
+            ? "default"
+            : codexExecutionMode;
 
     const sendStart = performance.now();
     log.info("sendPrompt start", {
@@ -2673,6 +2688,23 @@ const createAgentChatState: StateCreator<AgentChatState> = (set, get) => ({
           reasoningEffort: piEffort,
           compileContext: verificationContext,
         });
+      } else if (selectedProvider === "antigravity") {
+        const settings = useSettingsStore.getState();
+        await invoke(
+          harnessCommand("antigravity", sessionId ? "resume" : "execute"),
+          {
+            binaryPath: settings.antigravityBinaryPath,
+            projectPath: agentProjectPath,
+            sourceProjectPath: projectPath,
+            runtimeSessionKey,
+            sessionId,
+            prompt,
+            tabId: activeTabId,
+            model: settings.antigravityModel || null,
+            thinkingEffort: settings.antigravityThinkingEffort || null,
+            compileContext: verificationContext,
+          },
+        );
       } else {
         const codexModel = selectedCodexModel;
         if (codexThreadId) {
@@ -3988,6 +4020,7 @@ const createAgentChatState: StateCreator<AgentChatState> = (set, get) => ({
   },
 
   _recordContextUsage: (tabId, provider, message) => {
+    if (provider === "antigravity") return;
     set((state) => {
       const tab = state.tabs.find((item) => item.id === tabId);
       if (!tab || tab.provider !== provider || !tab.isStreaming) return state;

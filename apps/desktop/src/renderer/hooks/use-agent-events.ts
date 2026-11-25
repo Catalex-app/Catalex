@@ -1,3 +1,4 @@
+import { useAntigravitySetupStore } from "@/stores/antigravity-setup-store";
 import { readAgentPdf, type AgentPdfRequest } from "@/lib/agent-pdf";
 import { PRODUCT_NAME } from "../../branding";
 import { retireAgentDraft } from "@/lib/retire-agent-draft";
@@ -1503,7 +1504,68 @@ export function useAgentEvents() {
           },
         ],
       ];
-      for (const [name, handler] of piListeners) {
+      const antigravityListeners: typeof piListeners = [
+        [
+          "antigravity-session",
+          ({ payload }) => {
+            const store = useAgentChatStore.getState();
+            if (
+              store.tabs.some(
+                (tab) =>
+                  tab.id === payload.tab_id &&
+                  tab.isStreaming &&
+                  tab.provider === "antigravity",
+              )
+            )
+              store._setSessionId(payload.tab_id, payload.sessionId);
+          },
+        ],
+        [
+          "antigravity-options",
+          ({ payload }) => {
+            if (
+              useAgentChatStore
+                .getState()
+                .tabs.some(
+                  (tab) =>
+                    tab.id === payload.tab_id &&
+                    tab.isStreaming &&
+                    tab.provider === "antigravity",
+                )
+            )
+              useAntigravitySetupStore.getState().setOptions(payload.options);
+          },
+        ],
+        [
+          "antigravity-activity",
+          ({ payload }) => handleProviderActivity(payload, "antigravity"),
+        ],
+        [
+          "antigravity-complete",
+          ({ payload }) =>
+            void handlePostComplete(
+              payload.tab_id,
+              payload.success,
+              "antigravity",
+            ),
+        ],
+        [
+          "antigravity-error",
+          ({ payload }) => {
+            const store = useAgentChatStore.getState();
+            if (
+              store.tabs.some(
+                (tab) =>
+                  tab.id === payload.tab_id &&
+                  tab.isStreaming &&
+                  tab.provider === "antigravity",
+              )
+            )
+              store._setError(payload.tab_id, payload.data);
+          },
+        ],
+      ];
+      for (const [name, handler] of [...piListeners, ...antigravityListeners]) {
         const unlisten = await listen(name, (event) => {
           if (!cancelled) handler(event);
         });

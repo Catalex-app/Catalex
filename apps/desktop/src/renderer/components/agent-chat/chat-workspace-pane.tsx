@@ -21,6 +21,7 @@ import { formatCodexModelName, codexEffortLabel } from "@/lib/codex-models";
 import { piModelLabel } from "@/lib/pi-models";
 import { useClaudeSetupStore } from "@/stores/claude-setup-store";
 import { useCodexSetupStore } from "@/stores/codex-setup-store";
+import { useAntigravitySetupStore } from "@/stores/antigravity-setup-store";
 import { usePiSetupStore } from "@/stores/pi-setup-store";
 
 export function ChatWorkspacePane({
@@ -76,7 +77,11 @@ export function ChatWorkspacePane({
   const piStatus = usePiSetupStore((s) =>
     !provider && selectedProvider === "pi" ? s.status : undefined,
   );
-  const setupStatus = claudeStatus ?? codexStatus ?? piStatus;
+  const antigravityStatus = useAntigravitySetupStore((s) =>
+    !provider && selectedProvider === "antigravity" ? s.status : undefined,
+  );
+  const setupStatus =
+    claudeStatus ?? codexStatus ?? piStatus ?? antigravityStatus;
   const readiness =
     setupStatus === "checking"
       ? "Checking agent…"
@@ -94,7 +99,9 @@ export function ChatWorkspacePane({
       ? formatClaudeModelName(lastExchange.model)
       : provider === "pi"
         ? piModelLabel(lastExchange.model)
-        : formatCodexModelName(lastExchange.model)
+        : provider === "antigravity"
+          ? lastExchange.model
+          : formatCodexModelName(lastExchange.model)
     : undefined;
   const details = [
     model,
@@ -115,7 +122,9 @@ export function ChatWorkspacePane({
           ? "Claude"
           : provider === "codex"
             ? "Codex"
-            : "Pi"}
+            : provider === "antigravity"
+              ? "Antigravity"
+              : "Pi"}
       </span>
       {details && (
         <span

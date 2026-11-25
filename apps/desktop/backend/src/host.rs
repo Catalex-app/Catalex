@@ -12,6 +12,7 @@ pub struct ServiceState {
     pub claude: crate::claude::ClaudeProcessState,
     pub codex: crate::codex::CodexProcessState,
     pub pi: crate::pi::PiProcessState,
+    pub antigravity: crate::antigravity::AntigravityProcessState,
     pub latex: crate::latex::LatexCompilerState,
     pub verification: crate::verification::VerificationServiceState,
     pub comments: crate::comments::CommentService,
@@ -35,6 +36,7 @@ impl ServiceState {
             claude: Default::default(),
             codex: Default::default(),
             pi: Default::default(),
+            antigravity: Default::default(),
             latex: Default::default(),
             verification: Default::default(),
             comments: Default::default(),
@@ -57,6 +59,7 @@ impl ServiceState {
             crate::claude::kill_process_for_window(&self.claude, window_id),
             crate::codex::kill_process_for_window(&self.codex, window_id),
             crate::pi::kill_process_for_window(&self.pi, window_id),
+            crate::antigravity::close_window(&self.antigravity, window_id),
         );
     }
 }

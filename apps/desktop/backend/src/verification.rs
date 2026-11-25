@@ -1021,6 +1021,7 @@ mod tests {
             claude: Default::default(),
             codex: Default::default(),
             pi: Default::default(),
+            antigravity: Default::default(),
             latex: Default::default(),
             verification: Default::default(),
             comments: Default::default(),

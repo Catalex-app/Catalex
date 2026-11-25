@@ -697,3 +697,95 @@ test("each chat pop-out remains pinned while the owner changes chats", async ({
   await second.close();
   await reopened.close();
 });
+
+test("Antigravity is opt-in and labels the selected model in Full chat", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/?debug=claude-models&section=agent&provider=antigravity");
+  const enable = page.getByRole("switch", { name: "Enable Antigravity" });
+  await expect(enable).toHaveAttribute("aria-checked", "false");
+  await expect(page.getByRole("button", { name: "Install CLI" })).toBeHidden();
+  await enable.click();
+  await expect(enable).toHaveAttribute("aria-checked", "true");
+  await expect(page.getByRole("button", { name: "Install CLI" })).toBeVisible();
+
+  await page.goto("/?debug=comment-workspace&pdf");
+  await expect(page.locator(".mupdf-text-layer").first()).toBeVisible();
+  await page
+    .getByRole("button", { name: "Toggle drawer" })
+    .locator("..")
+    .hover();
+  await page.getByRole("button", { name: "Full", exact: true }).click();
+  const pane = page.locator("[data-workspace-chat-pane]");
+  await expect(pane.locator("[data-chat-composer-shell]")).toHaveAttribute(
+    "data-composer-transfer-phase",
+    "idle",
+  );
+  await page.evaluate(async () => {
+    const url = performance
+      .getEntriesByType("resource")
+      .find(
+        (entry) =>
+          new URL(entry.name).pathname ===
+          "/src/renderer/stores/antigravity-setup-store.ts",
+      )!.name;
+    const { useAntigravitySetupStore } = await import(/* @vite-ignore */ url);
+    useAntigravitySetupStore.setState({
+      status: "ready",
+      error: null,
+      options: [
+        {
+          category: "model",
+          currentValue: "gemini-default",
+          options: [
+            { value: "gemini-default", name: "Gemini Default" },
+            { value: "gemini-fixture", name: "Gemini Fixture" },
+          ],
+        },
+      ],
+    });
+  });
+  await pane.getByRole("button", { name: /Model settings/ }).click();
+  await page
+    .getByRole("group", { name: "Provider", exact: true })
+    .getByRole("button", { name: "Antigravity", exact: true })
+    .click();
+  const model = page.getByRole("button", {
+    name: "Gemini Fixture",
+    exact: true,
+  });
+  await model.click();
+  await expect(model).toHaveClass(/bg-accent/);
+  await page.evaluate(async () => {
+    const url = (name: string) =>
+      performance
+        .getEntriesByType("resource")
+        .find(
+          (entry) =>
+            new URL(entry.name).pathname === `/src/renderer/stores/${name}.ts`,
+        )!.name;
+    const { useAgentChatStore } = await import(
+      /* @vite-ignore */ url("agent-chat-store")
+    );
+    const { useSettingsStore } = await import(
+      /* @vite-ignore */ url("settings-store")
+    );
+    const chat = useAgentChatStore.getState();
+    chat._appendMessage(chat.activeTabId, {
+      type: "user",
+      provider: chat.selectedProvider,
+      model: useSettingsStore.getState().antigravityModel,
+      message: { content: [{ type: "text", text: "Reply from the fixture" }] },
+    });
+  });
+  await expect(
+    pane.locator("[data-chat-title-current] [data-chat-last-provider]"),
+  ).toHaveText("Antigravity");
+  await expect(
+    pane.locator("[data-chat-title-current] [data-chat-last-model]"),
+  ).toHaveText("gemini-fixture");
+  await expect(pane.locator("[data-chat-model-divider]").last()).toHaveText(
+    "Antigravity · gemini-fixture",
+  );
+});

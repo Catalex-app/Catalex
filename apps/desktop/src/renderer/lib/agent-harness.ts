@@ -6,10 +6,13 @@ export const HARNESSES = {
   claude: { label: "Claude Code", compact: true },
   codex: { label: "Codex", compact: true },
   pi: { label: "Pi", compact: true },
+  antigravity: { label: "Antigravity", compact: false },
 } as const satisfies Record<ChatProvider, { label: string; compact: boolean }>;
 
 export function normalizeProvider(value: unknown): ChatProvider {
-  return value === "codex" || value === "pi" ? value : "claude";
+  return value === "codex" || value === "pi" || value === "antigravity"
+    ? value
+    : "claude";
 }
 
 export function harnessCommand(
@@ -47,7 +50,8 @@ export function restoreProviderState(
   const providerSyncCursors: Partial<Record<ChatProvider, number>> = {};
   for (const key of Object.keys(HARNESSES) as ChatProvider[]) {
     if (typeof ids?.[key] === "string") providerSessionIds[key] = ids[key];
-    if (cursors != null) {
+    // Older sessions have no Antigravity cursor. Keep their saved shape.
+    if (cursors != null && (key !== "antigravity" || key in cursors)) {
       const cursor = cursors[key];
       providerSyncCursors[key] = Number.isFinite(cursor)
         ? Math.max(0, Math.min(cursor, messageCount))

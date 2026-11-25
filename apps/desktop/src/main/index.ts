@@ -903,7 +903,9 @@ async function hostCommand(
       await createWindow("debug", "?debug=1");
       return { result: null };
     case "open_settings_window": {
-      const provider = ["codex", "claude", "pi"].includes(args.provider)
+      const provider = ["codex", "claude", "pi", "antigravity"].includes(
+        args.provider,
+      )
         ? args.provider
         : "";
       const section = ["agent", "storage", "about"].includes(args.section)

@@ -56,7 +56,7 @@ export type CompilerBackend = "tectonic" | "latexmk";
 export type EditorCommentFilter = "all" | "human" | "agent";
 export type ConcreteCompilerEngine = "pdflatex" | "xelatex" | "lualatex";
 export type CompilerEngine = "auto" | ConcreteCompilerEngine;
-export type ChatProvider = "claude" | "codex" | "pi";
+export type ChatProvider = "claude" | "codex" | "pi" | "antigravity";
 export type DefaultAgent = ChatProvider;
 export type ClaudeModelId = string;
 export type CodexModelId = string;
@@ -125,7 +125,12 @@ export interface SettingsState {
   compilerEngine: CompilerEngine;
   latexInstallation: string | null;
   compilerChoicesByRoot: Record<string, RootCompilerChoice>;
-  enabledProviders: Record<ChatProvider, boolean>;
+  enabledProviders: Record<"claude" | "codex" | "pi", boolean> & {
+    antigravity?: boolean;
+  };
+  antigravityBinaryPath: string;
+  antigravityModel: string;
+  antigravityThinkingEffort: string;
   setProviderEnabled: (provider: ChatProvider, enabled: boolean) => void;
   defaultAgent: DefaultAgent;
   defaultClaudeModel: ClaudeModelId;
@@ -285,7 +290,9 @@ function normalizeSolarModeLevel(value: unknown, legacySolarMode?: unknown) {
 }
 
 function normalizeDefaultAgent(value: unknown): DefaultAgent {
-  return value === "claude" || value === "pi" ? value : "codex";
+  return value === "claude" || value === "pi" || value === "antigravity"
+    ? value
+    : "codex";
 }
 
 function normalizeConcreteCompilerEngine(
@@ -871,7 +878,15 @@ export const useSettingsStore = create<SettingsState>()(
             (model) => model.provider !== provider || model.id !== id,
           ),
         })),
-      enabledProviders: { claude: true, codex: true, pi: false },
+      enabledProviders: {
+        claude: true,
+        codex: true,
+        pi: false,
+        antigravity: false,
+      },
+      antigravityBinaryPath: "",
+      antigravityModel: "",
+      antigravityThinkingEffort: "",
       setProviderEnabled: (provider, enabled) =>
         set((state) => ({
           enabledProviders: { ...state.enabledProviders, [provider]: enabled },
@@ -1310,6 +1325,10 @@ export const useSettingsStore = create<SettingsState>()(
             claude: normalizeBoolean(saved?.enabledProviders?.claude, true),
             codex: normalizeBoolean(saved?.enabledProviders?.codex, true),
             pi: normalizeBoolean(saved?.enabledProviders?.pi, false),
+            antigravity: normalizeBoolean(
+              saved?.enabledProviders?.antigravity,
+              false,
+            ),
           },
           workspacePreferencesByProject: normalizeWorkspacePreferencesByProject(
             saved?.workspacePreferencesByProject,

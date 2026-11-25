@@ -2,6 +2,7 @@ import { useLibraryPromptsExpanded } from "@/hooks/use-library-prompts-expanded"
 import { PromptSuggestions } from "./prompt-suggestions";
 import { PRODUCT_NAME } from "../../../branding";
 import { isPromptSelection } from "@/lib/prompt-library";
+import { useAntigravitySetupStore } from "@/stores/antigravity-setup-store";
 import { usePiSetupStore } from "@/stores/pi-setup-store";
 import {
   findPiModel,
@@ -310,6 +311,7 @@ function llmConfigLabel(
   claudeModels: ClaudeModelInfo[] = [],
   piModel?: string | null,
 ): string {
+  if (provider === "antigravity") return "Antigravity";
   if (provider === "pi") return piModelLabel(piModel ?? null);
   const base =
     provider === "claude"
@@ -554,6 +556,36 @@ export const ChatComposer: FC<{
   const claudeSetupStatus = useClaudeSetupStore((s) => s.status);
   const codexSetupStatus = useCodexSetupStore((s) => s.status);
   const pi = usePiSetupStore();
+  const antigravity = useAntigravitySetupStore();
+  const antigravityEnabled = useSettingsStore(
+    (s) => s.enabledProviders.antigravity,
+  );
+  const antigravityBinaryPath = useSettingsStore(
+    (s) => s.antigravityBinaryPath,
+  );
+  const antigravityModel = useSettingsStore((s) => s.antigravityModel);
+  const antigravityThinkingEffort = useSettingsStore(
+    (s) => s.antigravityThinkingEffort,
+  );
+  const isAntigravity = selectedProvider === "antigravity";
+  const agyModels = antigravity.options.find(
+    (option) => option.category === "model",
+  );
+  const agyThought = antigravity.options.find(
+    (option) => option.category === "thought_level",
+  );
+  const agyModel = antigravityModel || agyModels?.currentValue;
+  const agyThink = antigravityThinkingEffort || agyThought?.currentValue;
+  const agyModelOptions =
+    agyModels?.options?.map(({ value, name, description }) => ({
+      id: value,
+      name,
+      desc: description ?? name,
+    })) ?? [];
+  const checkAntigravity = antigravity.checkStatus;
+  useEffect(() => {
+    void checkAntigravity();
+  }, [checkAntigravity, antigravityBinaryPath, antigravityEnabled]);
   const piReady = pi.status === "ready";
   const discoveredPiModels = usePiModels();
   const piModelInfo = findPiModel(discoveredPiModels, selectedPiModel);
@@ -586,24 +618,30 @@ export const ChatComposer: FC<{
   };
   const setupError = holdError(
     `${selectedProvider}:setup`,
-    selectedProvider === "pi"
-      ? pi.error
-      : selectedProvider === "claude"
-        ? claudeSetupError
-        : codexSetupError,
-    (selectedProvider === "pi"
-      ? pi.status
-      : selectedProvider === "claude"
-        ? claudeSetupStatus
-        : codexSetupStatus) === "checking",
+    isAntigravity
+      ? antigravity.error
+      : selectedProvider === "pi"
+        ? pi.error
+        : selectedProvider === "claude"
+          ? claudeSetupError
+          : codexSetupError,
+    (isAntigravity
+      ? antigravity.status
+      : selectedProvider === "pi"
+        ? pi.status
+        : selectedProvider === "claude"
+          ? claudeSetupStatus
+          : codexSetupStatus) === "checking",
   );
   const modelError = holdError(
     `${selectedProvider}:models`,
-    selectedProvider === "pi"
-      ? pi.modelsError
-      : selectedProvider === "claude"
-        ? claudeModelsError
-        : codexModelsError,
+    isAntigravity
+      ? null
+      : selectedProvider === "pi"
+        ? pi.modelsError
+        : selectedProvider === "claude"
+          ? claudeModelsError
+          : codexModelsError,
     (selectedProvider === "pi"
       ? pi.modelsStatus
       : selectedProvider === "claude"
@@ -612,15 +650,17 @@ export const ChatComposer: FC<{
   );
   const enabledProviders = useSettingsStore((s) => s.enabledProviders);
   const providerDisabled = !enabledProviders[selectedProvider];
-  const noProvidersEnabled =
-    !enabledProviders.claude && !enabledProviders.codex && !enabledProviders.pi;
+  const noProvidersEnabled = !Object.values(enabledProviders).some(Boolean);
   const multipleProvidersEnabled =
     Object.values(enabledProviders).filter(Boolean).length > 1;
-  const alternativeProvider = (["codex", "claude", "pi"] as const).find(
+  const alternativeProvider = (
+    ["codex", "claude", "pi", "antigravity"] as const
+  ).find(
     (provider) => provider !== selectedProvider && enabledProviders[provider],
   );
-  const providerName =
-    selectedProvider === "pi"
+  const providerName = isAntigravity
+    ? "Antigravity"
+    : selectedProvider === "pi"
       ? "Pi"
       : selectedProvider === "claude"
         ? "Claude"
@@ -648,8 +688,9 @@ export const ChatComposer: FC<{
     (model) => model.model === selectedCodexModel,
   );
   const codexModelsReady = !!selectedCodexModelInfo;
-  const modelSelectionBlocked =
-    selectedProvider === "pi"
+  const modelSelectionBlocked = isAntigravity
+    ? antigravity.status !== "ready"
+    : selectedProvider === "pi"
       ? !piModelsReady
       : selectedProvider === "claude"
         ? !claudeModelsReady
@@ -669,20 +710,24 @@ export const ChatComposer: FC<{
       ) ?? [],
     [selectedCodexModelInfo],
   );
-  const pickerLabel =
-    selectedProvider === "pi"
+  const pickerLabel = isAntigravity
+    ? (agyModelOptions.find((option) => option.id === agyModel)?.name ??
+      "Antigravity")
+    : selectedProvider === "pi"
       ? piPickerLabel
       : selectedProvider === "claude"
         ? claudePickerLabel
         : codexPickerLabel;
-  const selectedEffort =
-    selectedProvider === "pi"
+  const selectedEffort = isAntigravity
+    ? (agyThink ?? "")
+    : selectedProvider === "pi"
       ? (piEffort ?? selectedPiReasoningEffort)
       : selectedProvider === "claude"
         ? effortLevel
         : selectedCodexReasoningEffort;
-  const effortOptions =
-    selectedProvider === "pi"
+  const effortOptions = isAntigravity
+    ? (agyThought?.options?.map((option) => option.value) ?? [])
+    : selectedProvider === "pi"
       ? piModelsReady
         ? piEffortOptions
         : []
@@ -806,7 +851,7 @@ export const ChatComposer: FC<{
     let cancelled = false;
     setSubscriptionUsage(null);
     void (
-      selectedProvider === "pi"
+      selectedProvider === "pi" || selectedProvider === "antigravity"
         ? Promise.resolve(null)
         : readSubscriptionUsage(selectedProvider)
     ).then(
@@ -1343,7 +1388,7 @@ export const ChatComposer: FC<{
   const agentControls = (
     <div data-chat-agent-controls className="flex min-w-0 items-center">
       {contextIndicator}
-      {permissionButton}
+      {!isAntigravity && permissionButton}
       {modelButton}
     </div>
   );
@@ -2052,6 +2097,7 @@ export const ChatComposer: FC<{
     if (
       !hasMessageInput ||
       (modelSelectionBlocked && !isBusy) ||
+      (isAntigravity && isBusy) ||
       sendBlockedReason
     )
       return;
@@ -2062,6 +2108,7 @@ export const ChatComposer: FC<{
     const slashMatch = trimmed.match(/^\/(\S+)\s*([\s\S]*)/);
     if (
       selectedProvider !== "pi" &&
+      selectedProvider !== "antigravity" &&
       slashMatch &&
       slashMatch[1] !== "compact" &&
       slashCommands.length > 0
@@ -2099,6 +2146,7 @@ export const ChatComposer: FC<{
     input,
     hasMessageInput,
     isBusy,
+    isAntigravity,
     modelSelectionBlocked,
     sendBlockedReason,
     sendPrompt,
@@ -2128,7 +2176,7 @@ export const ChatComposer: FC<{
 
       // Slash command picker is open — let the picker handle keyboard events
       // Its scoped capture listener owns these keys before the composer.
-      if (slashQuery !== null) {
+      if (selectedProvider !== "antigravity" && slashQuery !== null) {
         if (
           e.key === "Enter" ||
           e.key === "ArrowDown" ||
@@ -2191,7 +2239,9 @@ export const ChatComposer: FC<{
       const cursorPos = e.target.selectionStart;
       const textBefore = value.slice(0, cursorPos);
       // Complete a /query at the caret, including within an existing draft.
-      const slashMatch = textBefore.match(/(?:^|\s)\/(\S*)$/);
+      const slashMatch = isAntigravity
+        ? null
+        : textBefore.match(/(?:^|\s)\/(\S*)$/);
       if (slashMatch) {
         slashRangeRef.current = {
           start: cursorPos - slashMatch[1].length - 1,
@@ -2217,7 +2267,7 @@ export const ChatComposer: FC<{
 
       resizeTextarea(e.target);
     },
-    [resizeTextarea],
+    [isAntigravity, resizeTextarea],
   );
 
   // Scroll active mention into view
@@ -2530,7 +2580,7 @@ export const ChatComposer: FC<{
         </div>
       )}
       {/* / slash command picker — portal to body to escape all stacking contexts */}
-      {slashQuery !== null && (
+      {!isAntigravity && slashQuery !== null && (
         <SlashCommandPicker
           projectPath={projectRoot}
           provider={selectedProvider}
@@ -2570,7 +2620,7 @@ export const ChatComposer: FC<{
               action={
                 <Hint
                   content={
-                    selectedProvider === "pi"
+                    selectedProvider === "pi" || isAntigravity
                       ? "Agent Settings"
                       : "Manage legacy models"
                   }
@@ -2578,7 +2628,7 @@ export const ChatComposer: FC<{
                   <button
                     type="button"
                     aria-label={
-                      selectedProvider === "pi"
+                      selectedProvider === "pi" || isAntigravity
                         ? "Agent Settings"
                         : "Manage legacy models"
                     }
@@ -2625,6 +2675,11 @@ export const ChatComposer: FC<{
                       ready: claudeReady,
                     },
                     { id: "pi" as const, label: "Pi", ready: piReady },
+                    {
+                      id: "antigravity" as const,
+                      label: "Antigravity",
+                      ready: antigravity.status === "ready",
+                    },
                   ]
                     .filter((provider) => enabledProviders[provider.id])
                     .map((provider) => (
@@ -2652,7 +2707,7 @@ export const ChatComposer: FC<{
             <ModelPickerTransition
               provider={`${selectedProvider}:${subscriptionUsage?.provider === selectedProvider ? "ready" : "loading"}`}
             >
-              {selectedProvider !== "pi" && (
+              {selectedProvider !== "pi" && !isAntigravity && (
                 <>
                   <div
                     role="group"
@@ -2729,37 +2784,46 @@ export const ChatComposer: FC<{
               >
                 <div className="flex items-center justify-between px-2 py-1 font-medium text-muted-foreground text-xs">
                   <span>Available models</span>
-                  <button
-                    type="button"
-                    disabled={
-                      (selectedProvider === "pi"
-                        ? pi.modelsStatus
-                        : selectedProvider === "claude"
-                          ? claudeModelsStatus
-                          : codexModelsStatus) === "loading"
-                    }
-                    onClick={() =>
-                      void (selectedProvider === "pi"
-                        ? pi.refreshModels()
-                        : selectedProvider === "claude"
-                          ? refreshClaudeModels()
-                          : refreshCodexModels())
-                    }
-                    className="hover:text-foreground disabled:opacity-50"
-                  >
-                    Refresh
-                  </button>
+                  {!isAntigravity && (
+                    <button
+                      type="button"
+                      disabled={
+                        (selectedProvider === "pi"
+                          ? pi.modelsStatus
+                          : selectedProvider === "claude"
+                            ? claudeModelsStatus
+                            : codexModelsStatus) === "loading"
+                      }
+                      onClick={() =>
+                        void (selectedProvider === "pi"
+                          ? pi.refreshModels()
+                          : selectedProvider === "claude"
+                            ? refreshClaudeModels()
+                            : refreshCodexModels())
+                      }
+                      className="hover:text-foreground disabled:opacity-50"
+                    >
+                      Refresh
+                    </button>
+                  )}
                 </div>
+                {isAntigravity && !agyModelOptions.length && (
+                  <p className="px-2 py-2 text-muted-foreground text-xs">
+                    Send a message to load Antigravity models.
+                  </p>
+                )}
                 {modelSelectionBlocked && (
                   <p className="px-2 py-2 text-muted-foreground text-xs">
                     {pickerLabel}
                   </p>
                 )}
-                {(selectedProvider === "pi"
-                  ? piModelOptions
-                  : selectedProvider === "claude"
-                    ? claudeModelOptions
-                    : codexModelOptions
+                {(isAntigravity
+                  ? agyModelOptions
+                  : selectedProvider === "pi"
+                    ? piModelOptions
+                    : selectedProvider === "claude"
+                      ? claudeModelOptions
+                      : codexModelOptions
                 ).map((m) => (
                   <button
                     key={m.id}
@@ -2770,7 +2834,9 @@ export const ChatComposer: FC<{
                           ? selectedClaudeModelInfo?.value === m.id
                           : selectedProvider === "pi"
                             ? selectedPiModel === m.id
-                            : selectedCodexModel === m.id
+                            : isAntigravity
+                              ? agyModel === m.id
+                              : selectedCodexModel === m.id
                       )
                         ? "bg-accent text-accent-foreground"
                         : "hover:bg-accent",
@@ -2783,6 +2849,11 @@ export const ChatComposer: FC<{
                         setSelectedClaudeModel(m.id as ClaudeModelId);
                       } else if (selectedProvider === "pi") {
                         setSelectedPiModel(m.id);
+                      } else if (isAntigravity) {
+                        useSettingsStore.setState({
+                          antigravityModel: m.id,
+                          antigravityThinkingEffort: "",
+                        });
                       } else {
                         setSelectedCodexModel(m.id as CodexModelId);
                       }
@@ -2803,7 +2874,9 @@ export const ChatComposer: FC<{
                       ? selectedClaudeModelInfo?.value === m.id
                       : selectedProvider === "pi"
                         ? selectedPiModel === m.id
-                        : selectedCodexModel === m.id) && (
+                        : isAntigravity
+                          ? agyModel === m.id
+                          : selectedCodexModel === m.id) && (
                       <CheckIcon className="size-3 shrink-0" />
                     )}
                   </button>
@@ -2896,6 +2969,10 @@ export const ChatComposer: FC<{
                                 setEffortLevel(level);
                               } else if (selectedProvider === "pi") {
                                 setSelectedPiReasoningEffort(level);
+                              } else if (isAntigravity) {
+                                useSettingsStore.setState({
+                                  antigravityThinkingEffort: level,
+                                });
                               } else {
                                 setSelectedCodexReasoningEffort(level);
                               }
@@ -3189,7 +3266,7 @@ export const ChatComposer: FC<{
               ...(alternativeProvider
                 ? [
                     {
-                      label: `Use ${alternativeProvider === "pi" ? "Pi" : alternativeProvider === "claude" ? "Claude" : "Codex"}`,
+                      label: `Use ${alternativeProvider === "pi" ? "Pi" : alternativeProvider === "claude" ? "Claude" : alternativeProvider === "antigravity" ? "Antigravity" : "Codex"}`,
                       onClick: () => setProvider(alternativeProvider),
                     },
                   ]
@@ -3231,7 +3308,9 @@ export const ChatComposer: FC<{
                 ? claudeModelLabel(selectedClaudeModel, discoveredClaudeModels)
                 : selectedProvider === "pi"
                   ? piPickerLabel
-                  : formatCodexModelName(selectedCodexModel)
+                  : isAntigravity
+                    ? pickerLabel
+                    : formatCodexModelName(selectedCodexModel)
             }
             effort={effortShortLabel(selectedEffort)}
           />
@@ -3283,7 +3362,10 @@ export const ChatComposer: FC<{
                           ? "Pi"
                           : pendingResumeChoice.sessionProvider === "claude"
                             ? "Claude"
-                            : "Codex"}
+                            : pendingResumeChoice.sessionProvider ===
+                                "antigravity"
+                              ? "Antigravity"
+                              : "Codex"}
                       </Badge>
                     </div>
                     <div className="text-sm">{previousLlmLabel}</div>
