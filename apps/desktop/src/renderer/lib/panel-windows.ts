@@ -146,12 +146,14 @@ export function openPanelWindow(
     if (
       next.projectRoot !== session.projectRoot ||
       (kind !== "chat" &&
-        !next.files.some((file) => file.id === fileId) &&
+        !next.files.some((file) => file.id === session.fileId) &&
         !next.isAgentWorkspaceReadOnly &&
         !next.isApplyingAgentDraft &&
         !(
           next.agentWorkspaceRoot &&
-          next.sourceViewSnapshot?.files.some((file) => file.id === fileId)
+          next.sourceViewSnapshot?.files.some(
+            (file) => file.id === session.fileId,
+          )
         ))
     ) {
       if (session.close) void session.close();

@@ -785,6 +785,11 @@ async function moveDocumentPath(
       new Map([...cache].map(([key, value]) => [remap(key), value]));
     for (const key of [..._pdfBytesCache.keys()])
       migratePdfBytesKey(key, remap(key));
+    // Update the pinned paths before subscribers see the renamed files.
+    for (const session of window.__catalexPanelSessions?.values() ?? []) {
+      if (session.projectRoot === root && session.kind !== "chat")
+        session.fileId = remap(session.fileId);
+    }
     store.setState((state) => ({
       files: state.files.map((file) => {
         const path = remap(file.relativePath);

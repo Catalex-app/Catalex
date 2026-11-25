@@ -37,18 +37,23 @@ try {
       .finish();
   });
   const renameProject = path.join(profile, "extension-rename");
-  await fs.mkdir(renameProject);
+  await fs.mkdir(path.join(renameProject, "draft"), { recursive: true });
+  await fs.writeFile(
+    path.join(renameProject, "backup.txt"),
+    "Keep this file.\n",
+  );
   const source = String.raw`\documentclass{article}
 \begin{document}
 Source survives renaming.
 \end{document}
 `;
-  await fs.writeFile(path.join(renameProject, "main.tex"), source);
+  await fs.writeFile(path.join(renameProject, "draft/main.tex"), source);
   await page.evaluate(async (project) => {
     const { useDocumentStore } = await import(
       "/src/renderer/stores/document-store.ts"
     );
     await useDocumentStore.getState().openProject(project);
+    useDocumentStore.getState().setActiveFile("draft/main.tex");
   }, renameProject);
   const latexToolbar = page.getByTestId("latex-editor-toolbar");
   await expect(latexToolbar).toBeVisible();
@@ -57,22 +62,88 @@ Source survives renaming.
     exact: true,
   });
   if (await showSidebar.isVisible()) await showSidebar.click();
+  const draft = page.locator('[data-sidebar-folder-id="draft"]');
+  if ((await draft.getAttribute("aria-expanded")) === "false")
+    await draft.click();
+  await page.getByRole("button", { name: "More Editor view actions" }).click();
+  const editorOpened = app.waitForEvent("window");
   await page
-    .locator('[data-sidebar-file-id="main.tex"]')
+    .getByRole("menuitem", { name: "Pop out Editor", exact: true })
+    .click();
+  const editor = await editorOpened;
+  await expect(editor.getByTestId("latex-editor-toolbar")).toBeVisible();
+
+  await page
+    .locator('[data-sidebar-file-id="draft%2Fmain.tex"]')
     .click({ button: "right" });
   await page.getByRole("menuitem", { name: "Rename", exact: true }).click();
   const renameDialog = page.getByRole("dialog", { name: "Rename" });
   await renameDialog.getByRole("textbox").fill("main.md");
+  const beforeRename = "Typed just before rename.\n";
+  const afterRename = "Typed after folder rename.\n";
+  const editorText = editor.locator(".cm-content");
+  await editorText.focus();
+  await editor.keyboard.press("ControlOrMeta+End");
+  await editor.keyboard.insertText(beforeRename);
   await renameDialog
     .getByRole("button", { name: "Rename", exact: true })
     .click();
   await expect(page.getByTestId("markdown-editor-toolbar")).toBeVisible();
   await expect(latexToolbar).toHaveCount(0);
-  assert.equal(
-    await fs.readFile(path.join(renameProject, "main.md"), "utf8"),
-    source,
+  await expect(editor.getByTestId("markdown-editor-toolbar")).toBeVisible();
+  await expect(editor.getByTestId("latex-editor-toolbar")).toHaveCount(0);
+  await expect(editor.locator("[data-panel-window-title]")).toHaveText(
+    "main.md",
   );
-  console.log("PASS extension rename: TeX to Markdown toolbar");
+  await expect(editor).toHaveTitle("main.md");
+  await expect(editorText).toContainText("Typed just before rename.");
+  assert.equal(
+    await fs.readFile(path.join(renameProject, "draft/main.md"), "utf8"),
+    `${source}${beforeRename}`,
+  );
+
+  await page.getByRole("button", { name: "More Preview view actions" }).click();
+  const previewOpened = app.waitForEvent("window");
+  await page
+    .getByRole("menuitem", { name: "Pop out Preview", exact: true })
+    .click();
+  const preview = await previewOpened;
+  const previewContent = preview.frameLocator("iframe").locator("body");
+  await expect(previewContent).toContainText("Typed just before rename.");
+  assert.equal(
+    await page.evaluate(async () => {
+      const { useDocumentStore } = await import(
+        "/src/renderer/stores/document-store.ts"
+      );
+      return useDocumentStore.getState().renameFolder("draft", "paper");
+    }),
+    "paper",
+  );
+  await editorText.focus();
+  await editor.keyboard.press("ControlOrMeta+End");
+  await editor.keyboard.insertText(afterRename);
+  await expect(previewContent).toContainText("Typed after folder rename.");
+  await editor.evaluate(async () => {
+    const { useDocumentStore } = await import(
+      "/src/renderer/stores/document-store.ts"
+    );
+    await useDocumentStore.getState().saveCurrentFile();
+  });
+  assert.equal(
+    await fs.readFile(path.join(renameProject, "paper/main.md"), "utf8"),
+    `${source}${beforeRename}${afterRename}`,
+  );
+
+  await page.evaluate(async () => {
+    const { useDocumentStore } = await import(
+      "/src/renderer/stores/document-store.ts"
+    );
+    await useDocumentStore.getState().deleteFile("paper/main.md");
+  });
+  await expect.poll(() => editor.isClosed() && preview.isClosed()).toBe(true);
+  console.log(
+    "PASS pop-outs follow file and folder renames, preserve typed text, and close on deletion",
+  );
 
   // Hold only the response to a real native operation. The original IPC handler
   // still performs filesystem rename or Electron shell.trashItem in full.
