@@ -56,6 +56,115 @@ for (const preview of ["pdf", "markdown"] as const) {
       )
       .toBe(0);
   });
+
+  for (const linked of [false, true]) {
+    test(`Double-click locates ${preview} in split view with live sync ${linked ? "on" : "off"}`, async ({
+      page,
+    }) => {
+      const isPdf = preview === "pdf";
+      await page.setViewportSize({ width: 1440, height: 1000 });
+      await page.goto(`/?debug=comment-workspace${isPdf ? "&pdf" : ""}`);
+      const editor = page.locator(".cm-scroller");
+      const sync = page.getByTestId("sync-navigation-control");
+      const frame = page.frameLocator(
+        '[data-testid="markdown-preview"] iframe',
+      );
+      const word = isPdf ? "consistency" : "Section";
+      const text = isPdf ? /^The consistency configuration/ : "# Section 65";
+      const line = editor.locator(".cm-line").filter({ hasText: text });
+      const previewScroll = isPdf
+        ? page.getByTestId("pdf-scroll-container")
+        : frame.locator("html");
+      await expect(
+        isPdf
+          ? page.locator(".mupdf-text-layer").first()
+          : frame.locator("#write"),
+      ).toBeVisible();
+      if ((await sync.getAttribute("data-scroll-sync-linked")) === "true")
+        await sync
+          .getByRole("button", { name: "Disable synchronized scrolling" })
+          .click();
+
+      if (!isPdf) {
+        await page.evaluate(async () => {
+          const path = "/src/renderer/stores/document-store.ts";
+          const { useDocumentStore } = await import(path);
+          const state = useDocumentStore.getState();
+          state.updateFileContent(
+            state.activeFileId,
+            Array.from(
+              { length: 85 },
+              (_, i) => `# Section ${i}\n\nParagraph ${i}.\n`,
+            ).join("\n"),
+          );
+        });
+        await expect(
+          frame.getByRole("heading", { name: "Section 65", exact: true }),
+        ).toBeAttached();
+      }
+      await setLocateSourceLine(page, isPdf ? 101 : 261);
+      await expect(line).toBeInViewport();
+      if (linked) {
+        await page.evaluate(async () => {
+          const documentPath = "/src/renderer/stores/document-store.ts";
+          const settingsPath = "/src/renderer/stores/settings-store.ts";
+          const { useDocumentStore } = await import(documentPath);
+          const { useSettingsStore } = await import(settingsPath);
+          const { projectRoot, activeFileId } = useDocumentStore.getState();
+          useSettingsStore
+            .getState()
+            .setFileScrollSync(projectRoot, activeFileId, true);
+        });
+      }
+      await expect(sync).toHaveAttribute(
+        "data-scroll-sync-linked",
+        String(linked),
+      );
+      const previewTop = await previewScroll.evaluate((el) => el.scrollTop);
+      const editorTop = await editor.evaluate((el) => el.scrollTop);
+      const point = await line.evaluate((element, word) => {
+        const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+        for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+          const index = node.textContent?.indexOf(word) ?? -1;
+          if (index < 0) continue;
+          const range = document.createRange();
+          range.setStart(node, index);
+          range.setEnd(node, index + word.length);
+          const rect = range.getBoundingClientRect();
+          return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+        }
+        throw new Error(`Could not find ${word} in editor line`);
+      }, word);
+      await page.mouse.dblclick(point.x, point.y);
+      const highlight = isPdf
+        ? page.locator('[data-navigation-highlight="pdf"]')
+        : frame.locator('[data-navigation-highlight="markdown"]');
+      await expect(highlight).toBeInViewport();
+      if (isPdf)
+        await expect(page.locator('[data-page-number="3"]')).toBeInViewport();
+      else
+        await expect(
+          frame.getByRole("heading", { name: "Section 65", exact: true }),
+        ).toBeInViewport();
+      if (!linked)
+        expect(
+          await previewScroll.evaluate((el) => el.scrollTop),
+        ).toBeGreaterThan(previewTop + 100);
+      await expect(highlight).toHaveCount(0);
+      expect(await editor.evaluate((el) => el.scrollTop)).toBe(editorTop);
+      await expect
+        .poll(() =>
+          line.evaluate(() => {
+            const cursor = document.querySelector(".cm-content");
+            const selection = window.getSelection();
+            return cursor?.contains(selection?.anchorNode ?? null)
+              ? selection?.toString()
+              : "";
+          }),
+        )
+        .toBe(word);
+    });
+  }
 }
 
 test("Duet workspace expands a live panel and restores the split and chat draft", async ({

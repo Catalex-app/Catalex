@@ -1247,6 +1247,7 @@ interface LatexEditorProps {
   outlineTrackingEnabled?: boolean;
   scrollSyncTarget?: { id: number; position: number } | null;
   onScrollPositionChange?: (position: number) => void;
+  onLocateInPreview?: () => void;
 }
 
 function sendDiagnosticToChat(view: EditorView, issues: DiagnosticChatIssue[]) {
@@ -1328,6 +1329,7 @@ export function LatexEditor({
   outlineTrackingEnabled = true,
   scrollSyncTarget = null,
   onScrollPositionChange,
+  onLocateInPreview,
 }: LatexEditorProps = {}) {
   const selectionAiEnabled =
     requestedSelectionAiEnabled && !isReferencePanelWindow();
@@ -1343,12 +1345,14 @@ export function LatexEditor({
   outlineTrackingEnabledRef.current = outlineTrackingEnabled;
   const scrollSyncEnabledRef = useRef(scrollSyncEnabled);
   const onScrollPositionChangeRef = useRef(onScrollPositionChange);
+  const onLocateInPreviewRef = useRef(onLocateInPreview);
   const scrollSyncFrameRef = useRef<number | null>(null);
   const ignoreScrollSyncUntilRef = useRef(0);
   const lastScrollSyncPositionRef = useRef<number | null>(null);
 
   scrollSyncEnabledRef.current = scrollSyncEnabled && !scrollSyncPaused;
   onScrollPositionChangeRef.current = onScrollPositionChange;
+  onLocateInPreviewRef.current = onLocateInPreview;
 
   const navigateSearchMatch = useCallback(
     (view: EditorView, match: { from: number; to: number }) => {
@@ -3639,6 +3643,23 @@ export function LatexEditor({
         store.setCursorPosition(view.state.selection.main.head);
     };
     view.contentDOM.addEventListener("click", handleOutlineClick);
+    const handleLocateDoubleClick = (event: MouseEvent) => {
+      const locate = onLocateInPreviewRef.current;
+      const target = event.target;
+      if (
+        !locate ||
+        isMergeActiveRef.current ||
+        view.state.selection.main.empty ||
+        !(target instanceof Element) ||
+        !target.closest(".cm-line") ||
+        target.closest(
+          '.cm-inlineCommentCard, button, a, input, textarea, [role="button"], [contenteditable="false"]',
+        )
+      )
+        return;
+      locate();
+    };
+    view.contentDOM.addEventListener("dblclick", handleLocateDoubleClick);
     const resumeOutlineScroll = () => {
       ignoreScrollSyncUntilRef.current = 0;
       outlineClickOwnsHighlight = false;
@@ -3822,6 +3843,7 @@ export function LatexEditor({
       });
       view.scrollDOM.removeEventListener("scroll", handleOutlineScroll);
       view.contentDOM.removeEventListener("click", handleOutlineClick);
+      view.contentDOM.removeEventListener("dblclick", handleLocateDoubleClick);
       view.scrollDOM.removeEventListener("wheel", handleOutlineWheel);
       view.scrollDOM.removeEventListener("touchmove", resumeOutlineScroll);
       view.scrollDOM.removeEventListener("pointerdown", handleOutlineScrollbar);

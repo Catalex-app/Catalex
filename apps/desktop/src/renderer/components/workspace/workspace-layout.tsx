@@ -1027,6 +1027,12 @@ function ProjectWorkspaceLayout() {
     openPairKey === "chat|editor" || openPairKey === "chat|pdf";
   const showEditorPdfHandle =
     openPairKey === "editor|pdf" || openPairKey === "editor|incoming";
+  const navigateToPreview = () => {
+    setSyncNavigationRequest({
+      id: Date.now(),
+      direction: isMarkdownDocument ? "to-preview" : "to-pdf",
+    });
+  };
 
   const updateWorkspaceContentMode = useCallback(
     (mode: WorkspaceContentMode, fileId = activeFileId) => {
@@ -3303,6 +3309,15 @@ function ProjectWorkspaceLayout() {
                                   outlineTrackingEnabled={
                                     isEditorVisible && !isColumnLayoutAnimating
                                   }
+                                  onLocateInPreview={
+                                    effectiveViewMode === "split" &&
+                                    openPairKey === "editor|pdf" &&
+                                    !expandedPanel &&
+                                    !isColumnLayoutAnimating &&
+                                    (isMarkdownDocument || isRenderableLatex)
+                                      ? navigateToPreview
+                                      : undefined
+                                  }
                                   scrollSyncTarget={
                                     fullChatReading.switching
                                       ? null
@@ -3428,14 +3443,7 @@ function ProjectWorkspaceLayout() {
                                         ? isScrollSyncLocked
                                         : isLatexScrollSyncEnabled
                                     }
-                                    onNavigateToPreview={() => {
-                                      setSyncNavigationRequest({
-                                        id: Date.now(),
-                                        direction: isMarkdownDocument
-                                          ? "to-preview"
-                                          : "to-pdf",
-                                      });
-                                    }}
+                                    onNavigateToPreview={navigateToPreview}
                                     onNavigateToEditor={() => {
                                       setSyncNavigationRequest({
                                         id: Date.now() + 1,

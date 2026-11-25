@@ -1791,11 +1791,7 @@ export function PdfPreview({
   ]);
 
   const navigateSourcePositionToPdf = useCallback(
-    async (
-      position: number,
-      suppressFeedback = false,
-      expectedRequestId?: number,
-    ) => {
+    async (position: number, animate: boolean, expectedRequestId?: number) => {
       if (
         isolatedSnapshot ||
         !projectRoot ||
@@ -1817,10 +1813,8 @@ export function PdfPreview({
         linked.source.content === content &&
         linked.source.position === clampedPosition
       ) {
-        if (suppressFeedback) {
-          ignorePdfScrollSyncUntilRef.current = performance.now() + 400;
-        }
-        readingAnchorRef.current?.align(linked.pdf, !suppressFeedback);
+        ignorePdfScrollSyncUntilRef.current = performance.now() + 400;
+        readingAnchorRef.current?.align(linked.pdf, animate);
         return;
       }
       const pdf = await lookupSourceInPdf(
@@ -1845,16 +1839,14 @@ export function PdfPreview({
       ) {
         return;
       }
-      if (suppressFeedback) {
-        ignorePdfScrollSyncUntilRef.current = performance.now() + 400;
-      }
+      ignorePdfScrollSyncUntilRef.current = performance.now() + 400;
       linkedReadingAnchorRef.current = {
         source: { fileId: currentFile.id, content, position: clampedPosition },
         pdf,
         revision: state.pdfRevision,
         sourceRequestId,
       };
-      readingAnchorRef.current?.align(pdf, !suppressFeedback);
+      readingAnchorRef.current?.align(pdf, animate);
     },
     [isolatedSnapshot, projectRoot],
   );
@@ -1864,7 +1856,7 @@ export function PdfPreview({
     scrollSyncRequestIdRef.current += 1;
     const state = useDocumentStore.getState();
     const position = state.selectionRange?.start ?? state.cursorPosition;
-    await navigateSourcePositionToPdf(position, false, requestId);
+    await navigateSourcePositionToPdf(position, true, requestId);
   }, [navigateSourcePositionToPdf]);
 
   type NativeScrollRequest =
@@ -1979,7 +1971,11 @@ export function PdfPreview({
   );
   nativeScrollRunRef.current = async (request) => {
     if (request.kind === "source")
-      return navigateSourcePositionToPdf(request.position, true, request.epoch);
+      return navigateSourcePositionToPdf(
+        request.position,
+        false,
+        request.epoch,
+      );
     const { position, epoch } = request;
     if (!projectRoot || epoch !== scrollSyncRequestIdRef.current) return;
     const result = await synctexEdit(
@@ -2215,7 +2211,7 @@ export function PdfPreview({
           state.cursorPosition;
         const requestId = ++sourceScrollSyncRequestIdRef.current;
 
-        void navigateSourcePositionToPdf(position, true, requestId).finally(
+        void navigateSourcePositionToPdf(position, false, requestId).finally(
           () => {
             if (pendingEditorAuthoritativeRevisionRef.current !== revision) {
               return;

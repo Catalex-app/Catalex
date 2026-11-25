@@ -1017,10 +1017,12 @@ export function MarkdownPreview({
             rect.height / 2 -
             frameDocument.documentElement.clientHeight / 2,
         },
-        () =>
+        () => {
+          lastPreviewScrollTopRef.current = scroll.scrollTop;
           highlightNavigationTarget(scroll, "markdown", () =>
             element.isConnected ? element.getBoundingClientRect() : null,
-          ),
+          );
+        },
       );
     }
   }, [frameDocument]);
