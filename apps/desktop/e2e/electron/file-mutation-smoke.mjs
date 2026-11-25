@@ -36,6 +36,44 @@ try {
       .getState()
       .finish();
   });
+  const renameProject = path.join(profile, "extension-rename");
+  await fs.mkdir(renameProject);
+  const source = String.raw`\documentclass{article}
+\begin{document}
+Source survives renaming.
+\end{document}
+`;
+  await fs.writeFile(path.join(renameProject, "main.tex"), source);
+  await page.evaluate(async (project) => {
+    const { useDocumentStore } = await import(
+      "/src/renderer/stores/document-store.ts"
+    );
+    await useDocumentStore.getState().openProject(project);
+  }, renameProject);
+  const latexToolbar = page.getByTestId("latex-editor-toolbar");
+  await expect(latexToolbar).toBeVisible();
+  const showSidebar = page.getByRole("button", {
+    name: "Show sidebar",
+    exact: true,
+  });
+  if (await showSidebar.isVisible()) await showSidebar.click();
+  await page
+    .locator('[data-sidebar-file-id="main.tex"]')
+    .click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Rename", exact: true }).click();
+  const renameDialog = page.getByRole("dialog", { name: "Rename" });
+  await renameDialog.getByRole("textbox").fill("main.md");
+  await renameDialog
+    .getByRole("button", { name: "Rename", exact: true })
+    .click();
+  await expect(page.getByTestId("markdown-editor-toolbar")).toBeVisible();
+  await expect(latexToolbar).toHaveCount(0);
+  assert.equal(
+    await fs.readFile(path.join(renameProject, "main.md"), "utf8"),
+    source,
+  );
+  console.log("PASS extension rename: TeX to Markdown toolbar");
+
   // Hold only the response to a real native operation. The original IPC handler
   // still performs filesystem rename or Electron shell.trashItem in full.
   await app.evaluate(({ ipcMain }) => {

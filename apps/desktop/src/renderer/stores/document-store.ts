@@ -789,11 +789,13 @@ async function moveDocumentPath(
       files: state.files.map((file) => {
         const path = remap(file.relativePath);
         if (path === file.relativePath) return file;
+        const name = path.split("/").pop()!;
         return {
           ...file,
           id: path,
           relativePath: path,
-          name: path.split("/").pop()!,
+          name,
+          type: getFileType(name) ?? "other",
           absolutePath:
             newAbsolutePath + file.relativePath.slice(oldPath.length),
         };
@@ -816,7 +818,13 @@ async function moveDocumentPath(
       const rootFolder = folder
         ? remap(options.rootFolder)
         : options.rootFolder;
-      const mainFile = options.mainFile ? remap(options.mainFile) : null;
+      let mainFile = options.mainFile ? remap(options.mainFile) : null;
+      if (
+        mainFile &&
+        mainFile !== options.mainFile &&
+        getFileType(mainFile) !== "tex"
+      )
+        mainFile = null;
       useProjectStore.getState().setLatexProjectOptions(root, {
         rootFolder,
         mainFile,

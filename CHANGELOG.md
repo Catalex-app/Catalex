@@ -10,6 +10,7 @@
 - Switching between source and preview in Full chat highlights your reading position. Switch back without scrolling to return to the exact spot you left.
 - Fixed Locate highlights that stayed on screen in the Markdown preview.
 - In split view, double-click source text to locate and highlight the matching spot in the PDF or Markdown preview.
+- Fixed duplicate editor toolbars after renaming a file to a different type.
 
 ## [0.3.1]
 

@@ -10,6 +10,7 @@ import {
 } from "vitest";
 import { rename, writeTextFile } from "@/lib/desktop/fs";
 import * as fsLib from "@/lib/project-files";
+import { useProjectStore } from "@/stores/project-store";
 import {
   useDocumentStore,
   getCurrentPdfBytes,
@@ -1245,7 +1246,112 @@ describe("useDocumentStore", () => {
   });
 
   describe("moving project entries", () => {
-    afterEach(() => vi.restoreAllMocks());
+    afterEach(() => {
+      vi.restoreAllMocks();
+      useProjectStore.setState({ latexOptionsByProject: {} });
+    });
+
+    it.each([
+      ["main.tex", "tex", "main.md", "other"],
+      ["main.md", "other", "main.tex", "tex"],
+      ["main.tex", "tex", "main.txt", "other"],
+    ] as const)("reclassifies %s (%s) when renamed to %s", async (from, oldType, to, type) => {
+      vi.spyOn(fsLib, "renameFileOnDisk").mockResolvedValue();
+      useDocumentStore.setState({
+        files: [
+          makeFile({
+            id: from,
+            name: from,
+            relativePath: from,
+            absolutePath: `/project/${from}`,
+            type: oldType,
+          }),
+        ],
+        activeFileId: from,
+        openFileIds: [from],
+      });
+
+      await useDocumentStore.getState().renameFile(from, to);
+
+      const state = useDocumentStore.getState();
+      expect(state.files[0]).toMatchObject({
+        id: to,
+        type,
+        content: "Hello World",
+      });
+      expect(state.activeFileId).toBe(to);
+      expect(state.openFileIds).toEqual([to]);
+    });
+
+    it("keeps descendant types and the LaTeX main file when renaming a folder", async () => {
+      vi.spyOn(fsLib, "renameFileOnDisk").mockResolvedValue();
+      const tex = "draft/main.tex";
+      const markdown = "draft/nested/notes.md";
+      useDocumentStore.setState({
+        files: [
+          makeFile({
+            id: tex,
+            relativePath: tex,
+            absolutePath: `/project/${tex}`,
+          }),
+          makeFile({
+            id: markdown,
+            name: "notes.md",
+            relativePath: markdown,
+            absolutePath: `/project/${markdown}`,
+            type: "other",
+          }),
+        ],
+        folders: ["draft", "draft/nested"],
+      });
+      useProjectStore.getState().setLatexProjectOptions("/project", {
+        rootFolder: "draft",
+        mainFile: tex,
+      });
+
+      await useDocumentStore.getState().renameFolder("draft", "paper");
+
+      expect(
+        useDocumentStore.getState().files.map(({ id, type }) => [id, type]),
+      ).toEqual([
+        ["paper/main.tex", "tex"],
+        ["paper/nested/notes.md", "other"],
+      ]);
+      expect(
+        useProjectStore.getState().latexOptionsByProject["/project"],
+      ).toEqual({
+        rootFolder: "paper",
+        mainFile: "paper/main.tex",
+      });
+    });
+
+    it("resets the configured main file to Automatic when it becomes Markdown", async () => {
+      vi.spyOn(fsLib, "renameFileOnDisk").mockResolvedValue();
+      const main = "paper/main.tex";
+      useDocumentStore.setState({
+        files: [
+          makeFile({
+            id: main,
+            relativePath: main,
+            absolutePath: `/project/${main}`,
+          }),
+        ],
+        folders: ["paper"],
+      });
+      useProjectStore.getState().setLatexProjectOptions("/project", {
+        rootFolder: "paper",
+        mainFile: main,
+      });
+
+      await useDocumentStore.getState().renameFile(main, "main.md");
+
+      expect(
+        useProjectStore.getState().latexOptionsByProject["/project"],
+      ).toEqual({
+        rootFolder: "paper",
+        mainFile: null,
+      });
+    });
 
     it.each([
       "file",
