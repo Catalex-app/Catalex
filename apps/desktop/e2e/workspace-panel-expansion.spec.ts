@@ -618,7 +618,7 @@ for (const label of ["Editor", "PDF", "Preview"]) {
   });
 }
 
-test("the chat drawer fades out and back in when focusing a panel @core", async ({
+test("the chat drawer fades out and back in when focusing a panel", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
