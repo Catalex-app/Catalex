@@ -36,10 +36,12 @@ test("Mini fits a draft beside separate model and permission controls", async ({
     exact: true,
   });
   const permission = drawer.getByRole("button", {
-    name: "Writing permission",
+    name: "Permission",
     exact: true,
   });
-  await expect(permission.locator("svg.lucide-thumbs-up")).toBeVisible();
+  await expect(
+    permission.locator(":scope > svg.lucide-thumbs-up"),
+  ).toBeVisible();
   const send = drawer.getByRole("button", { name: "Send", exact: true });
   const sendGaps = () =>
     send.evaluate((button) => {
@@ -136,7 +138,7 @@ test("Mini fits a draft beside separate model and permission controls", async ({
   await permission.click();
   await expect(models).toHaveCount(0);
   const popup = page.getByRole("dialog", {
-    name: "Writing permission",
+    name: "Permission",
     exact: true,
   });
   await expect(
@@ -151,7 +153,10 @@ test("Mini fits a draft beside separate model and permission controls", async ({
   const permissions = popup.getByRole("group", {
     name: "Writing permission",
   });
-  await expect(popup.getByRole("separator")).toBeVisible();
+  const separators = popup.getByRole("separator");
+  await expect(separators).toHaveCount(2);
+  await expect(separators.first()).toBeVisible();
+  await expect(separators.last()).toBeVisible();
   await expect(
     permissions.getByRole("button", { name: "Need approval", exact: true }),
   ).toHaveAttribute("aria-pressed", "true");
@@ -174,9 +179,13 @@ test("Mini fits a draft beside separate model and permission controls", async ({
   await auto.press("Escape");
   await expect(popup).toHaveCount(0);
   await expect(permission).toBeFocused();
-  await expect(permission).toHaveAttribute("aria-description", "Auto-apply");
-  await expect(permission.locator("svg.lucide-check-check")).toBeVisible();
-  await expect(permission).toHaveClass(/\btext-purple-700\b/);
+  await expect(permission).toHaveAttribute(
+    "aria-description",
+    /Writing permission · Auto-apply$/,
+  );
+  const executionIcon = permission.locator(":scope > svg.lucide-check-check");
+  await expect(executionIcon).toBeVisible();
+  await expect(executionIcon).toHaveClass(/\btext-purple-700\b/);
   await page.screenshot({
     path: test.info().outputPath("mini-permission-auto-apply.png"),
   });
@@ -228,12 +237,12 @@ for (const mode of ["Collapsed", "Expanded", "Workspace"]) {
       .toBeCloseTo(4, 1);
     if (mode !== "Collapsed") {
       const permission = panel.getByRole("button", {
-        name: "Writing permission",
+        name: "Permission",
         exact: true,
       });
       await permission.press("Enter");
       const popup = page.getByRole("dialog", {
-        name: "Writing permission",
+        name: "Permission",
         exact: true,
       });
       const auto = popup.getByRole("button", {

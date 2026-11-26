@@ -3,6 +3,7 @@ import { test, expect } from "@playwright/test";
 
 // No errorInput flag: all errors render through the production composer.
 async function setup(page) {
+  await page.addInitScript(() => performance.setResourceTimingBufferSize(4096));
   await page.goto("/?debug=agent-file-review");
   await page.locator("[data-chat-drawer-panel] textarea").waitFor();
   await page.evaluate(async () => {

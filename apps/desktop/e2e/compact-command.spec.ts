@@ -1,5 +1,9 @@
 import { expect, test } from "@playwright/test";
 
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => performance.setResourceTimingBufferSize(4096));
+});
+
 for (const provider of ["claude", "pi"] as const) {
   test(`${provider} compact appears as a built-in command and queues its follow-up`, async ({
     page,

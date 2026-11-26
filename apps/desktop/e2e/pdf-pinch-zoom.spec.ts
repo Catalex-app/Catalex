@@ -212,9 +212,13 @@ test("a fitted page smoothly returns to center after pointer-anchored zoom", asy
   );
   const offset = await target.evaluate((el) => {
     const rect = el.getBoundingClientRect();
-    const container = el.closest('[data-testid="pdf-scroll-container"]')!;
-    const bounds = container.getBoundingClientRect();
-    return rect.left + rect.width / 2 - bounds.left - container.clientWidth / 2;
+    // The content area excludes the gutter reserved for the PDF minimap.
+    const content = el.closest("[data-pdf-scroll-content]")!;
+    const area = content.getBoundingClientRect();
+    const styles = getComputedStyle(content);
+    const left = area.left + Number.parseFloat(styles.paddingLeft);
+    const right = area.right - Number.parseFloat(styles.paddingRight);
+    return rect.left + rect.width / 2 - (left + right) / 2;
   });
   expect(Math.abs(offset)).toBeLessThan(2);
   await page.screenshot({ path: test.info().outputPath("center-settle.png") });

@@ -1,11 +1,15 @@
 import { expect, test } from "@playwright/test";
 
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => performance.setResourceTimingBufferSize(4096));
+});
+
 test("Claude permissions show the action and explicit approval scopes", async ({
   page,
 }) => {
   await page.goto("/?debug=agent-pause&provider=claude");
   await expect(
-    page.getByRole("button", { name: "Pause", exact: true }),
+    page.getByRole("button", { name: "Stop", exact: true }),
   ).toBeVisible();
   await page.evaluate(async () => {
     const load = async (name: string) => {

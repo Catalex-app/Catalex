@@ -53,6 +53,7 @@ export function useFullChatReadingPosition({
   editor,
   preview,
   pdf,
+  readSyncedPdfAnchor,
   paneWidth,
   selectMode,
   clearSyncTargets,
@@ -66,6 +67,7 @@ export function useFullChatReadingPosition({
   editor: RefObject<HTMLElement | null>;
   preview: RefObject<HTMLElement | null>;
   pdf: RefObject<PdfReadingAnchorControl | null>;
+  readSyncedPdfAnchor: () => PdfReadingAnchor | undefined;
   paneWidth: (side: WorkspaceContentMode) => number;
   selectMode: (mode: WorkspaceContentMode, fileId?: string) => void;
   clearSyncTargets: () => void;
@@ -178,6 +180,8 @@ export function useFullChatReadingPosition({
     const request: Switch = { mode: next, fileId };
     pending.current = request;
     setPhase("preparing");
+    // A hidden PDF can already be aligned to the current editor scroll.
+    const syncedPdfAnchor = next === "pdf" ? readSyncedPdfAnchor() : undefined;
     clearSyncTargets();
     const previous = saved.current.get(fileId) ?? {};
     const outgoing = read(mode);
@@ -270,7 +274,7 @@ export function useFullChatReadingPosition({
         if (frame) restoreMarkdownPosition(frame, target);
         if (typeof target === "number") request.highlight = target;
       } else {
-        let point = moved ? undefined : previous.pdf;
+        let point = (moved ? undefined : previous.pdf) ?? syncedPdfAnchor;
         if (!point && state.projectRoot && currentFile?.type === "tex") {
           const result = await lookupSourceInPdf(
             state.projectRoot,

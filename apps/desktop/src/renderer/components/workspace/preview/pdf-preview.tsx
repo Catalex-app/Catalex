@@ -54,6 +54,7 @@ import {
   useState,
   useEffect,
   useLayoutEffect,
+  useImperativeHandle,
   useRef,
   useCallback,
   useMemo,
@@ -246,6 +247,7 @@ export function PdfPreview({
   isolatedSnapshot = false,
   toolbarContent,
   panelReadingAnchorRef,
+  syncedReadingAnchorRef,
   syncNavigationRequest: requestedSyncNavigation = null,
   onSyncNavigationHandled,
   scrollSyncEnabled: requestedScrollSyncEnabled = false,
@@ -266,6 +268,9 @@ export function PdfPreview({
   isolatedSnapshot?: boolean;
   toolbarContent?: ReactNode;
   panelReadingAnchorRef?: React.RefObject<PdfReadingAnchorControl | null>;
+  syncedReadingAnchorRef?: React.RefObject<
+    (() => PdfReadingAnchor | undefined) | null
+  >;
   syncNavigationRequest?: {
     id: number;
     direction: "to-editor" | "to-pdf";
@@ -337,6 +342,21 @@ export function PdfPreview({
   useLayoutEffect(() => {
     linkedReadingAnchorRef.current = null;
   }, [projectRoot, activeFile?.id, activeFile?.content, scrollSyncEnabled]);
+  useImperativeHandle(
+    syncedReadingAnchorRef,
+    () => () => {
+      const linked = linkedReadingAnchorRef.current;
+      if (
+        scrollSyncEnabled &&
+        scrollSyncSourceTarget &&
+        linked?.revision === pdfRevision &&
+        linked.sourceRequestId === scrollSyncSourceTarget.id &&
+        linked.source.position === scrollSyncSourceTarget.position
+      )
+        return linked.pdf;
+    },
+    [scrollSyncEnabled, scrollSyncSourceTarget, pdfRevision],
+  );
   const scrollToPageRef = useRef<
     ((page: number, pdfY?: number) => void) | null
   >(null);

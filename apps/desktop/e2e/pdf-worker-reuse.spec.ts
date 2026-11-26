@@ -2,6 +2,10 @@ import { expect, test, type Page } from "@playwright/test";
 
 test.use({ viewport: { width: 1600, height: 1000 } });
 
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => performance.setResourceTimingBufferSize(4096));
+});
+
 async function renderedPage(page: Page) {
   return page.locator('[data-page-number="1"]').evaluate((element) => {
     const canvas = element.querySelector("canvas")!;

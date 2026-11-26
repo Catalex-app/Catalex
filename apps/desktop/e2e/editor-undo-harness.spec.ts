@@ -110,7 +110,7 @@ test("review decisions share undo with typing and survive a file switch", async 
   await page.keyboard.press("ControlOrMeta+Shift+z");
   await expect(accept).toHaveCount(1);
   await page.screenshot({ path: test.info().outputPath("review-undo.png") });
-  await page.getByRole("button", { name: "Accept All ⌘Y" }).click();
+  await page.getByRole("button", { name: "Accept All", exact: true }).click();
   await expect(accept).toHaveCount(0);
   await page.keyboard.press("ControlOrMeta+z");
   await expect(editor).toContainText("old first");
@@ -128,7 +128,7 @@ test("completed draft keeps text undo when returning to the source editor", asyn
   const editor = page.locator(".cm-content");
   await expect(page.locator("#loading-screen")).toHaveCount(0);
   await expect(
-    page.getByRole("button", { name: "Accept All ⌘Y" }),
+    page.getByRole("button", { name: "Accept All", exact: true }),
   ).toBeVisible();
   await page.evaluate(async () => {
     const docPath = "/src/renderer/stores/document-store.ts";
@@ -156,7 +156,7 @@ test("completed draft keeps text undo when returning to the source editor", asyn
       },
     });
   });
-  await page.getByRole("button", { name: "Accept All ⌘Y" }).click();
+  await page.getByRole("button", { name: "Accept All", exact: true }).click();
   await expect(
     page.locator('[data-proposed-changes-panel="true"]'),
   ).toHaveCount(0);

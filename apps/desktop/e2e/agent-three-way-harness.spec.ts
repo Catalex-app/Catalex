@@ -73,6 +73,109 @@ for (const version of ["starting", "current", "agent"] as const) {
   });
 }
 
+test("three-way review keeps edits matching the raw agent draft when its buffer is clean", async ({
+  page,
+}) => {
+  await open(page);
+  const content = page.locator(".cm-content[contenteditable=true]");
+  const source = content.locator(":scope > .cm-line");
+  const rawDraft = (await state(page)).candidate[
+    "/browser-demo/private-worktree/manuscript.md"
+  ];
+  const initialBuffer = await page.evaluate(async () => {
+    const path = "/src/renderer/stores/document-store.ts";
+    const { useDocumentStore } = await import(path);
+    const doc = useDocumentStore.getState();
+    return doc.files.find(
+      (file: { id: string }) => file.id === doc.activeFileId,
+    )?.content;
+  });
+  expect(initialBuffer).toBe(rawDraft);
+  await expect(source.filter({ hasText: "The expanded study" })).toHaveCount(1);
+  const replaceAndMarkClean = async (text: string) => {
+    await content.press("ControlOrMeta+a");
+    await page.keyboard.insertText(text);
+    const saved = await page.evaluate(async () => {
+      const path = "/src/renderer/stores/document-store.ts";
+      const { useDocumentStore } = await import(path);
+      const doc = useDocumentStore.getState();
+      const file = doc.files.find(
+        (file: { id: string }) => file.id === doc.activeFileId,
+      );
+      if (!file) throw new Error("Missing active review buffer");
+      // Isolated drafts don't autosave source files. Reproduce a clean buffer
+      // arriving at the editor after the user has changed this draft.
+      useDocumentStore.setState({
+        files: doc.files.map((candidate: { id: string }) =>
+          candidate.id === file.id ? { ...file, isDirty: false } : candidate,
+        ),
+      });
+      return { content: file.content, dirty: file.isDirty };
+    });
+    expect(saved).toEqual({ content: text, dirty: true });
+  };
+  await replaceAndMarkClean(`${rawDraft}\nMy own note.\n`);
+  await expect(source.filter({ hasText: "My own note." })).toHaveCount(1);
+  await replaceAndMarkClean(rawDraft);
+  await expect(source.filter({ hasText: "The study compares" })).toHaveCount(1);
+  await expect(source.filter({ hasText: "The expanded study" })).toHaveCount(0);
+
+  await page
+    .getByRole("button", { name: "checklist.md", exact: true })
+    .first()
+    .click();
+  await page
+    .getByRole("button", { name: /^manuscript\.md(?:$| )/ })
+    .first()
+    .click();
+  await expect(source.filter({ hasText: "The study compares" })).toHaveCount(1);
+  await expect(source.filter({ hasText: "The expanded study" })).toHaveCount(0);
+});
+
+test("an untouched deleted file placeholder stays empty in the review editor", async ({
+  page,
+}) => {
+  await open(page);
+  await page.evaluate(async () => {
+    const proposalsPath = "/src/renderer/stores/proposed-changes-store.ts";
+    const documentPath = "/src/renderer/stores/document-store.ts";
+    const { useProposedChangesStore } = await import(proposalsPath);
+    const { useDocumentStore } = await import(documentPath);
+    const proposals = useProposedChangesStore.getState();
+    const checklist = proposals.changes.find(
+      (change: { filePath: string }) => change.filePath === "checklist.md",
+    );
+    const doc = useDocumentStore.getState();
+    const file = doc.files.find(
+      (file: { relativePath: string }) => file.relativePath === "checklist.md",
+    );
+    if (!checklist || !file)
+      throw new Error("Missing checklist review fixture");
+    useDocumentStore.setState({
+      files: doc.files.map((candidate: { id: string }) =>
+        candidate.id === file.id
+          ? { ...file, content: checklist.oldContent, isDirty: false }
+          : candidate,
+      ),
+    });
+    useProposedChangesStore.setState({
+      changes: proposals.changes.map((change: { filePath: string }) =>
+        change.filePath === "checklist.md"
+          ? { ...checklist, workspaceChangeKind: "deleted", newContent: "" }
+          : change,
+      ),
+    });
+  });
+  await page
+    .getByRole("button", { name: /^checklist\.md(?:$| )/ })
+    .first()
+    .click();
+  await expect(page.locator(".cm-deletedChunk")).toContainText(
+    "Replication checklist",
+  );
+  await expect(page.locator(".cm-content > .cm-line")).toHaveText("");
+});
+
 test("three-way controls retain independent selections and support undo/redo", async ({
   page,
 }) => {
@@ -144,10 +247,7 @@ test("inline three-way acceptance stays applied when the remaining draft is refi
     .getByRole("button", { name: "Accept", exact: true })
     .click();
   await expect(page.locator("[data-three-way-ancestor]")).toHaveCount(1);
-  const input = page.getByRole("textbox", {
-    name: "Ask me anything",
-    exact: true,
-  });
+  const input = page.locator("textarea[data-chat-composer-input]:visible");
   await input.fill("Refine the remaining interpretation only");
   await page.getByRole("button", { name: "Send", exact: true }).click();
   await expect
@@ -199,10 +299,7 @@ test("applying a clean file keeps conflicts open and permits agent refinement", 
   expect(accepted["/browser-demo/Riverside Study/manuscript.md"]).toContain(
     "20 samples",
   );
-  const input = page.getByRole("textbox", {
-    name: "Ask me anything",
-    exact: true,
-  });
+  const input = page.locator("textarea[data-chat-composer-input]:visible");
   await input.fill(
     "Refine the pending manuscript only; preserve the checklist that I already applied.",
   );

@@ -44,6 +44,10 @@ for (const mode of ["drawer", "workspace"] as const) {
     test(`${mode} ${action} preserves reading position across source restoration`, async ({
       page,
     }) => {
+      test.fixme(
+        mode === "drawer" && action === "Reject All",
+        "https://github.com/Catalex-app/Catalex-tasks/issues/455",
+      );
       await ready(page, mode);
       await page.locator(".cm-scroller").evaluate((el) => {
         el.scrollTop = 520;

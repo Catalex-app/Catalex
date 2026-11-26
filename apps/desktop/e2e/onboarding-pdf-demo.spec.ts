@@ -54,9 +54,16 @@ test("normal-demo PDFs scale with both panel transitions using existing pixels",
               ),
             ).find((el) => el.clientWidth > 1)!;
             const page = scroller.querySelector<HTMLElement>(".mupdf-page")!;
+            const content = scroller.querySelector(
+              "[data-pdf-scroll-content]",
+            )!;
+            const { paddingLeft, paddingRight } = getComputedStyle(content);
             frames.push({
               width: page.getBoundingClientRect().width,
-              viewport: scroller.clientWidth,
+              viewport:
+                scroller.clientWidth -
+                Number.parseFloat(paddingLeft) -
+                Number.parseFloat(paddingRight),
               raster: page.querySelector("canvas")!.width / devicePixelRatio,
               moving:
                 document
@@ -99,7 +106,7 @@ test("normal-demo PDFs scale with both panel transitions using existing pixels",
     expect(morphing.length, name).toBeGreaterThan(3);
     expect(
       Math.max(
-        ...morphing.map((frame) => Math.abs(frame.viewport - 32 - frame.width)),
+        ...morphing.map((frame) => Math.abs(frame.viewport - frame.width)),
       ),
       name,
     ).toBeLessThanOrEqual(1);
@@ -128,6 +135,7 @@ test("normal-demo PDFs scale with both panel transitions using existing pixels",
 test("the normal demo compiles portrait, landscape, and letter sources and their edits", async ({
   page,
 }) => {
+  await page.addInitScript(() => performance.setResourceTimingBufferSize(4096));
   test.setTimeout(60_000);
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("/?onboarding-demo&project");

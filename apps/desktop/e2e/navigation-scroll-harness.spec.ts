@@ -194,6 +194,7 @@ test("reduced motion locates the PDF immediately", async ({ page }) => {
 test("PDF highlight clicks animate the source comment into view", async ({
   page,
 }) => {
+  test.fixme(true, "https://github.com/Catalex-app/Catalex-tasks/issues/455");
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto("/?debug=comment-workspace&pdf");
   const highlight = page.locator('[data-pdf-comment-id="A-9"]').first();

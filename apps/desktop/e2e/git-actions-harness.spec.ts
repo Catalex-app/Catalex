@@ -562,9 +562,14 @@ test("rebase opens a selectable commit graph and runs only after Continue", asyn
     dialog.getByText("Overleaf updates", { exact: true }),
   ).toBeVisible();
   const selectedTargetAuthor = dialog.getByTestId("selected-rebase-author");
-  // Leave the graph tooltip before the animated dialog moves another node
-  // underneath it. A user can likewise move away before choosing another node.
+  // The focused Overleaf tooltip can intercept clicks on the neighboring node.
   await page.mouse.move(0, 0);
+  await dialog.getByRole("button", { name: "Continue", exact: true }).focus();
+  await expect(
+    page
+      .locator('[data-slot="tooltip-content"]')
+      .filter({ hasText: "Overleaf updates" }),
+  ).toBeHidden();
   await dialog.evaluate(async (element) => {
     await Promise.all(
       element
@@ -573,9 +578,11 @@ test("rebase opens a selectable commit graph and runs only after Continue", asyn
     );
   });
   const badgedAuthorBox = await selectedTargetAuthor.boundingBox();
-  await dialog
-    .getByRole("button", { name: "Select aaaaaaa: Shared base" })
-    .click();
+  const sharedBase = dialog.getByRole("button", {
+    name: "Select aaaaaaa: Shared base",
+  });
+  await sharedBase.click();
+  await expect(sharedBase).toHaveAttribute("aria-pressed", "true");
   await dialog.evaluate(async (element) => {
     await Promise.all(
       element

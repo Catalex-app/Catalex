@@ -11,13 +11,20 @@ for (const viewport of [
     await page.setViewportSize(viewport);
     await page.goto("/?debug=input-transfer");
     await expect(page.locator(".cm-editor")).toBeVisible();
-    await page.waitForTimeout(1000);
-    await page.getByRole("tab", { name: "Artisan", exact: true }).click();
-    await expect(page.locator("[data-chat-drawer-overlay]")).toHaveCount(0);
+    const drawer = page.locator("[data-chat-drawer-overlay]");
+    await expect(drawer).toHaveAttribute(
+      "data-composer-transfer-phase",
+      "idle",
+    );
+    const artisan = page.getByRole("tab", { name: "Artisan", exact: true });
+    await artisan.click();
+    await expect(artisan).toHaveAttribute("aria-selected", "true");
+    await expect(drawer).toHaveCount(0);
     // Include slower frame delivery, where provisional layout is more visible.
     const session = await page.context().newCDPSession(page);
     await session.send("Emulation.setCPUThrottlingRate", { rate: 4 });
-    const frames = await page.evaluate(async () => {
+    const duet = page.getByRole("tab", { name: "Duet", exact: true });
+    const frames = await duet.evaluate(async (duet) => {
       const samples: {
         top: number;
         bottom: number;
@@ -26,10 +33,7 @@ for (const viewport of [
         translateY: number;
         phase: string | undefined;
       }[] = [];
-      const duet = Array.from(
-        document.querySelectorAll<HTMLElement>('[role="tab"]'),
-      ).find((tab) => tab.textContent === "Duet");
-      duet?.click();
+      (duet as HTMLButtonElement).click();
       const start = performance.now();
       while (performance.now() - start < 1400) {
         await new Promise(requestAnimationFrame);

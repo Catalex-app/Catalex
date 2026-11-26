@@ -208,7 +208,10 @@ test("Duet workspace expands a live panel and restores the split and chat draft"
   const initial = await chat.boundingBox();
   for (const label of ["PDF", "Chat"]) {
     await page
-      .getByRole("button", { name: `Expand ${label}`, exact: true })
+      .getByRole("button", { name: `More ${label} view actions`, exact: true })
+      .click();
+    await page
+      .getByRole("menuitem", { name: `Expand ${label}`, exact: true })
       .click();
     const expanded = page.getByRole("dialog", {
       name: `${label} expanded`,
@@ -244,7 +247,10 @@ test("Duet workspace expands a live panel and restores the split and chat draft"
     .getByRole("tab", { name: "Editor", exact: true })
     .click();
   await page
-    .getByRole("button", { name: "Expand Editor", exact: true })
+    .getByRole("button", { name: "More Editor view actions", exact: true })
+    .click();
+  await page
+    .getByRole("menuitem", { name: "Expand Editor", exact: true })
     .click();
   const editor = page.getByRole("dialog", {
     name: "Editor expanded",

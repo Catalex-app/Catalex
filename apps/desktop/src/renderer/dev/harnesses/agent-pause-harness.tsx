@@ -23,6 +23,9 @@ ensureDesktopBrowserMocks();
 
 export function AgentPauseHarness() {
   const [calls, setCalls] = useState<string[]>([]);
+  const [setup, setSetup] = useState<"loading" | "ready" | { error: string }>(
+    "loading",
+  );
   const [expanded, setExpanded] = useState(true);
   const [dark, setDark] = useState(false);
   const projectRoot = useDocumentStore((state) => state.projectRoot);
@@ -130,9 +133,19 @@ export function AgentPauseHarness() {
         },
       ],
     });
-    const saved = localStorage.getItem("catalex-project-chats:/pause-project");
-    if (saved) void restoreProjectChats("/pause-project");
-    else
+    let cancelled = false;
+    void (async () => {
+      const saved = await original("desktop:chat:checkpoint-load", {
+        projectRoot: workspace.projectRoot,
+      });
+      if (cancelled) return;
+      if (
+        saved ||
+        localStorage.getItem(`catalex-project-chats:${workspace.projectRoot}`)
+      ) {
+        await restoreProjectChats(workspace.projectRoot);
+        return;
+      }
       useAgentChatStore.setState((state) => {
         const current = {
           ...state.tabs[0],
@@ -184,14 +197,26 @@ export function AgentPauseHarness() {
           isStreaming: true,
         };
       });
+    })().then(
+      () => {
+        if (!cancelled) setSetup("ready");
+      },
+      (error: unknown) => {
+        if (!cancelled) setSetup({ error: String(error) });
+      },
+    );
     const unsubscribe = subscribeProjectChats(console.error);
     return () => {
+      cancelled = true;
       unsubscribe();
       internal.invoke = original;
     };
   }, []);
   useAgentEvents();
 
+  if (setup === "loading") return <p>Preparing the pause fixture…</p>;
+  if (setup !== "ready")
+    return <p role="alert">Pause fixture setup failed: {setup.error}</p>;
   return (
     <div
       className={cn(

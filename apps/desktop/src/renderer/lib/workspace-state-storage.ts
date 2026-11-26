@@ -154,11 +154,11 @@ export async function migrateBrowserWorkspaceState() {
 export function showWorkspaceMigrationNotice(backups: string[]) {
   if (!backups.length) return;
   toast.warning(
-    "Conflicting browser recovery data was backed up. The app is using the saved disk version.",
+    "Browser recovery data was backed up. Catalex will continue with any recovery data already saved on disk.",
     {
       id: "workspace-migration-conflict",
       duration: Infinity,
-      description: `Both copies are preserved in ${backups.join(", ")}`,
+      description: `Recovery backup: ${backups.join(", ")}`,
     },
   );
 }

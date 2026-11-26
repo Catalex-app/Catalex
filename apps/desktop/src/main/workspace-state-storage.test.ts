@@ -97,6 +97,23 @@ describe("workspace recovery files", () => {
     ]);
   });
 
+  it("quarantines malformed browser data and can still migrate other projects", async () => {
+    const { storage } = await setup();
+    const key = "catalex-project-chats:/broken";
+    const invalid = '{"tabs":[broken';
+    const result = await storage.migrate(key, invalid);
+    expect(JSON.parse(await fs.readFile(result!.backupPath, "utf8"))).toEqual({
+      key,
+      browserValue: invalid,
+      diskValue: null,
+    });
+    expect(await storage.migrate(key, invalid)).toEqual(result);
+    expect((await storage.read(key)).value).toBeNull();
+    const healthy = "catalex-project-chats:/healthy";
+    await storage.migrate(healthy, '{"tabs":[]}');
+    expect((await storage.read(healthy)).value).toBe('{"tabs":[]}');
+  });
+
   it("migration retries preserve identical copies and archive conflicts without replacing active data", async () => {
     const { storage } = await setup();
     const legacy = "catalex-project-chats:/unopened/project";

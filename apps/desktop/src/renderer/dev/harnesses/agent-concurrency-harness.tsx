@@ -288,6 +288,9 @@ export function AgentConcurrencyHarness() {
                     void useProposedChangesStore.getState().undoAll()
                   }
                 />
+                <p className="px-4 pt-4 font-mono text-sm">
+                  {visibleChange.filePath}
+                </p>
                 <div className="grid grid-cols-2 gap-4 p-4 font-mono text-sm">
                   <pre>{visibleChange.oldContent}</pre>
                   <pre>{visibleChange.newContent}</pre>

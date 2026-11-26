@@ -24,19 +24,31 @@ for (const extra of process.env.SESSION_ACTIVITY ? [0] : [0, 50]) {
     await cdp.send("Performance.enable");
     await page.evaluate(() => {
       const win = window as any;
-      win.__sessionProbe = { frames: [] as number[], started: 0, completed: 0 };
+      win.__sessionProbe = {
+        frames: [] as number[],
+        ipcCalls: 0,
+        started: 0,
+        completed: 0,
+      };
       const invoke = win.__TAURI_INTERNALS__.invoke;
       win.__TAURI_INTERNALS__.invoke = async (
         command: string,
         ...args: unknown[]
       ) => {
-        if (command !== "update_project_comment")
+        if (
+          command !== "update_project_comment" &&
+          command !== "update_project_comment_anchored" &&
+          command !== "update_project_comment_anchors"
+        )
           return invoke(command, ...args);
-        win.__sessionProbe.started++;
+        const payload = args[0] as { patches?: unknown[] };
+        const count = payload.patches?.length ?? 1;
+        win.__sessionProbe.ipcCalls++;
+        win.__sessionProbe.started += count;
         try {
           return await invoke(command, ...args);
         } finally {
-          win.__sessionProbe.completed++;
+          win.__sessionProbe.completed += count;
         }
       };
       document.addEventListener("keydown", () => {
@@ -79,6 +91,10 @@ for (const extra of process.env.SESSION_ACTIVITY ? [0] : [0, 50]) {
           page.evaluate(() => (window as any).__sessionProbe.completed),
         )
         .toBe(expectedWrites);
+      const ipcCalls = await page.evaluate(
+        () => (window as any).__sessionProbe.ipcCalls,
+      );
+      expect(ipcCalls).toBeLessThanOrEqual((round + 1) * text.length * 2);
       expect((await saved()).map((c: any) => [c.from, c.to])).toEqual(
         initialAnchors,
       );
@@ -142,6 +158,7 @@ for (const extra of process.env.SESSION_ACTIVITY ? [0] : [0, 50]) {
         styles,
         workers,
         writes: expectedWrites,
+        ipcCalls,
       };
       samples.push(sample);
       console.log(JSON.stringify({ extra, ...sample }));

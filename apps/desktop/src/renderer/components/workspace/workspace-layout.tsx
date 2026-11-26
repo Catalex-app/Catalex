@@ -86,7 +86,10 @@ import {
   sourcePositionAtPreviewCenter,
 } from "./reading-position";
 import { useFullChatReadingPosition } from "./use-full-chat-reading-position";
-import type { PdfReadingAnchorControl } from "./preview/pdf-reading-anchor";
+import type {
+  PdfReadingAnchor,
+  PdfReadingAnchorControl,
+} from "./preview/pdf-reading-anchor";
 import { readChatScroll } from "@/components/agent-chat/chat-messages";
 import { CsvTable } from "./preview/csv-table";
 import { ExternalAppSelector } from "./external-app-selector";
@@ -646,6 +649,9 @@ function ProjectWorkspaceLayout() {
   const pdfPanelRef = useRef<HTMLDivElement | null>(null);
   const inlinePdfAnchorRef = useRef<PdfReadingAnchorControl | null>(null);
   const previewPdfAnchorRef = useRef<PdfReadingAnchorControl | null>(null);
+  const syncedPdfReadingAnchorRef = useRef<
+    (() => PdfReadingAnchor | undefined) | null
+  >(null);
   const incomingPanelRef = useRef<HTMLDivElement | null>(null);
   const sidebarTransitionTimerRef = useRef<ReturnType<
     typeof setTimeout
@@ -2661,6 +2667,7 @@ function ProjectWorkspaceLayout() {
     editor: editorPanelRef,
     preview: pdfPanelRef,
     pdf: previewPdfAnchorRef,
+    readSyncedPdfAnchor: () => syncedPdfReadingAnchorRef.current?.(),
     paneWidth: (side) => {
       const panels = editorPanelRef.current
         ?.closest("[data-panel-group]")
@@ -3559,6 +3566,9 @@ function ProjectWorkspaceLayout() {
                                       <PdfPreview
                                         panelReadingAnchorRef={
                                           previewPdfAnchorRef
+                                        }
+                                        syncedReadingAnchorRef={
+                                          syncedPdfReadingAnchorRef
                                         }
                                         layoutTarget={pdfLayoutTargets?.pdf}
                                         aiEnabled={workspaceMode !== "artisan"}

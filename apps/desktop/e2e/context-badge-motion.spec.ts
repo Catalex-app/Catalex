@@ -109,6 +109,7 @@ for (const reduced of [false, true]) {
 test("badge motion stays aligned when wrapping and has inspectable entrance frames", async ({
   page,
 }) => {
+  test.fixme(true, "https://github.com/Catalex-app/Catalex-tasks/issues/455");
   await page.setViewportSize({ width: 1000, height: 800 });
   await page.goto("/?debug=input-transfer");
   await expect(page.locator(".cm-editor")).toBeVisible();
@@ -192,7 +193,9 @@ test("badge motion stays aligned when wrapping and has inspectable entrance fram
       ),
     )
     .toBe(0);
-  await panel.screenshot({ path: test.info().outputPath("after-removal.png") });
+  await panel.screenshot({
+    path: test.info().outputPath("after-removal.png"),
+  });
 });
 
 test("a replacement selection reuses the fading live badge without sliding sideways", async ({

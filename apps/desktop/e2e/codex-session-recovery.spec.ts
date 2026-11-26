@@ -1,6 +1,10 @@
 // @ts-nocheck
 import { test, expect } from "@playwright/test";
 
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => performance.setResourceTimingBufferSize(4096));
+});
+
 test("session recovery requires confirmation and sends the verified owner token", async ({
   page,
 }) => {

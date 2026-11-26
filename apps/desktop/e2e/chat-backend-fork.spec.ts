@@ -2,6 +2,7 @@ import { test, expect } from "@playwright/test";
 test("forks a long saved chat without transferring its complete history", async ({
   page,
 }) => {
+  await page.addInitScript(() => performance.setResourceTimingBufferSize(4096));
   await page.goto("/?debug=agent-file-review");
   const toggle = page.getByRole("button", {
     name: "Toggle drawer",

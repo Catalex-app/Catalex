@@ -158,10 +158,18 @@ export class WorkspaceStateStorage {
 
   async migrate(key: string, value: string) {
     // Retry safely if the app stopped after writing but before deleting browser data.
+    if (typeof value !== "string") throw new Error("Invalid recovery data.");
     const saved = await this.read(key);
-    if (saved.value !== null && saved.value !== value) {
-      // Disk is the active store. Preserve both exact versions before retiring
-      // a browser copy; a stale browser origin must not prevent app startup.
+    let malformed = false;
+    try {
+      JSON.parse(value);
+    } catch (error) {
+      if (!(error instanceof SyntaxError)) throw error;
+      malformed = true;
+    }
+    if (malformed || (saved.value !== null && saved.value !== value)) {
+      // Keep the exact browser text in a verified backup before retiring it.
+      // Malformed browser data must never become active recovery state.
       const backup = JSON.stringify({
         key,
         browserValue: value,
@@ -174,7 +182,7 @@ export class WorkspaceStateStorage {
       );
       await this.writeAtomic(backupPath, backup);
       if ((await fs.readFile(backupPath, "utf8")) !== backup)
-        throw new Error("Could not verify conflicting recovery backup.");
+        throw new Error("Could not verify browser recovery backup.");
       return { backupPath };
     }
     await this.write(key, value, saved.revision);

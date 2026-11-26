@@ -2,8 +2,18 @@ import { expect, test } from "@playwright/test";
 
 for (const provider of ["claude", "codex"]) {
   test(`Continue ignores new context for ${provider}`, async ({ page }) => {
+    await page.addInitScript(() =>
+      performance.setResourceTimingBufferSize(4096),
+    );
     await page.goto(`/?debug=agent-pause&provider=${provider}`);
-    await page.getByRole("button", { name: "Pause", exact: true }).click();
+    await expect(page.getByTestId("pause-status")).toHaveText("working");
+    await page
+      .getByRole("button", { name: "Back to welcome", exact: true })
+      .click();
+    await page
+      .getByRole("button", { name: "Reopen project", exact: true })
+      .click();
+    await expect(page.getByTestId("pause-status")).toHaveText("paused");
     const resume = page.getByRole("button", { name: "Continue", exact: true });
     await expect(resume).toBeVisible();
     await page.evaluate(async () => {

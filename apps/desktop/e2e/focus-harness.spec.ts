@@ -209,21 +209,26 @@ test("sidebar files have exactly one keyboard stop per row", async ({
 }) => {
   await page.goto("/?debug=sidebar-animation");
   const rows = page.locator("[data-sidebar-file-id]");
+  const buttons = page.locator(
+    "button[data-sidebar-file-id], [data-sidebar-file-id] > button",
+  );
   await expect(rows.first()).toBeVisible();
-  expect(await rows.count()).toBeGreaterThan(2);
-  await rows.first().focus();
-  for (let index = 1; index < (await rows.count()); index++) {
+  const count = await rows.count();
+  expect(count).toBeGreaterThan(2);
+  await expect(buttons).toHaveCount(count);
+  await buttons.first().focus();
+  for (let index = 1; index < count; index++) {
     await page.keyboard.press("Tab");
-    await expect(rows.nth(index)).toBeFocused();
-    await expect(rows.nth(index)).toHaveCSS("outline-style", "solid");
+    await expect(buttons.nth(index)).toBeFocused();
+    await expect(buttons.nth(index)).toHaveCSS("outline-style", "solid");
     expect(
-      await rows
+      await buttons
         .nth(index)
         .evaluate((el) => parseFloat(getComputedStyle(el).borderRadius)),
     ).toBeGreaterThan(0);
   }
   await page.keyboard.press("Shift+Tab");
-  await expect(rows.nth((await rows.count()) - 2)).toBeFocused();
+  await expect(buttons.nth(count - 2)).toBeFocused();
   await page.waitForTimeout(250);
   await page.screenshot({ path: "test-results/focus-sidebar-row.png" });
 });

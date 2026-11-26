@@ -71,7 +71,9 @@ On yes, read its full details and mark it `in progress` as work starts. On no, w
 
 ## Finish work
 
-Complete implementation and applicable checks before asking for completion approval. Track the active issue, parent, approval, version choice, applied version, issue updates, commit, and tag so retries do not duplicate work. Use project instructions for checks and version commands; never invent or skip required checks. Stage only task changes and preserve unrelated work. Keep the issue as the historical record. Do not push commits or tags unless requested.
+Complete implementation and applicable checks before asking for completion approval. Track the active issue, parent, approval, version choice, applied version, issue updates, commit, and tag so retries do not duplicate work. Use project instructions for checks and version commands; never invent or skip required checks. Stage only task changes and preserve unrelated work. Keep the issue as the historical record. Approved completion includes a normal push of the current branch other than `main`. Merging into or pushing `main`, creating or pushing tags, and bumping versions require explicit approval through the existing gates.
+
+Before any push, recheck the remote branch. If it has moved ahead or diverged, stop and report for approval before any rebase or merge. Never force-push. Use `--no-follow-tags` unless tags are part of the explicit approval.
 
 Include each completed issue's qualified reference in the commit body, for example: `Catalex-app/Catalex-tasks#338`. One approved commit may cover related issues; do not create empty completion commits for changes already committed.
 
@@ -87,11 +89,11 @@ After checking children, ask these questions in order, skipping any already answ
 
 On no to completion, keep the issue in progress. Otherwise, follow the selected completion path. Merges into other branches do not bump versions or create release tags.
 
-An approved merge includes pushing the verified result. Publishing a draft release requires separate approval.
+An approved merge includes pushing the verified result. Publishing a release requires separate approval.
 
-- Without merging: run the required checks, full build, and packaging, including completed child changes; then commit and close. Do not bump, tag, or push.
+- Without merging, run the required checks, full build, and packaging, including completed child changes. Commit, push the current branch to its remote, then close. Do not bump or tag.
 - With merging: review the full changes against the latest destination branch, clarify unexpected scope, and prepare the merge in a temporary worktree. Commit source changes first if necessary, keeping the issue open. For an approved bump into main, compute it once from the latest main version and update the changelog before running the required checks, full build, and packaging on the merged result. Without a bump, leave versions unchanged.
-- Before completion, recheck direct children using the existing subissue rules. Before pushing, recheck the remote destination branch. If it has advanced, integrate it and repeat verification; if this changes the approved version choice, clarify before continuing. Never force-push the destination branch.
+- Before completion, recheck direct children using the existing subissue rules.
 - After successful verification, push the verified commit to the destination branch and, if bumped, its annotated release tag. Without a bump, create no tag. For a release, confirm the tag workflow prepares the draft successfully.
 - Close the issue only after the selected path succeeds.
 
@@ -113,7 +115,7 @@ On no, keep it `in progress` and wait. For other replies, repeat the gate unless
 
 1. Do not request a version choice, bump, or tag.
 2. Run required non-build checks, tests, rendered UI checks, and harness checks; defer production builds to parent completion.
-3. Commit the completed changes, then remove the child's `in progress` label and close it with reason `completed`.
+3. Commit the completed changes and push the current branch to its remote. Then remove the child's `in progress` label and close it with reason `completed`.
 4. Return to the parent and fetch its children again. If another qualifies, ask exactly: `Continue working on next subissue <identifier> "<title>"? Reply yes or no.` On yes, start it; on no, keep the parent `in progress` and wait. Otherwise, report deferred work and ask the parent completion gate.
 
 ## Recover from uncertain results

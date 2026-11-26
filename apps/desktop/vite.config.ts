@@ -44,7 +44,9 @@ export default defineConfig({
     format: "es",
   },
   optimizeDeps: {
-    include: ["rehype-mathjax/svg"],
+    // Prebundle the lazy spellchecker so opening an editor on a cold server
+    // cannot reload other pages while their workflows are in progress.
+    include: ["@farscrl/hunspell-wasm", "rehype-mathjax/svg"],
     exclude: ["mupdf"],
   },
   esbuild: {

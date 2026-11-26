@@ -169,6 +169,7 @@ import {
   type ProposedChange,
 } from "@/stores/proposed-changes-store";
 import { useAgentChatStore } from "@/stores/agent-chat-store";
+import { useAgentReviewQueueStore } from "@/stores/agent-review-queue-store";
 import { useHistoryStore, type FileDiff } from "@/stores/history-store";
 import { type CompileDiagnostic } from "@/lib/latex-compiler";
 import { useSettingsStore } from "@/stores/settings-store";
@@ -1163,6 +1164,7 @@ interface CachedEditorState extends EditorScrollPosition {
     original: string;
     baseline: EditorHistorySnapshot;
     needsCenter: boolean;
+    editedDraft: boolean;
     threeWayRegions?: readonly ThreeWayRegion[];
     threeWaySelections?: Readonly<
       Record<number, "ancestor" | "current" | "agent">
@@ -1694,6 +1696,7 @@ export function LatexEditor({
   const selectionChipPreviewCompartmentRef = useRef(new Compartment());
   const isMergeActiveRef = useRef(false);
   const pendingChangeRef = useRef<EditorMergeChange | null>(null);
+  const editedDraftRef = useRef(false);
   const pendingHistoryRef = useRef<EditorHistorySnapshot | null>(null);
   const reviewViewportRef = useRef<ReviewViewport | null>(null);
   const editorCacheKey = JSON.stringify([
@@ -3057,6 +3060,7 @@ export function LatexEditor({
               ),
             }));
           } else {
+            editedDraftRef.current = true;
             useDocumentStore
               .getState()
               .updateFileContent(
@@ -3833,6 +3837,7 @@ export function LatexEditor({
                 original: getOriginalDoc(view.state).toString(),
                 baseline: pendingHistoryRef.current,
                 needsCenter: proposalNeedsCenterRef.current,
+                editedDraft: editedDraftRef.current,
                 threeWayRegions: getThreeWayRegions(view.state),
                 threeWaySelections: getThreeWaySelections(view.state),
               }
@@ -4109,6 +4114,19 @@ export function LatexEditor({
       pendingId: pendingChangeRef.current?.id,
     });
     if (!view || !isTextFile) return;
+    const savedEdits = activeMergeChange?.workspaceSessionId
+      ? useAgentReviewQueueStore
+          .getState()
+          .entries.find(
+            ({ session }) =>
+              session.sessionId === activeMergeChange.workspaceSessionId,
+          )?.editedContents
+      : undefined;
+    const hasSavedDraftEdit = Boolean(
+      activeMergeChange &&
+        savedEdits &&
+        Object.prototype.hasOwnProperty.call(savedEdits, activeMergeChange.id),
+    );
 
     if (activeMergeChange && !isMergeActiveRef.current) {
       // Activate merge view: load newContent + enable merge extension in ONE atomic dispatch
@@ -4161,6 +4179,8 @@ export function LatexEditor({
               activeMergeChange.filePath
             ] ?? [],
           );
+      editedDraftRef.current =
+        hasSavedDraftEdit || Boolean(resumeReview && savedReview.editedDraft);
       pendingChangeRef.current = activeMergeChange;
       reviewViewportRef.current = null;
       clearSelectionUiState();
@@ -4281,6 +4301,12 @@ export function LatexEditor({
             (!activeMergeChange.proposalRevision ||
               previous.proposalRevision !==
                 activeMergeChange.proposalRevision)));
+      editedDraftRef.current =
+        hasSavedDraftEdit ||
+        (previous?.id === activeMergeChange.id &&
+          previous.workspaceSessionId ===
+            activeMergeChange.workspaceSessionId &&
+          editedDraftRef.current);
       pendingChangeRef.current = activeMergeChange;
       clearSelectionUiState();
       try {
@@ -4430,14 +4456,21 @@ export function LatexEditor({
     const baseline =
       activeMergeChange.reviewedContent ?? activeMergeChange.oldContent;
     const content = view.state.doc.toString();
-    // A deleted file has a source-text placeholder in the document tree until
-    // review settles. Its untouched proposed document is still empty.
-    const draftContent =
-      activeMergeChange.workspaceChangeKind === "deleted" &&
+    // Untouched draft buffers can hold the raw agent file, or the source-text
+    // placeholder for a deletion. The merge view has its own proposed text
+    // for both cases, including nonconflicting source edits in a three-way review.
+    const buffer = normalizeDocumentText(activeFileContent);
+    const rawDraft = activeFileChange?.newContent;
+    const hasRawDraft =
+      !editedDraftRef.current &&
       !activeFile?.isDirty &&
-      activeFileContent === activeMergeChange.oldContent
-        ? activeMergeChange.newContent
-        : activeFileContent;
+      ((activeMergeChange.conflictContents &&
+        !activeMergeChange.resolvedConflict &&
+        rawDraft !== undefined &&
+        buffer === normalizeDocumentText(rawDraft)) ||
+        (activeMergeChange.workspaceChangeKind === "deleted" &&
+          buffer === normalizeDocumentText(activeMergeChange.oldContent)));
+    const draftContent = hasRawDraft ? activeMergeChange.newContent : buffer;
     if (content === draftContent && original === baseline) return;
     view.dispatch({
       changes: createDocumentChangeSet(content, draftContent),
@@ -4455,6 +4488,7 @@ export function LatexEditor({
   }, [
     activeFileContent,
     activeFile?.isDirty,
+    activeFileChange?.newContent,
     activeMergeChange,
     editorReadyRevision,
   ]);

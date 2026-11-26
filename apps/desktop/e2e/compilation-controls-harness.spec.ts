@@ -6,7 +6,8 @@ async function openPreview(page: Page, empty = false) {
     "data-compile-phase",
     "succeeded",
   );
-  await page.evaluate(() => window.__pdfPreviewHarness?.initialize());
+  await page.waitForFunction(() => !!window.__pdfPreviewHarness);
+  await page.evaluate(() => window.__pdfPreviewHarness!.initialize());
 }
 
 async function openOptions(page: Page) {

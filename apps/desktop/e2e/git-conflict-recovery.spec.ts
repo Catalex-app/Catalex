@@ -405,7 +405,6 @@ for (const scenario of ["delete-incoming", "text"]) {
       ).__resolveGitConflictForHarness(),
     );
     await expect(conflict).not.toBeVisible();
-    await page.getByRole("button", { name: /^Show problems:/ }).click();
     await expect(problems).toBeVisible();
     await expect(page.locator(".cm-lint-marker").first()).toBeVisible();
     await page.evaluate(() =>
@@ -1257,7 +1256,13 @@ test("normal non-editor files show type and size without image controls", async 
     exact: true,
   });
   await expect(header).toHaveText("DAT file · 8 KB");
-  await expect(header.getByRole("button")).toHaveCount(0);
+  await expect(header.getByRole("button")).toHaveCount(1);
+  await expect(
+    header.getByRole("button", {
+      name: "More Editor view actions",
+      exact: true,
+    }),
+  ).toBeVisible();
   await expect(page.locator(".cm-editor")).toHaveCount(0);
   await expect(
     page.getByText("No preview available", { exact: true }),

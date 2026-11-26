@@ -83,9 +83,10 @@ try {
     .poll(() => page.evaluate((key) => localStorage.getItem(key), key))
     .toBeNull();
   await expect(
-    page.getByText("Conflicting browser recovery data was backed up.", {
-      exact: false,
-    }),
+    page.getByText(
+      "Browser recovery data was backed up. Catalex will continue with any recovery data already saved on disk.",
+      { exact: true },
+    ),
   ).toBeVisible();
   const conflictDir = path.join(
     profile,

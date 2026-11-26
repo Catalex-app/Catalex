@@ -6,6 +6,12 @@ test("welcome screen exposes draggable header region", async ({ page }) => {
     pageErrors.push(error.stack || error.message);
   });
 
+  await page.addInitScript(() =>
+    localStorage.setItem(
+      "catalex-onboarding",
+      JSON.stringify({ state: { completed: true, step: 3 }, version: 0 }),
+    ),
+  );
   await page.goto("/", {
     waitUntil: "domcontentloaded",
   });
@@ -13,7 +19,7 @@ test("welcome screen exposes draggable header region", async ({ page }) => {
   await expect(page.getByText("Recent Projects")).toBeVisible();
   const dragRegion = page.locator('[data-welcome-header-drag-region="true"]');
   await expect(dragRegion).toBeVisible();
-  await expect(dragRegion).toHaveAttribute("data-tauri-drag-region", "true");
+  await expect(dragRegion).toHaveAttribute("data-window-drag-region", "true");
 
   await page.screenshot({
     path: "/tmp/catalex-welcome-header-drag-region.png",

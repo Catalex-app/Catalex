@@ -39,7 +39,16 @@ import { useDocumentStore } from "@/stores/document-store";
 const chatCheckpoints = new Map<string, any>();
 function chatCheckpointCommand(cmd: string, args: Record<string, any>) {
   const root = String(args.projectRoot);
-  const previous = chatCheckpoints.get(root);
+  const storageKey = new URLSearchParams(location.search).has(
+    "persistChatCheckpoints",
+  )
+    ? `catalex-browser-checkpoint:${root}`
+    : null;
+  const cached = chatCheckpoints.get(root);
+  const stored =
+    !cached && storageKey ? sessionStorage.getItem(storageKey) : null;
+  const previous = cached ?? (stored ? JSON.parse(stored) : undefined);
+  if (stored) chatCheckpoints.set(root, previous);
   if (cmd === "desktop:chat:checkpoint-load")
     return previous
       ? {
@@ -145,6 +154,7 @@ function chatCheckpointCommand(cmd: string, args: Record<string, any>) {
     return tab;
   });
   chatCheckpoints.set(root, snapshot);
+  if (storageKey) sessionStorage.setItem(storageKey, JSON.stringify(snapshot));
 }
 
 export function ensureDesktopBrowserMocks() {

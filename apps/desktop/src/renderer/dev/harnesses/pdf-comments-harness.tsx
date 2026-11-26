@@ -358,6 +358,7 @@ export function PdfCommentsHarness() {
           <>
             <button
               type="button"
+              disabled={!ready}
               onClick={() =>
                 useDocumentStore.getState().setActiveFile("chapter.tex")
               }
@@ -366,6 +367,7 @@ export function PdfCommentsHarness() {
             </button>
             <button
               type="button"
+              disabled={!ready}
               onClick={() =>
                 useDocumentStore.getState().setActiveFile("main.tex")
               }
@@ -374,6 +376,7 @@ export function PdfCommentsHarness() {
             </button>
             <button
               type="button"
+              disabled={!ready}
               onClick={() => {
                 const state = useDocumentStore.getState();
                 if (bytes)

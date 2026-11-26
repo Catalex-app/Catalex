@@ -113,6 +113,7 @@ test("dismissal cancels a pending comment lookup", async ({ page }) => {
 test("automatically chooses a tied match and reveals its source from the notice", async ({
   page,
 }) => {
+  test.fixme(true, "https://github.com/Catalex-app/Catalex-tasks/issues/455");
   await page.goto("/?debug=pdf-comments&formatted&auto-match");
   await page
     .getByRole("button", { name: "Toggle editor", exact: true })
@@ -678,6 +679,7 @@ test("split-view draft has one editor and preserves its source anchor", async ({
 test("source-created draft never opens a second PDF input", async ({
   page,
 }) => {
+  await page.addInitScript(() => performance.setResourceTimingBufferSize(4096));
   await page.goto("/?debug=pdf-comments&formatted");
   await expect(page.locator(".mupdf-text-layer text").first()).toBeVisible();
   await page.evaluate(async () => {

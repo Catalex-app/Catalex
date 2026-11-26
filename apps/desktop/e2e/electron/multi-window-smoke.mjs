@@ -32,9 +32,8 @@ const errors = [];
 
 async function ready(page) {
   page.on("pageerror", (error) => errors.push(error.message));
-  await page.waitForFunction(
-    () => window.catalex && document.querySelector("#root")?.children.length,
-  );
+  await page.locator("#root > *").first().waitFor({ state: "attached" });
+  await expect.poll(() => page.evaluate(() => !!window.catalex)).toBe(true);
   await page.locator("#loading-screen").waitFor({ state: "hidden" });
   return page;
 }
@@ -114,6 +113,15 @@ try {
   });
   await vite.listen();
   let first = await launch();
+  // Exercise window behavior with a returning user's profile.
+  await first.evaluate(() =>
+    localStorage.setItem(
+      "catalex-onboarding",
+      JSON.stringify({ state: { completed: true, step: 3 }, version: 0 }),
+    ),
+  );
+  await first.reload();
+  await first.locator("#loading-screen").waitFor({ state: "hidden" });
   await first.evaluate(
     async (roots) => {
       const { useProjectStore } = await import(
@@ -134,7 +142,10 @@ try {
     "Currently open",
   );
   await expect(
-    row(second, project).getByRole("button", { name: /^Shared project/ }),
+    row(second, project).getByRole("button", {
+      name: "Go to window",
+      exact: true,
+    }),
   ).toBeEnabled();
   await expect(
     row(second, project).getByRole("button", { name: /Remove/ }),
@@ -146,7 +157,7 @@ try {
   const ownerWindow = await app.browserWindow(first);
   await ownerWindow.evaluate((win) => win.minimize());
   await row(second, project)
-    .getByRole("button", { name: /^Shared project/ })
+    .getByRole("button", { name: "Go to window", exact: true })
     .click();
   await expect
     .poll(() => ownerWindow.evaluate((win) => win.isMinimized()))
@@ -243,7 +254,30 @@ try {
     row(loser, project).getByRole("button", { name: /Remove/ }),
   ).toBeEnabled();
   assert.equal(await openProject(loser, project), null);
+  const corruptKey = `catalex-project-chats:${broken}`;
+  assert.equal(
+    await loser.evaluate((key) => localStorage.getItem(key), corruptKey),
+    "invalid json",
+  );
   const observer = await newWindow(loser);
+  assert.equal(
+    await observer.evaluate((key) => localStorage.getItem(key), corruptKey),
+    null,
+  );
+  const backups = path.join(profile, "workspace-state", "migration-conflicts");
+  const preserved = await Promise.all(
+    (await fs.readdir(backups)).map(async (name) =>
+      JSON.parse(await fs.readFile(path.join(backups, name), "utf8")),
+    ),
+  );
+  assert.deepEqual(
+    preserved.find((backup) => backup.key === corruptKey),
+    {
+      key: corruptKey,
+      browserValue: "invalid json",
+      diskValue: null,
+    },
+  );
   await expect(row(observer, project).locator("td").nth(1)).toHaveText(
     "Currently open",
   );

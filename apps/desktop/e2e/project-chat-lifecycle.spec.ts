@@ -6,7 +6,9 @@ for (const provider of ["codex", "claude"]) {
   }) => {
     const errors: string[] = [];
     page.on("pageerror", (error) => errors.push(error.message));
-    await page.goto(`/?debug=agent-pause&provider=${provider}`);
+    await page.goto(
+      `/?debug=agent-pause&persistChatCheckpoints&provider=${provider}`,
+    );
     await expect(page.getByTestId("pause-status")).toHaveText("working");
     await page.getByRole("button", { name: "Back to welcome" }).click();
     await expect(

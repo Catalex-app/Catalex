@@ -1,5 +1,9 @@
 import { expect, test } from "@playwright/test";
 
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => performance.setResourceTimingBufferSize(4096));
+});
+
 for (const action of ["keepAll", "undoAll"] as const) {
   test(`${action} records a restored draft decision without hydrating the chat`, async ({
     page,

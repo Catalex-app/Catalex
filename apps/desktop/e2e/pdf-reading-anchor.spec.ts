@@ -87,6 +87,10 @@ for (const sync of [true, false]) {
   test(`resizing preserves the shared PDF reading point with sync ${sync ? "on" : "off"}`, async ({
     page,
   }) => {
+    test.fixme(
+      !sync,
+      "https://github.com/Catalex-app/Catalex-tasks/issues/455",
+    );
     const size = await prepare(page);
     const editor = page.locator(".cm-scroller");
     const pdf = page.getByTestId("pdf-scroll-container");

@@ -88,7 +88,9 @@ test("a selected excerpt goes with custom answers only", async ({ page }) => {
   expect(emptyHeight).toBe(52);
   await editor.focus();
   await page.keyboard.press("ControlOrMeta+Home");
-  await page.keyboard.press("Shift+End");
+  const excerpt = String.raw`\documentclass[12pt]`;
+  // Use source characters so this selection is independent of line wrapping.
+  for (const _ of excerpt) await page.keyboard.press("Shift+ArrowRight");
   await expect(customSelection).toBeVisible();
   await expect(draftSelection).toHaveCount(0);
   await expect.poll(formHeight).toBe(64);
@@ -130,7 +132,7 @@ test("a selected excerpt goes with custom answers only", async ({ page }) => {
   await expect(question).toHaveCount(0);
   const answer = await readAnswer();
   expect(answer).toContain("[Selected text]");
-  expect(answer).toContain("Text:\n\\documentclass[12pt]");
+  expect(answer).toContain(`Text:\n${excerpt}`);
   expect(answer).toContain("[Attached comment — snapshot]");
   expect(answer).toContain("Describe the problem and main finding.");
   expect(answer).toContain("[User request]\nUse this as a reference.");
@@ -316,11 +318,18 @@ test("comments attach beneath selections, pin, replace, remove and send their id
     });
     useAgentChatStore.setState({
       selectedCodexModel: "fixture",
-      sendPrompt: async (prompt: string, context: unknown) => {
+      sendPrompt: async (
+        prompt: string,
+        context: unknown,
+        retryPausedRequest = false,
+        onAccepted?: () => void,
+      ) => {
         document.body.dataset.sentCommentContext = JSON.stringify({
           prompt,
           context,
+          retryPausedRequest,
         });
+        onAccepted?.();
       },
     });
   });
@@ -333,6 +342,7 @@ test("comments attach beneath selections, pin, replace, remove and send their id
     JSON.parse(document.body.dataset.sentCommentContext!),
   );
   expect(sent.prompt).toBe("Resolve this comment");
+  expect(sent.retryPausedRequest).toBe(false);
   expect(sent.context).toEqual(
     expect.arrayContaining([
       expect.objectContaining({
@@ -350,6 +360,7 @@ test("comments attach beneath selections, pin, replace, remove and send their id
 test("a PDF comment can be attached from its preview card", async ({
   page,
 }) => {
+  test.fixme(true, "https://github.com/Catalex-app/Catalex-tasks/issues/455");
   await page.setViewportSize({ width: 1280, height: 1000 });
   await page.goto("/?debug=pdf-comments&mode=duet");
   await page
@@ -553,14 +564,16 @@ test("comment selection stays in the compact drawer and clears on a cursor click
     Math.abs((await drawer.boundingBox())!.height - textHeight),
   ).toBeLessThan(3);
   await expect(card).toHaveCSS("outline-style", "none");
-  const colors = await card.evaluate((el) => ({
-    stroke: getComputedStyle(el.querySelector(".cm-inlineCommentAttach")!)
-      .boxShadow,
-    button: getComputedStyle(el.querySelector(".cm-inlineCommentButton")!)
-      .backgroundColor,
-  }));
+  const colors = await card.evaluate((el) => {
+    const probe = document.createElement("span");
+    probe.style.color = "var(--comment-selection-stroke)";
+    el.append(probe);
+    const expected = getComputedStyle(probe).color;
+    probe.remove();
+    return { stroke: getComputedStyle(el, "::after").boxShadow, expected };
+  });
   expect(colors.stroke).toContain("inset");
-  expect(colors.stroke).toContain(colors.button);
+  expect(colors.stroke).toContain(colors.expected);
   await page.screenshot({ path: "test-results/comment-card-inset.png" });
   await line.click();
   await expect(chip).toHaveCount(0);

@@ -2,6 +2,7 @@ import { test, expect } from "@playwright/test";
 test("files and pathless screenshots attach while viewing a draft", async ({
   page,
 }) => {
+  await page.addInitScript(() => performance.setResourceTimingBufferSize(4096));
   await page.goto("/?debug=agent-pause&provider=claude");
   await expect(
     page.getByRole("button", { name: "Stop", exact: true }),
