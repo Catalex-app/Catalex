@@ -104,9 +104,13 @@ jobs:
       - run: cargo test --locked --manifest-path packages/document-core/Cargo.toml
 
   browser-core:
-    name: Core browser tests
+    name: Core browser tests (shard ${{ matrix.shard }}/3)
     runs-on: macos-latest
     timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
     env:
       HOMEBREW_NO_AUTO_UPDATE: "1"
     steps:
@@ -114,11 +118,15 @@ jobs:
         with:
           persist-credentials: false
       - uses: ./.github/actions/setup-playwright
-      - name: Run core tests
-        run: pnpm -C apps/desktop exec playwright test -c playwright.config.ts --grep '@core\b' --workers=3 --reporter=line,github
+      - name: Run core browser shard
+        env:
+          SHARD: ${{ matrix.shard }}
+        run: |
+          pnpm -C apps/desktop exec playwright test -c playwright.config.ts \
+            --grep '@core\b' --shard="$SHARD/3" --workers=1 --reporter=line,github
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: failure()
         with:
-          name: browser-core-failures
+          name: browser-core-shard-${{ matrix.shard }}-failures
           path: apps/desktop/test-results/
           retention-days: 7
