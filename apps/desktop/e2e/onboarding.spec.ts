@@ -197,7 +197,11 @@ test("Antigravity works in onboarding when the other CLIs are missing", async ({
       }
       return {
         installed: true,
-        models: [{ value: "gemini-fixture", label: "Gemini Fixture" }],
+        models: [
+          { value: "gemini-fixture-high", label: "Gemini Fixture (High)" },
+          { value: "gemini-fixture-medium", label: "Gemini Fixture (Medium)" },
+          { value: "gemini-pro-orchestrator", label: "Orchestrator (Carbon)" },
+        ],
       };
     };
   });
@@ -205,6 +209,9 @@ test("Antigravity works in onboarding when the other CLIs are missing", async ({
   const panel = page.locator("#onboarding-agent-panel");
   await expect(panel.getByText("Antigravity CLI not found")).toBeVisible();
   await expect(panel.getByText("Use Antigravity by default")).toHaveCount(0);
+  await expect(
+    panel.getByRole("combobox", { name: "Agent permission" }),
+  ).toHaveCount(0);
   await panel.getByRole("button", { name: "Retry" }).click();
   const ready = { name: "Ready", exact: true };
   await expect(tab.getByRole("img", ready)).toBeVisible();
@@ -215,6 +222,39 @@ test("Antigravity works in onboarding when the other CLIs are missing", async ({
   await expect(model).toHaveText("CLI default");
   await model.click();
   await page.getByRole("option", { name: "Gemini Fixture" }).click();
+  const level = panel.getByRole("combobox", { name: "Thinking level" });
+  await expect(level).toHaveText("Medium");
+  await level.click();
+  await page.getByRole("option", { name: "High", exact: true }).click();
+  await expect(level).toHaveText("High");
+  await model.click();
+  await page.getByRole("option", { name: "Orchestrator (Carbon)" }).click();
+  await expect(level).toHaveText("Default");
+  await level.click();
+  await expect(page.getByRole("option")).toHaveText(["Default"]);
+  await page.getByRole("option", { name: "Default", exact: true }).click();
+  const permission = panel.getByRole("combobox", { name: "Agent permission" });
+  await expect(permission).toHaveText("Approve for me");
+  await permission.click();
+  await expect(page.getByRole("option")).toHaveText([
+    "Ask for approval",
+    "Allow edits",
+    "Approve for me",
+    "Same as CLI setting",
+  ]);
+  await page
+    .getByRole("option", { name: "Ask for approval", exact: true })
+    .click();
+  await expect(permission).toHaveText("Ask for approval");
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          JSON.parse(localStorage.getItem("catalex-settings") ?? "{}").state
+            ?.agentPermissions?.antigravity,
+      ),
+    )
+    .toBe("default");
   await expect(page.getByText("Continue (no agent available)")).toHaveCount(0);
 });
 

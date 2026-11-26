@@ -9,11 +9,13 @@ import {
 } from "@/lib/pi-models";
 import { PRODUCT_NAME } from "../../branding";
 import {
+  ProviderPermissionSettings,
   ProviderSettings,
   ProviderSetupStatus,
   ProviderToggle,
 } from "./provider-toggle";
 import { useAntigravitySetupStore } from "@/stores/antigravity-setup-store";
+import { antigravityDropdowns } from "@/lib/antigravity-models";
 import { finishWithCatHandoff } from "@/lib/cat-handoff";
 import { MissingInstallationCard } from "@/components/missing-installation-card";
 import { OnboardingTitle } from "@/components/onboarding-title";
@@ -146,6 +148,11 @@ export function Onboarding() {
     ({ value }) =>
       !settings.enabledProviders[value] || agents[value].status !== "ready",
   );
+  const agy = antigravityDropdowns(
+    settings.antigravityModel,
+    antigravity.models,
+    (value) => useSettingsStore.setState({ antigravityModel: value }),
+  );
   const models = {
     pi: pi.models.map((m) => ({
       value: piModelValue(m),
@@ -168,10 +175,7 @@ export function Onboarding() {
     pi: settings.setDefaultPiModel,
     claude: settings.setDefaultClaudeModel,
     codex: settings.setDefaultCodexModel,
-    antigravity: (value: string) =>
-      useSettingsStore.setState({
-        antigravityModel: value,
-      }),
+    antigravity: agy.model.onChange,
   }[provider];
   const modelOptions =
     model && !models.some((option) => option.value === model)
@@ -724,16 +728,20 @@ export function Onboarding() {
                         defaultLabel="Default provider"
                         model={
                           agent.status === "ready"
-                            ? {
-                                value: model,
-                                onChange: setModel,
-                                disabled: !models.length,
-                                placeholder:
-                                  provider === "antigravity"
-                                    ? "CLI default"
-                                    : "Select…",
-                                options: models.length ? modelOptions : [],
-                              }
+                            ? provider === "antigravity"
+                              ? agy.model
+                              : {
+                                  value: model,
+                                  onChange: setModel,
+                                  disabled: !models.length,
+                                  placeholder: "Select…",
+                                  options: models.length ? modelOptions : [],
+                                }
+                            : undefined
+                        }
+                        effort={
+                          provider === "antigravity" && agent.status === "ready"
+                            ? agy.effort
                             : undefined
                         }
                       />
@@ -795,6 +803,9 @@ export function Onboarding() {
                             />
                           </SettingsRow>
                         )}
+                      {agent.status !== "not-installed" && (
+                        <ProviderPermissionSettings provider={provider} />
+                      )}
                       {"modelsError" in agent && agent.modelsError && (
                         <p
                           role="status"

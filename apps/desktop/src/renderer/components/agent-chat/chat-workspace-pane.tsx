@@ -17,6 +17,10 @@ import {
   lastCommunicationDetails,
 } from "@/stores/agent-chat-store";
 import { formatClaudeModelName } from "@/lib/claude-models";
+import {
+  antigravityHistoryModelLabel,
+  groupAntigravityModels,
+} from "@/lib/antigravity-models";
 import { formatCodexModelName, codexEffortLabel } from "@/lib/codex-models";
 import { piModelLabel } from "@/lib/pi-models";
 import { useClaudeSetupStore } from "@/stores/claude-setup-store";
@@ -80,6 +84,9 @@ export function ChatWorkspacePane({
   const antigravityStatus = useAntigravitySetupStore((s) =>
     !provider && selectedProvider === "antigravity" ? s.status : undefined,
   );
+  const antigravityModels = useAntigravitySetupStore((s) =>
+    provider === "antigravity" ? s.models : undefined,
+  );
   const setupStatus =
     claudeStatus ?? codexStatus ?? piStatus ?? antigravityStatus;
   const readiness =
@@ -100,12 +107,17 @@ export function ChatWorkspacePane({
       : provider === "pi"
         ? piModelLabel(lastExchange.model)
         : provider === "antigravity"
-          ? lastExchange.model
+          ? antigravityHistoryModelLabel(
+              groupAntigravityModels(antigravityModels ?? []),
+              lastExchange.model,
+            )
           : formatCodexModelName(lastExchange.model)
     : undefined;
   const details = [
     model,
-    lastExchange?.effort ? codexEffortLabel(lastExchange.effort) : undefined,
+    provider !== "antigravity" && lastExchange?.effort
+      ? codexEffortLabel(lastExchange.effort)
+      : undefined,
   ]
     .filter(Boolean)
     .join(" · ");

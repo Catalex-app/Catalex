@@ -5,10 +5,12 @@ export function OverlappingIcon({
   icon: Icon,
   nextIcon: NextIcon,
   maskClassName,
+  haloWidth = 5,
 }: {
   icon: LucideIcon;
   nextIcon: LucideIcon;
-  maskClassName: string;
+  maskClassName?: string;
+  haloWidth?: number;
 }) {
   const id = useId();
   return (
@@ -37,7 +39,7 @@ export function OverlappingIcon({
             height={24}
             fill="black"
             stroke="black"
-            strokeWidth={5}
+            strokeWidth={haloWidth}
           />
         </mask>
       </defs>

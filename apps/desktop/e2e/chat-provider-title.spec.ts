@@ -702,6 +702,28 @@ test("each chat pop-out remains pinned while the owner changes chats", async ({
 test("Antigravity is opt-in and labels the selected model in Full chat", async ({
   page,
 }) => {
+  const models = [
+    { value: "gemini-fixture-high", label: "Gemini Fixture (High)" },
+    { value: "gemini-fixture-medium", label: "Gemini Fixture (Medium)" },
+    { value: "gemini-pro-orchestrator-neon", label: "Orchestrator (Neon)" },
+  ];
+  const retiredModel = "gemini-fixture-retired";
+  const setAntigravityModel = (id: string) =>
+    page.evaluate(async (value) => {
+      const url = performance
+        .getEntriesByType("resource")
+        .find((entry) =>
+          new URL(entry.name).pathname.endsWith("/settings-store.ts"),
+        )!.name;
+      const { useSettingsStore } = await import(/* @vite-ignore */ url);
+      useSettingsStore.setState({ antigravityModel: value });
+    }, id);
+  const savedAntigravityModel = () =>
+    page.evaluate(
+      () =>
+        JSON.parse(localStorage.getItem("catalex-settings") ?? "{}").state
+          ?.antigravityModel,
+    );
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("/?debug=claude-models&section=agent&provider=antigravity");
   const tabs = page.getByRole("tablist", { name: "Agent provider" });
@@ -717,20 +739,18 @@ test("Antigravity is opt-in and labels the selected model in Full chat", async (
   await expect(tabs.getByRole("tab", { name: /^Antigravity/ })).toBeFocused();
   const enable = page.getByRole("switch", { name: "Enable Antigravity" });
   await expect(enable).toHaveAttribute("aria-checked", "false");
-  await page.evaluate(() => {
+  await page.evaluate((catalog) => {
     const bridge = (window as Window & { __TAURI_INTERNALS__: BrowserHarness })
       .__TAURI_INTERNALS__;
     const invoke = bridge.invoke;
     let empty = true;
     bridge.invoke = async (command, args) => {
       if (command !== "check_antigravity_status") return invoke(command, args);
-      const models = empty
-        ? []
-        : [{ value: "gemini-fixture-high", label: "Gemini Fixture (High)" }];
+      const models = empty ? [] : catalog;
       empty = false;
       return { installed: true, models };
     };
-  });
+  }, models);
   for (const name of ["Codex", "Claude Code", "Pi"]) {
     await page.getByRole("tab", { name: new RegExp(`^${name}\\b`) }).click();
     const toggle = page.getByRole("switch", { name: `Enable ${name}` });
@@ -746,8 +766,32 @@ test("Antigravity is opt-in and labels the selected model in Full chat", async (
   await expect(defaultModel).toHaveText("CLI default");
   await expect(defaultModel).toBeDisabled();
   await settings.getByRole("button", { name: "Retry" }).click();
+  await expect(defaultModel).toBeEnabled();
+  await setAntigravityModel(retiredModel);
+  await expect(defaultModel).toHaveText(`${retiredModel} (saved default)`);
+  await expect.poll(savedAntigravityModel).toBe(retiredModel);
   await defaultModel.click();
-  await page.getByRole("option", { name: "Gemini Fixture (High)" }).click();
+  await page
+    .getByRole("option", { name: "Gemini Fixture", exact: true })
+    .click();
+  const level = settings.getByRole("combobox", { name: "Thinking level" });
+  await expect(level).toHaveText("Medium");
+  await level.click();
+  await page.getByRole("option", { name: "High", exact: true }).click();
+  await expect.poll(savedAntigravityModel).toBe("gemini-fixture-high");
+  await defaultModel.click();
+  await page
+    .getByRole("option", { name: "Orchestrator (Neon)", exact: true })
+    .click();
+  await expect(level).toHaveText("Default");
+  await level.click();
+  await expect(page.getByRole("option")).toHaveText(["Default"]);
+  await page.getByRole("option", { name: "Default", exact: true }).click();
+  await defaultModel.click();
+  await page
+    .getByRole("option", { name: "Gemini Fixture", exact: true })
+    .click();
+  await expect(level).toHaveText("Medium");
   await expect(settings.getByText("Antigravity executable")).toHaveCount(0);
   await page.getByRole("tab", { name: /^Codex/ }).click();
   await page.getByRole("switch", { name: "Enable Codex" }).click();
@@ -764,7 +808,7 @@ test("Antigravity is opt-in and labels the selected model in Full chat", async (
     "data-composer-transfer-phase",
     "idle",
   );
-  await page.evaluate(async () => {
+  await page.evaluate(async (catalog) => {
     const url = performance
       .getEntriesByType("resource")
       .find(
@@ -776,10 +820,13 @@ test("Antigravity is opt-in and labels the selected model in Full chat", async (
     useAntigravitySetupStore.setState({
       status: "ready",
       error: null,
-      models: [
-        { value: "gemini-fixture-high", label: "Gemini Fixture (High)" },
-      ],
+      models: catalog,
       options: [
+        {
+          category: "model",
+          currentValue: "gemini-fixture",
+          options: [{ value: "gemini-fixture", name: "Gemini Fixture" }],
+        },
         {
           category: "thought_level",
           currentValue: "high",
@@ -787,19 +834,58 @@ test("Antigravity is opt-in and labels the selected model in Full chat", async (
         },
       ],
     });
-  });
+  }, models);
   await pane.getByRole("button", { name: /Model settings/ }).click();
   await page
     .getByRole("group", { name: "Provider", exact: true })
     .getByRole("button", { name: "Antigravity", exact: true })
     .click();
+  await setAntigravityModel(retiredModel);
+  await expect(
+    page.getByRole("button", {
+      name: `${retiredModel} (saved default)`,
+      exact: true,
+    }),
+  ).toHaveClass(/bg-accent/);
+  await expect.poll(savedAntigravityModel).toBe(retiredModel);
+  await setAntigravityModel("");
   const model = page.getByRole("button", {
-    name: "Gemini Fixture (High)",
+    name: "Gemini Fixture",
     exact: true,
   });
-  await model.click();
   await expect(model).toHaveClass(/bg-accent/);
-  await expect(page.getByRole("group", { name: "Effort" })).toHaveCount(0);
+  const effort = page.getByRole("group", { name: "Effort" });
+  await expect(effort.locator('[aria-pressed="true"]')).toHaveCount(0);
+  await expect.poll(savedAntigravityModel).toBe("");
+  await model.click();
+  await expect(effort.getByRole("button")).toHaveText(["M", "H"]);
+  const orchestrator = page.getByRole("button", {
+    name: "Orchestrator (Neon)",
+    exact: true,
+  });
+  await orchestrator.click();
+  await expect(orchestrator).toHaveClass(/bg-accent/);
+  await expect(effort.getByRole("button")).toHaveText(["Default"]);
+  await expect(effort.getByRole("button", { name: "Default" })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          JSON.parse(localStorage.getItem("catalex-settings") ?? "{}").state
+            ?.antigravityModel,
+      ),
+    )
+    .toBe("gemini-pro-orchestrator-neon");
+  await model.click();
+  await expect(effort.getByRole("button", { name: "Medium" })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  await effort.getByRole("button", { name: "High" }).click();
+  await expect.poll(savedAntigravityModel).toBe("gemini-fixture-high");
   await page.keyboard.press("Escape");
   await pane.getByRole("button", { name: "Permission", exact: true }).click();
   const menu = page.getByRole("group", { name: "Agent permission" });
@@ -880,9 +966,9 @@ test("Antigravity is opt-in and labels the selected model in Full chat", async (
   ).toHaveText("Antigravity");
   await expect(
     pane.locator("[data-chat-title-current] [data-chat-last-model]"),
-  ).toHaveText("gemini-fixture-high");
+  ).toHaveText("Gemini Fixture · High");
   await expect(pane.locator("[data-chat-model-divider]").last()).toHaveText(
-    "Antigravity · gemini-fixture-high",
+    "Antigravity · Gemini Fixture · High",
   );
 });
 
@@ -1062,7 +1148,7 @@ test("provider and writing permissions share one menu and a paused draft shows i
   });
 });
 
-test("the composer overlaps permission icons only when space is tight and lists Pi last", async ({
+test("the composer overlaps permission icons at both widths and lists Pi last", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -1077,6 +1163,7 @@ test("the composer overlaps permission icons only when space is tight and lists 
   const button = pane.getByRole("button", { name: "Permission", exact: true });
   const writing = button.locator(":scope > svg");
   const mask = button.locator("g[mask]");
+  const halo = button.locator("mask > svg");
   const gap = () =>
     button.evaluate((trigger) => {
       const [agent, writing] = Array.from(trigger.children, (icon) =>
@@ -1084,11 +1171,13 @@ test("the composer overlaps permission icons only when space is tight and lists 
       );
       return Math.round(writing.left - agent.right);
     });
-  await expect.poll(gap).toBe(2);
-  await expect(mask).toHaveCSS("mask-image", "none");
+  await expect.poll(gap).toBe(-6);
+  await expect(mask).toHaveCSS("mask-image", /^url\(/);
+  await expect(halo).toHaveAttribute("stroke-width", "9");
   await page.setViewportSize({ width: 345, height: 900 });
   await expect.poll(gap).toBe(-6);
   await expect(mask).toHaveCSS("mask-image", /^url\(/);
+  await expect(halo).toHaveAttribute("stroke-width", "9");
   await expect(writing).toBeVisible();
 
   await page.setViewportSize({ width: 1440, height: 900 });

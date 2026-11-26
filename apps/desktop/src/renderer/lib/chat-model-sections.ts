@@ -3,6 +3,10 @@ import type {
   ChatProvider,
 } from "@/stores/agent-chat-store";
 import { formatClaudeModelName } from "./claude-models";
+import {
+  antigravityHistoryModelLabel,
+  type AntigravityModelGroup,
+} from "./antigravity-models";
 import { codexEffortLabel, formatCodexModelName } from "./codex-models";
 import { piModelLabel } from "./pi-models";
 
@@ -57,6 +61,7 @@ export function startsChatModelSection(
 export function chatModelSectionLabels(
   messages: AgentStreamMessage[],
   historyStart = 0,
+  antigravityModels: readonly AntigravityModelGroup[] = [],
 ) {
   let previous: Settings | undefined;
   return messages.map((message) => {
@@ -83,13 +88,13 @@ export function chatModelSectionLabels(
         : settings.provider === "codex"
           ? formatCodexModelName(settings.model)
           : settings.provider === "antigravity"
-            ? settings.model
+            ? antigravityHistoryModelLabel(antigravityModels, settings.model)
             : piModelLabel(settings.model)
       : undefined;
     return [
       provider,
       model,
-      settings.reasoningEffort
+      settings.provider !== "antigravity" && settings.reasoningEffort
         ? codexEffortLabel(settings.reasoningEffort)
         : undefined,
     ]

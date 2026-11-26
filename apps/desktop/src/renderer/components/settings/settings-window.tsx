@@ -15,11 +15,13 @@ import {
   normalizeSpellingLanguage,
 } from "@/lib/spelling/types";
 import {
+  ProviderPermissionSettings,
   ProviderSettings,
   ProviderSetupStatus,
   ProviderToggle,
 } from "@/components/provider-toggle";
 import { HARNESSES, PROVIDER_ORDER } from "@/lib/agent-harness";
+import { antigravityDropdowns } from "@/lib/antigravity-models";
 import { SettingsSwitch } from "./settings-switch";
 export { SettingsSwitch } from "./settings-switch";
 import { useOnboardingStore } from "@/stores/onboarding-store";
@@ -142,8 +144,6 @@ import {
   type CatDisplayTimezone,
   type CatStaticDisplay,
   type CompilerBackend,
-  AGENT_CLI_PERMISSION_OPTION,
-  AGENT_PERMISSION_OPTIONS,
   type CompilerEngine,
   type CodexModelId,
   type CodexReasoningEffort,
@@ -867,6 +867,11 @@ export function SettingsWindow() {
   const pi = usePiSetupStore();
   const antigravity = useAntigravitySetupStore();
   const antigravityModel = useSettingsStore((s) => s.antigravityModel);
+  const agy = antigravityDropdowns(
+    antigravityModel,
+    antigravity.models,
+    (value) => useSettingsStore.setState({ antigravityModel: value }),
+  );
   const antigravityEnabled = useSettingsStore(
     (s) => s.enabledProviders.antigravity,
   );
@@ -1009,8 +1014,6 @@ export function SettingsWindow() {
     }
     return options;
   }, [defaultCodexModelInfo, defaultCodexReasoningEffort]);
-  const agentPermissions = useSettingsStore((s) => s.agentPermissions);
-  const setAgentPermission = useSettingsStore((s) => s.setAgentPermission);
   const defaultAgentExecutionMode = useSettingsStore(
     (s) => s.defaultAgentExecutionMode,
   );
@@ -2592,17 +2595,13 @@ export function SettingsWindow() {
                                       disabled: pi.modelsStatus !== "ready",
                                       onChange: setDefaultPiModel,
                                     },
-                                    antigravity: {
-                                      value: antigravityModel,
-                                      options: antigravity.models,
-                                      disabled: !antigravity.models.length,
-                                      placeholder: "CLI default",
-                                      onChange: (value: string) =>
-                                        useSettingsStore.setState({
-                                          antigravityModel: value,
-                                        }),
-                                    },
+                                    antigravity: agy.model,
                                   }[agentProvider]
+                                }
+                                effort={
+                                  agentProvider === "antigravity"
+                                    ? agy.effort
+                                    : undefined
                                 }
                               />
                               {agentProvider === "claude" && (
@@ -2761,29 +2760,9 @@ export function SettingsWindow() {
                                   />
                                 </div>
                               )}
-                              {agentProvider !== "pi" && (
-                                <SettingsRow title="Agent permission">
-                                  <SettingsDropdown
-                                    ariaLabel="Agent permission"
-                                    value={
-                                      agentPermissions[agentProvider] ??
-                                      (agentProvider === "codex"
-                                        ? "never"
-                                        : "auto")
-                                    }
-                                    options={[
-                                      ...AGENT_PERMISSION_OPTIONS[
-                                        agentProvider
-                                      ],
-                                      AGENT_CLI_PERMISSION_OPTION,
-                                    ]}
-                                    onChange={(value) => {
-                                      setAgentPermission(agentProvider, value);
-                                      broadcastSettingsChanged();
-                                    }}
-                                  />
-                                </SettingsRow>
-                              )}
+                              <ProviderPermissionSettings
+                                provider={agentProvider}
+                              />
                             </div>
                           </div>
                         </SettingsGroup>

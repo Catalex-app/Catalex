@@ -8,6 +8,8 @@ import { useLibraryPromptsExpanded } from "@/hooks/use-library-prompts-expanded"
 import { RoundElapsedTime } from "./round-elapsed-time";
 import { Separator } from "@/components/ui/separator";
 import { chatModelSectionLabels } from "@/lib/chat-model-sections";
+import { groupAntigravityModels } from "@/lib/antigravity-models";
+import { useAntigravitySetupStore } from "@/stores/antigravity-setup-store";
 import { providerStatusLabel } from "@/lib/agent-provider-status";
 import { useSettingsStore } from "@/stores/settings-store";
 import { formatRoundDuration } from "@/lib/agent-round-timing";
@@ -376,9 +378,18 @@ const ChatMessagesForTab: FC<
     return map;
   }, [messages]);
 
+  const agyModels = useAntigravitySetupStore((s) => s.models);
+  const agyGroups = useMemo(
+    () => groupAntigravityModels(agyModels),
+    [agyModels],
+  );
   // Filter displayable messages
   const displayMessages = useMemo(() => {
-    const sectionLabels = chatModelSectionLabels(messages, history?.start ?? 0);
+    const sectionLabels = chatModelSectionLabels(
+      messages,
+      history?.start ?? 0,
+      agyGroups,
+    );
     // Collect all assistant text for dedup against result
     const assistantTexts = new Set<string>();
     for (const msg of messages) {
@@ -418,7 +429,7 @@ const ChatMessagesForTab: FC<
         }
         return true;
       });
-  }, [messages, history?.start]);
+  }, [messages, history?.start, agyGroups]);
 
   const beforeSearchScroll = useCallback(() => {
     userScrolled.current = true;

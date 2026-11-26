@@ -5,6 +5,13 @@ import { PromptSuggestions } from "./prompt-suggestions";
 import { PRODUCT_NAME } from "../../../branding";
 import { isPromptSelection } from "@/lib/prompt-library";
 import { useAntigravitySetupStore } from "@/stores/antigravity-setup-store";
+import {
+  findAntigravityModel,
+  groupAntigravityModels,
+  pickAntigravityModel,
+  savedAntigravityModelLabel,
+  selectAntigravityModel,
+} from "@/lib/antigravity-models";
 import { usePiSetupStore } from "@/stores/pi-setup-store";
 import {
   findPiModel,
@@ -403,6 +410,7 @@ export function getMentionFileMatches(
 }
 
 function effortShortLabel(level: string): string {
+  if (level === "default") return "Default";
   if (level === "off") return "Off";
   if (level === "low") return "L";
   if (level === "medium") return "M";
@@ -558,12 +566,26 @@ export const ChatComposer: FC<{
   const agyModels = antigravity.options.find(
     (option) => option.category === "model",
   );
-  const agyModel = antigravityModel || agyModels?.currentValue;
-  const agyModelOptions = antigravity.models.map(({ value, label }) => ({
+  const agyGroups = useMemo(
+    () => groupAntigravityModels(antigravity.models),
+    [antigravity.models],
+  );
+  const { group: agyGroup, effort: agyEffort } = findAntigravityModel(
+    agyGroups,
+    antigravityModel || agyModels?.currentValue || "",
+  );
+  const agyModelOptions = agyGroups.map(({ value, label }) => ({
     id: value,
     name: label,
-    desc: label,
   }));
+  const agySelectedId = agyGroup?.value ?? antigravityModel;
+  const agySavedLabel =
+    antigravityModel && !agyGroup
+      ? savedAntigravityModelLabel(antigravityModel)
+      : undefined;
+  if (agySavedLabel) {
+    agyModelOptions.unshift({ id: antigravityModel, name: agySavedLabel });
+  }
   const checkAntigravity = antigravity.checkStatus;
   useEffect(() => {
     void checkAntigravity();
@@ -699,21 +721,33 @@ export const ChatComposer: FC<{
     [selectedCodexModelInfo],
   );
   const pickerLabel = isAntigravity
-    ? (agyModelOptions.find((option) => option.id === agyModel)?.name ??
-      "Antigravity")
+    ? (agyGroup?.label ?? agySavedLabel ?? "Antigravity")
     : selectedProvider === "pi"
       ? piPickerLabel
       : selectedProvider === "claude"
         ? claudePickerLabel
         : codexPickerLabel;
-  const selectedEffort =
-    selectedProvider === "pi"
+  const pickerModels: {
+    id: string;
+    name: string;
+    modelId?: string;
+    desc?: string;
+  }[] = isAntigravity
+    ? agyModelOptions
+    : selectedProvider === "pi"
+      ? piModelOptions
+      : selectedProvider === "claude"
+        ? claudeModelOptions
+        : codexModelOptions;
+  const selectedEffort = isAntigravity
+    ? (agyEffort ?? "")
+    : selectedProvider === "pi"
       ? (piEffort ?? selectedPiReasoningEffort)
       : selectedProvider === "claude"
         ? effortLevel
         : selectedCodexReasoningEffort;
   const effortOptions = isAntigravity
-    ? []
+    ? (agyGroup?.efforts.map(({ level }) => level) ?? [])
     : selectedProvider === "pi"
       ? piModelsReady
         ? piEffortOptions
@@ -722,13 +756,16 @@ export const ChatComposer: FC<{
         ? claudeEffortOptions
         : codexEffortOptions;
   const showEffort = !modelSelectionBlocked && effortOptions.length > 0;
+  const compactEffort =
+    isAntigravity && selectedEffort === "default"
+      ? ""
+      : effortShortLabel(selectedEffort);
   const modelTooltipLabel =
     selectedProvider === "claude"
       ? `${claudePickerLabel} · ${selectedClaudeModelInfo?.resolvedModel || selectedClaudeModel}`
       : pickerLabel;
-  const modelTooltipEffort = showEffort
-    ? claudeEffortLabel(selectedEffort)
-    : null;
+  const modelTooltipEffort =
+    showEffort && compactEffort ? claudeEffortLabel(selectedEffort) : null;
   const modelTooltip = modelTooltipEffort
     ? `${modelTooltipLabel} · Thinking effort: ${modelTooltipEffort}`
     : modelTooltipLabel;
@@ -1258,9 +1295,9 @@ export const ChatComposer: FC<{
             />
           )}
           <span className="max-w-[120px] truncate">{pickerLabel}</span>
-          {showEffort && (
+          {showEffort && compactEffort && (
             <span className="shrink-0 text-muted-foreground/60">
-              {effortShortLabel(selectedEffort)}
+              {compactEffort}
             </span>
           )}
         </span>
@@ -1334,9 +1371,7 @@ export const ChatComposer: FC<{
             aria-description={permissionDescription}
             className={cn(
               "flex h-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground data-[state=open]:bg-muted",
-              agentPermissionOption
-                ? "@min-[360px]/mini-composer:w-9 w-8"
-                : "w-6",
+              agentPermissionOption ? "w-8" : "w-6",
             )}
           >
             {agentPermissionOption && (
@@ -1344,15 +1379,14 @@ export const ChatComposer: FC<{
                 <OverlappingIcon
                   icon={agentPermissionOption.icon}
                   nextIcon={ExecutionModeIcon}
-                  maskClassName="@min-[360px]/mini-composer:[mask:none]"
+                  haloWidth={9}
                 />
               </span>
             )}
             <ExecutionModeIcon
               className={cn(
                 "size-3.5 shrink-0",
-                agentPermissionOption &&
-                  "-ml-1.5 @min-[360px]/mini-composer:ml-0.5",
+                agentPermissionOption && "-ml-1.5",
                 executionModeColor,
               )}
               aria-hidden="true"
@@ -2877,9 +2911,7 @@ export const ChatComposer: FC<{
                     }
                     className="hover:text-foreground disabled:opacity-50"
                   >
-                    {isAntigravity && !agyModelOptions.length
-                      ? "Retry"
-                      : "Refresh"}
+                    {isAntigravity && !agyGroups.length ? "Retry" : "Refresh"}
                   </button>
                 </div>
                 {isAntigravity &&
@@ -2894,14 +2926,7 @@ export const ChatComposer: FC<{
                     {pickerLabel}
                   </p>
                 )}
-                {(isAntigravity
-                  ? agyModelOptions
-                  : selectedProvider === "pi"
-                    ? piModelOptions
-                    : selectedProvider === "claude"
-                      ? claudeModelOptions
-                      : codexModelOptions
-                ).map((m) => (
+                {pickerModels.map((m) => (
                   <button
                     key={m.id}
                     className={cn(
@@ -2912,14 +2937,16 @@ export const ChatComposer: FC<{
                           : selectedProvider === "pi"
                             ? selectedPiModel === m.id
                             : isAntigravity
-                              ? agyModel === m.id
+                              ? agySelectedId === m.id
                               : selectedCodexModel === m.id
                       )
                         ? "bg-accent text-accent-foreground"
                         : "hover:bg-accent",
                     )}
                     aria-label={
-                      "modelId" in m ? `${m.modelId} — ${m.desc}` : m.desc
+                      m.modelId
+                        ? `${m.modelId} — ${m.desc ?? m.name}`
+                        : (m.desc ?? m.name)
                     }
                     onClick={() => {
                       if (selectedProvider === "claude") {
@@ -2927,7 +2954,16 @@ export const ChatComposer: FC<{
                       } else if (selectedProvider === "pi") {
                         setSelectedPiModel(m.id);
                       } else if (isAntigravity) {
-                        useSettingsStore.setState({ antigravityModel: m.id });
+                        const next = selectAntigravityModel(
+                          agyGroups,
+                          m.id,
+                          agyEffort,
+                        );
+                        if (next) {
+                          useSettingsStore.setState({
+                            antigravityModel: next,
+                          });
+                        }
                       } else {
                         setSelectedCodexModel(m.id as CodexModelId);
                       }
@@ -2937,19 +2973,19 @@ export const ChatComposer: FC<{
                       <div className="break-words font-medium text-xs">
                         {m.name}
                       </div>
-                      {"modelId" in m && (
+                      {m.modelId && (
                         <div className="truncate font-mono text-[10px] text-muted-foreground">
-                          {String(m.modelId)}
+                          {m.modelId}
                         </div>
                       )}
-                      <ModelDescription description={m.desc} />
+                      {m.desc && <ModelDescription description={m.desc} />}
                     </div>
                     {(selectedProvider === "claude"
                       ? selectedClaudeModelInfo?.value === m.id
                       : selectedProvider === "pi"
                         ? selectedPiModel === m.id
                         : isAntigravity
-                          ? agyModel === m.id
+                          ? agySelectedId === m.id
                           : selectedCodexModel === m.id) && (
                       <CheckIcon className="size-3 shrink-0" />
                     )}
@@ -3043,6 +3079,15 @@ export const ChatComposer: FC<{
                                 setEffortLevel(level);
                               } else if (selectedProvider === "pi") {
                                 setSelectedPiReasoningEffort(level);
+                              } else if (isAntigravity) {
+                                if (agyGroup) {
+                                  useSettingsStore.setState({
+                                    antigravityModel: pickAntigravityModel(
+                                      agyGroup,
+                                      level,
+                                    ),
+                                  });
+                                }
                               } else {
                                 setSelectedCodexReasoningEffort(level);
                               }
@@ -3358,7 +3403,7 @@ export const ChatComposer: FC<{
         ) : renderErrorPreview && composerError ? (
           renderErrorPreview({
             agentName: pickerLabel,
-            effort: effortShortLabel(selectedEffort),
+            effort: compactEffort,
           })
         ) : selectedProvider === "codex" &&
           composerError?.startsWith("Could not resume Codex session:") ? (
@@ -3382,7 +3427,7 @@ export const ChatComposer: FC<{
                     ? pickerLabel
                     : formatCodexModelName(selectedCodexModel)
             }
-            effort={effortShortLabel(selectedEffort)}
+            effort={compactEffort}
           />
         ) : (
           <>
@@ -3538,7 +3583,7 @@ export const ChatComposer: FC<{
                 <div
                   ref={setToolbarElement}
                   data-chat-composer-toolbar
-                  className="@container/mini-composer relative flex shrink-0 items-center justify-end px-2 pb-2 [--composer-collapse-ease:cubic-bezier(0.8,0,0.6,1)]"
+                  className="relative flex shrink-0 items-center justify-end px-2 pb-2 [--composer-collapse-ease:cubic-bezier(0.8,0,0.6,1)]"
                   onBlur={(event) => {
                     if (
                       toolbarShortcutsOpen &&

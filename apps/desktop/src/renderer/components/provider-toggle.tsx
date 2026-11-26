@@ -1,4 +1,9 @@
-import { useSettingsStore, type ChatProvider } from "@/stores/settings-store";
+import {
+  AGENT_CLI_PERMISSION_OPTION,
+  AGENT_PERMISSION_OPTIONS,
+  type ChatProvider,
+  useSettingsStore,
+} from "@/stores/settings-store";
 import type { ComponentProps } from "react";
 import { HARNESSES } from "@/lib/agent-harness";
 import { SettingsDropdown } from "./settings/settings-dropdown";
@@ -24,11 +29,13 @@ export function ProviderToggle({ provider }: { provider: ChatProvider }) {
 export function ProviderSettings({
   provider,
   model,
+  effort,
   status,
   defaultLabel,
 }: {
   provider: ChatProvider;
   model?: ComponentProps<typeof SettingsDropdown<string>>;
+  effort?: ComponentProps<typeof SettingsDropdown<string>>;
   status?: string;
   defaultLabel?: string;
 }) {
@@ -59,7 +66,41 @@ export function ProviderSettings({
           <SettingsDropdown ariaLabel="Default model" {...model} />
         </SettingsRow>
       )}
+      {effort && (
+        <SettingsRow id={`agent-${provider}-level`} title="Thinking level">
+          <SettingsDropdown ariaLabel="Thinking level" {...effort} />
+        </SettingsRow>
+      )}
     </>
+  );
+}
+
+export function ProviderPermissionSettings({
+  provider,
+}: {
+  provider: ChatProvider;
+}) {
+  const enabled = useSettingsStore((s) => s.enabledProviders[provider]);
+  const permissions = useSettingsStore((s) => s.agentPermissions);
+  const setPermission = useSettingsStore((s) => s.setAgentPermission);
+  if (!enabled || provider === "pi") return null;
+  return (
+    <SettingsRow title="Agent permission">
+      <SettingsDropdown
+        ariaLabel="Agent permission"
+        value={
+          permissions[provider] ?? (provider === "codex" ? "never" : "auto")
+        }
+        options={[
+          ...AGENT_PERMISSION_OPTIONS[provider],
+          AGENT_CLI_PERMISSION_OPTION,
+        ]}
+        onChange={(value) => {
+          setPermission(provider, value);
+          broadcastSettingsChanged();
+        }}
+      />
+    </SettingsRow>
   );
 }
 
