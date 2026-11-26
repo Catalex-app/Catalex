@@ -73,35 +73,42 @@ jobs:
 
   rust:
     name: Rust tests
-    runs-on: ubuntu-24.04
+    runs-on: macos-latest
     timeout-minutes: 30
     env:
       TECTONIC_DEP_BACKEND: pkg-config
       CXXFLAGS: -std=c++17
       CARGO_INCREMENTAL: "0"
       CARGO_PROFILE_TEST_DEBUG: "0"
+      HOMEBREW_NO_AUTO_UPDATE: "1"
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
-      - name: Install Tectonic build libraries
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            pkg-config libicu-dev libgraphite2-dev libharfbuzz-dev \
-            libfreetype6-dev libfontconfig1-dev libssl-dev zlib1g-dev libpng-dev
+      - name: Install macOS native dependencies
+        run: brew install pkg-config icu4c harfbuzz graphite2 freetype fontconfig
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           workspaces: |
             apps/desktop/backend -> target
             packages/document-core -> target
-      - run: cargo test --locked --manifest-path apps/desktop/backend/Cargo.toml
+      - name: Test native service and integration lifecycle
+        run: |
+          brew_prefix="$(brew --prefix)"
+          for prefix in "$brew_prefix" "$brew_prefix"/opt/{icu4c,harfbuzz,graphite2,freetype,fontconfig}; do
+            export PKG_CONFIG_PATH="$prefix/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
+            export CPATH="$prefix/include${CPATH:+:$CPATH}"
+            export LIBRARY_PATH="$prefix/lib${LIBRARY_PATH:+:$LIBRARY_PATH}"
+          done
+          cargo test --locked --manifest-path apps/desktop/backend/Cargo.toml
       - run: cargo test --locked --manifest-path packages/document-core/Cargo.toml
 
   browser-core:
     name: Core browser tests
-    runs-on: ubuntu-24.04
+    runs-on: macos-latest
     timeout-minutes: 15
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: "1"
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
