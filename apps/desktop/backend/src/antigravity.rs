@@ -44,7 +44,6 @@ pub struct TurnRequest {
     tab_id: String,
     prompt: String,
     model: Option<String>,
-    thinking_effort: Option<String>,
     #[serde(default)]
     permission: Option<String>,
     compile_context: Option<VerificationContext>,
@@ -53,10 +52,9 @@ pub struct TurnRequest {
 fn binary(custom_path: &str) -> Result<PathBuf, String> {
     if !custom_path.is_empty() {
         let path = PathBuf::from(custom_path);
-        if path.is_absolute() && path.is_file() {
+        if path.is_absolute() && which::which(&path).is_ok() {
             return Ok(path);
         }
-        return Err("Choose an existing Antigravity executable.".into());
     }
     let mut locations = Vec::new();
     if let Some(home) = dirs::home_dir() {
@@ -271,13 +269,27 @@ fn response(row: &Value, method: &str) -> Result<Value, String> {
 }
 
 pub async fn check_status(binary_path: String) -> Result<Value, String> {
-    let binary = binary(&binary_path)?;
+    let Ok(binary) = binary(&binary_path) else { return Ok(json!({"installed":false})); };
     let directory = tempfile::tempdir().map_err(|_| "Could not prepare Antigravity setup.")?;
     let mut acp = Acp::spawn(&binary, directory.path(), None)?;
     let result = acp.initialize().await;
     acp.shutdown().await?;
-    let info = result?;
-    Ok(json!({"version":info["agentInfo"]["version"],"binaryPath":binary}))
+    result?;
+    let catalog = tokio::time::timeout(
+        Duration::from_secs(15),
+        Command::new(&binary).arg("models").current_dir(directory.path()).kill_on_drop(true).output(),
+    ).await;
+    let models: Vec<_> = match catalog {
+        Ok(Ok(output)) if output.status.success() => String::from_utf8_lossy(&output.stdout)
+            .lines().filter_map(|line| {
+                let (id, name) = line.split_once('\t')?;
+                let (id, name) = (id.trim(), name.trim());
+                (!id.is_empty() && !id.contains(char::is_whitespace) && !id.eq_ignore_ascii_case("id") && !name.is_empty())
+                    .then(|| json!({"value":id,"label":name}))
+            }).collect(),
+        _ => Vec::new(),
+    };
+    Ok(json!({"installed":true,"models":models}))
 }
 
 fn output(window: &WindowContext, event: &str, tab: &str, fields: Value) {
@@ -301,7 +313,7 @@ fn select_values(option: &Value) -> impl Iterator<Item = &Value> {
 fn options(window: &WindowContext, tab: &str, value: &Value) {
     if let Some(options) = value.get("configOptions").and_then(Value::as_array) {
         let list: Vec<_> = options.iter()
-            .filter(|option| matches!(option["category"].as_str(), Some("model" | "thought_level")))
+            .filter(|option| option["category"] == "model")
             .map(|option| {
                 let options: Vec<_> = select_values(option)
                     .filter(|item| item["value"].is_string() && item["name"].is_string())
@@ -313,20 +325,22 @@ fn options(window: &WindowContext, tab: &str, value: &Value) {
     }
 }
 
-async fn configure(
+async fn configure_model(
     acp: &mut Acp,
     session: &str,
-    key: &str,
     value: Option<&str>,
     config: &mut Value,
 ) -> Result<(), String> {
     if let Some(value) = value.filter(|value| !value.is_empty()) {
         if let Some(option) = config["configOptions"]
             .as_array()
-            .and_then(|options| options.iter().find(|option| option["category"] == key))
+            .and_then(|options| options.iter().find(|option| option["category"] == "model"))
         {
-            if option["currentValue"] != value
-                && select_values(option).any(|item| item["value"] == value)
+            let offered = |id: &str| select_values(option).any(|item| item["value"] == id);
+            // `agy models` also lists model IDs with an explicit thinking level.
+            let offered_variant = value.rsplit_once('-').is_some_and(|(id, level)|
+                matches!(level, "low" | "medium" | "high" | "xhigh" | "max") && offered(id));
+            if option["currentValue"] != value && (offered(value) || offered_variant)
             {
                 *config = acp
                     .request(
@@ -518,15 +532,7 @@ async fn run_turn(
         .ok_or("Antigravity did not open a session.")?;
     *turn.session.lock().unwrap() = Some(session.into());
     options(window, &args.tab_id, &config);
-    configure(acp, session, "model", args.model.as_deref(), &mut config).await?;
-    configure(
-        acp,
-        session,
-        "thought_level",
-        args.thinking_effort.as_deref(),
-        &mut config,
-    )
-    .await?;
+    configure_model(acp, session, args.model.as_deref(), &mut config).await?;
     let mode = match args.permission.as_deref() {
         Some("cli") => None,
         Some(mode @ ("default" | "accept-edits" | "auto")) => Some(mode),
@@ -626,7 +632,7 @@ pub async fn start_turn(window: WindowContext, args: TurnRequest) -> Result<(), 
         args.project_path.clone(),
         args.compile_context.clone(),
         args.model.clone(),
-        args.thinking_effort.clone(),
+        None,
     )?;
     let turn = Arc::new(Turn {
         session: std::sync::Mutex::new(args.session_id.clone()),
@@ -739,6 +745,7 @@ mod tests {
             &fake,
             r#"#!/bin/sh
 case " $* " in *' --dangerously-skip-permissions '*) exit 13;; esac
+if [ "$1" = models ]; then printf 'Model ID\tName\n\nfixture-medium\tFixture Model\n'; exit 0; fi
 while IFS= read -r line; do
   case "$line" in
     *'"method":"session/new"'*|*'"method":"session/resume"'*)
@@ -751,7 +758,7 @@ while IFS= read -r line; do
     *'"method":"session/new"'*)
       case "$PWD" in */first) ;; *) exit 14;; esac
       case "$line" in *'"type":"http"'*'"Authorization"'*|*'"Authorization"'*'"type":"http"'*) ;; *) exit 15;; esac
-      printf '%s\n' '{"jsonrpc":"2.0","id":2,"result":{"sessionId":"same-session","configOptions":[]}}' ;;
+      printf '%s\n' '{"jsonrpc":"2.0","id":2,"result":{"sessionId":"same-session","configOptions":[{"category":"model","id":"model","currentValue":"offered","options":[{"value":"offered","name":"Offered"}]}]}}' ;;
     *'"method":"session/resume"'*)
       case "$PWD" in */second|*/approved) ;; *) exit 16;; esac
       case "$line" in *'"sessionId":"same-session"'*) ;; *) exit 17;; esac
@@ -819,7 +826,9 @@ done
             id: "test".into(),
         };
         let status = check_status(fake.to_string_lossy().into()).await.unwrap();
-        assert_eq!(status["version"], "test");
+        assert_eq!(status["installed"], true);
+        assert_eq!(binary(root.join("missing-agy").to_str().unwrap()), binary(""));
+        assert_eq!(status["models"], json!([{"value":"fixture-medium","label":"Fixture Model"}]));
 
         let customizations = stage_customizations(&window).unwrap();
         let staged = customizations.path().to_path_buf();
@@ -864,8 +873,7 @@ done
                 session_id: (draft != "first").then(|| "same-session".into()),
                 tab_id: "tab".into(),
                 prompt: format!("Fixture prompt {mode} {tool}"),
-                model: None,
-                thinking_effort: None,
+                model: Some("no-longer-offered".into()),
                 permission: Some(mode.into()),
                 compile_context: None,
             };

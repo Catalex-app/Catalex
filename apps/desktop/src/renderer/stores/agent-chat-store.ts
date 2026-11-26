@@ -49,7 +49,6 @@ import {
   type ChatProvider,
   type ClaudeEffortLevel,
   type ClaudeModelId,
-  type AgentExecutionMode,
   type CodexModelId,
   type CodexReasoningEffort,
   useSettingsStore,
@@ -180,18 +179,14 @@ function getDefaultProvider(): ChatProvider {
 
 function getAgentDefaults() {
   const settings = useSettingsStore.getState();
-  const executionMode = settings.defaultAgentExecutionMode;
 
   return {
     selectedProvider: getDefaultProvider(),
     selectedClaudeModel: settings.defaultClaudeModel,
-    selectedClaudeExecutionMode: executionMode,
     selectedPiModel: settings.defaultPiModel,
     selectedPiReasoningEffort: settings.defaultPiReasoningEffort,
-    selectedPiExecutionMode: executionMode,
     selectedCodexModel: settings.defaultCodexModel,
     selectedCodexReasoningEffort: settings.defaultCodexReasoningEffort,
-    selectedCodexExecutionMode: executionMode,
     effortLevel: settings.defaultClaudeEffortLevel,
   };
 }
@@ -320,9 +315,6 @@ export interface TabState {
     effort?: string;
   };
   archived?: boolean;
-  selectedClaudeExecutionMode?: AgentExecutionMode;
-  selectedCodexExecutionMode?: AgentExecutionMode;
-  selectedPiExecutionMode?: AgentExecutionMode;
   id: string;
   runtimeSessionKey: string;
   title: string;
@@ -344,7 +336,6 @@ export interface TabState {
   dispatchingQueuedPromptId?: string | null;
   pendingResumeChoice: PendingResumeChoice | null;
   pendingFileBaseline: Record<string, string> | null;
-  pendingClaudeExecutionMode: AgentExecutionMode | null;
   agentWorkspace?: AgentWorkspaceSession | null;
   cancelledByUser?: boolean;
   isSettling?: boolean;
@@ -361,28 +352,6 @@ export interface TabState {
     prompt: string;
     context?: ChatPromptContext;
   } | null;
-}
-
-/** Fields that are projected from the active tab to top-level state */
-function permissionDefaults() {
-  const defaults = getAgentDefaults();
-  return {
-    selectedClaudeExecutionMode: defaults.selectedClaudeExecutionMode,
-    selectedCodexExecutionMode: defaults.selectedCodexExecutionMode,
-    selectedPiExecutionMode: defaults.selectedPiExecutionMode,
-  };
-}
-
-function tabPermissions(tab: TabState, state: AgentChatState) {
-  return {
-    ...tab.modelSelection,
-    selectedClaudeExecutionMode:
-      tab.selectedClaudeExecutionMode ?? state.selectedClaudeExecutionMode,
-    selectedCodexExecutionMode:
-      tab.selectedCodexExecutionMode ?? state.selectedCodexExecutionMode,
-    selectedPiExecutionMode:
-      tab.selectedPiExecutionMode ?? state.selectedPiExecutionMode,
-  };
 }
 
 export function lastCommunicationDetails(tab: TabState | undefined) {
@@ -448,7 +417,6 @@ function makeDefaultTab(
     turnPhase: null,
     pausedRequest: null,
     title: "New Chat",
-    ...permissionDefaults(),
     provider,
     sessionId: null,
     sharedSessionId: null,
@@ -463,7 +431,6 @@ function makeDefaultTab(
     draft: { input: "", pinnedContexts: [] },
     pendingResumeChoice: null,
     pendingFileBaseline: null,
-    pendingClaudeExecutionMode: null,
     agentWorkspace: null,
     cancelledByUser: false,
   };
@@ -585,12 +552,6 @@ function applyTabUpdate(
   const result: Partial<AgentChatState> = { tabs: newTabs };
   if (tabId === state.activeTabId) {
     if (updates.modelSelection) Object.assign(result, updates.modelSelection);
-    if (updates.selectedClaudeExecutionMode !== undefined)
-      result.selectedClaudeExecutionMode = updates.selectedClaudeExecutionMode;
-    if (updates.selectedPiExecutionMode !== undefined)
-      result.selectedPiExecutionMode = updates.selectedPiExecutionMode;
-    if (updates.selectedCodexExecutionMode !== undefined)
-      result.selectedCodexExecutionMode = updates.selectedCodexExecutionMode;
     if ("provider" in updates) {
       result.selectedProvider = updates.provider!;
     }
@@ -848,22 +809,16 @@ interface AgentChatState {
   /** Provider/model selection */
   selectedClaudeModel: ClaudeModelId;
   setSelectedClaudeModel: (model: ClaudeModelId) => void;
-  selectedClaudeExecutionMode: AgentExecutionMode;
-  setSelectedClaudeExecutionMode: (mode: AgentExecutionMode) => void;
   selectedPiModel: string;
   setSelectedPiModel: (model: string) => void;
   selectedPiReasoningEffort: string;
   setSelectedPiReasoningEffort: (level: string) => void;
-  selectedPiExecutionMode: AgentExecutionMode;
-  setSelectedPiExecutionMode: (mode: AgentExecutionMode) => void;
   selectedCodexModel: CodexModelId;
   setSelectedCodexModel: (model: CodexModelId) => void;
   selectedCodexReasoningEffort: CodexReasoningEffort;
   selectedCodexFastMode: boolean;
   setSelectedCodexFastMode: (enabled: boolean) => void;
   setSelectedCodexReasoningEffort: (level: CodexReasoningEffort) => void;
-  selectedCodexExecutionMode: AgentExecutionMode;
-  setSelectedCodexExecutionMode: (mode: AgentExecutionMode) => void;
   setProvider: (provider: ChatProvider) => void;
   applyAgentDefaults: () => void;
   setPendingResumeChoice: (
@@ -1360,6 +1315,13 @@ const createAgentChatState: StateCreator<AgentChatState> = (set, get) => ({
           dispatchingQueuedPromptId: null,
         }))
       : [makeDefaultTab(nextTabId(), get().selectedProvider)];
+    // Drop obsolete per-tab writing choices when restoring older chats.
+    for (const tab of tabs) {
+      Reflect.deleteProperty(tab, "selectedClaudeExecutionMode");
+      Reflect.deleteProperty(tab, "selectedCodexExecutionMode");
+      Reflect.deleteProperty(tab, "selectedPiExecutionMode");
+      Reflect.deleteProperty(tab, "pendingClaudeExecutionMode");
+    }
     const paused = tabs.filter(
       (tab) => !tab.archived && tab.pauseState === "paused",
     );
@@ -1410,13 +1372,6 @@ const createAgentChatState: StateCreator<AgentChatState> = (set, get) => ({
   selectedClaudeModel: initialAgentDefaults.selectedClaudeModel,
   setSelectedClaudeModel: (model) =>
     set((state) => updateModelSelection(state, { selectedClaudeModel: model })),
-  selectedClaudeExecutionMode: initialAgentDefaults.selectedClaudeExecutionMode,
-  setSelectedClaudeExecutionMode: (mode) =>
-    set((state) =>
-      applyTabUpdate(state, state.activeTabId, {
-        selectedClaudeExecutionMode: mode,
-      }),
-    ),
 
   selectedPiModel: initialAgentDefaults.selectedPiModel,
   setSelectedPiModel: (model) =>
@@ -1425,13 +1380,6 @@ const createAgentChatState: StateCreator<AgentChatState> = (set, get) => ({
   setSelectedPiReasoningEffort: (level) =>
     set((state) =>
       updateModelSelection(state, { selectedPiReasoningEffort: level }),
-    ),
-  selectedPiExecutionMode: initialAgentDefaults.selectedPiExecutionMode,
-  setSelectedPiExecutionMode: (mode) =>
-    set((state) =>
-      applyTabUpdate(state, state.activeTabId, {
-        selectedPiExecutionMode: mode,
-      }),
     ),
   selectedCodexModel: initialAgentDefaults.selectedCodexModel,
   selectedCodexFastMode: false,
@@ -1447,13 +1395,6 @@ const createAgentChatState: StateCreator<AgentChatState> = (set, get) => ({
     set((state) =>
       updateModelSelection(state, { selectedCodexReasoningEffort: level }),
     ),
-  selectedCodexExecutionMode: initialAgentDefaults.selectedCodexExecutionMode,
-  setSelectedCodexExecutionMode: (mode) =>
-    set((state) =>
-      applyTabUpdate(state, state.activeTabId, {
-        selectedCodexExecutionMode: mode,
-      }),
-    ),
 
   setProvider: (provider) => {
     if (!useSettingsStore.getState().enabledProviders[provider]) return;
@@ -1468,7 +1409,6 @@ const createAgentChatState: StateCreator<AgentChatState> = (set, get) => ({
         pendingCrossProviderTranscript: null,
         error: null,
         isStreaming: false,
-        pendingClaudeExecutionMode: null,
       }),
     );
     void syncTabToSharedSession(activeTabId, get, set);
@@ -1483,13 +1423,7 @@ const createAgentChatState: StateCreator<AgentChatState> = (set, get) => ({
       !activeTab?.sessionId &&
       !Object.values(activeTab?.providerSessionIds ?? {}).some(Boolean) &&
       (activeTab?.messages.length ?? 0) === 0;
-    const {
-      selectedProvider,
-      selectedClaudeExecutionMode: _claudeMode,
-      selectedCodexExecutionMode: _codexMode,
-      selectedPiExecutionMode: _piMode,
-      ...llmDefaults
-    } = defaults;
+    const { selectedProvider, ...llmDefaults } = defaults;
     set((state) => ({
       ...applyTabUpdate(state, activeTabId, {
         ...(canApplyProviderDefault ? { provider: selectedProvider } : {}),
@@ -2014,7 +1948,7 @@ const createAgentChatState: StateCreator<AgentChatState> = (set, get) => ({
           ...currentState,
           activeTabId: requestedTab,
           selectedProvider: requestedProvider,
-          ...(requested ? tabPermissions(requested, currentState) : {}),
+          ...(requested ? requested.modelSelection : {}),
         }
       : currentState;
     const { activeTabId } = state;
@@ -2103,14 +2037,11 @@ const createAgentChatState: StateCreator<AgentChatState> = (set, get) => ({
     const {
       selectedProvider,
       selectedClaudeModel,
-      selectedClaudeExecutionMode,
       selectedCodexModel,
       selectedCodexReasoningEffort,
-      selectedCodexExecutionMode,
       selectedCodexFastMode,
       selectedPiModel,
       selectedPiReasoningEffort,
-      selectedPiExecutionMode,
       effortLevel,
     } = state;
     const claudeModelInfo = findClaudeModel(
@@ -2144,7 +2075,7 @@ const createAgentChatState: StateCreator<AgentChatState> = (set, get) => ({
         : selectedProvider === "pi"
           ? piEffort
           : selectedProvider === "antigravity"
-            ? useSettingsStore.getState().antigravityThinkingEffort
+            ? undefined
             : selectedCodexReasoningEffort;
     const sessionId = activeTab?.sessionId ?? null;
     const runtimeSessionKey =
@@ -2153,16 +2084,7 @@ const createAgentChatState: StateCreator<AgentChatState> = (set, get) => ({
       selectedProvider === "codex"
         ? (activeTab?.providerSessionIds.codex ?? sessionId)
         : null;
-    const claudeExecutionMode = selectedClaudeExecutionMode;
-    const codexExecutionMode = selectedCodexExecutionMode;
-    const executionMode =
-      selectedProvider === "claude"
-        ? claudeExecutionMode
-        : selectedProvider === "pi"
-          ? selectedPiExecutionMode
-          : selectedProvider === "antigravity"
-            ? "default"
-            : codexExecutionMode;
+    const executionMode = useSettingsStore.getState().defaultAgentExecutionMode;
 
     const sendStart = performance.now();
     log.info("sendPrompt start", {
@@ -2297,7 +2219,6 @@ const createAgentChatState: StateCreator<AgentChatState> = (set, get) => ({
         },
         error: null,
         pendingFileBaseline: null,
-        pendingClaudeExecutionMode: executionMode,
         agentWorkspace: resumableAgentWorkspace,
         cancelledByUser: false,
         pendingQuestion: null,
@@ -2445,7 +2366,6 @@ const createAgentChatState: StateCreator<AgentChatState> = (set, get) => ({
             pauseState: null,
             turnPhase: null,
             pausedRequest: null,
-            pendingClaudeExecutionMode: null,
             cancelledByUser: false,
           }),
         );
@@ -2465,7 +2385,6 @@ const createAgentChatState: StateCreator<AgentChatState> = (set, get) => ({
             pauseState: null,
             turnPhase: null,
             pausedRequest: null,
-            pendingClaudeExecutionMode: null,
             cancelledByUser: false,
           }),
         );
@@ -2485,7 +2404,6 @@ const createAgentChatState: StateCreator<AgentChatState> = (set, get) => ({
           turnPhase: null,
           pauseState: activeTab.pauseState === "paused" ? "paused" : null,
           error: `Could not create an isolated agent workspace: ${String(error)}`,
-          pendingClaudeExecutionMode: null,
           cancelledByUser: false,
         }),
       );
@@ -2719,7 +2637,6 @@ const createAgentChatState: StateCreator<AgentChatState> = (set, get) => ({
             prompt,
             tabId: activeTabId,
             model: settings.antigravityModel || null,
-            thinkingEffort: settings.antigravityThinkingEffort || null,
             permission: permissions.antigravity,
             compileContext: verificationContext,
           },
@@ -2792,7 +2709,6 @@ const createAgentChatState: StateCreator<AgentChatState> = (set, get) => ({
           pauseState: activeTab.pauseState === "paused" ? "paused" : null,
           error: err?.message || String(err),
           pendingFileBaseline: null,
-          pendingClaudeExecutionMode: null,
           cancelledByUser: false,
         }),
       );
@@ -2970,7 +2886,6 @@ const createAgentChatState: StateCreator<AgentChatState> = (set, get) => ({
         pausedRequest: null,
         pendingCrossProviderTranscript: null,
         error: null,
-        pendingClaudeExecutionMode: null,
         agentWorkspace: null,
         totalInputTokens: 0,
         totalOutputTokens: 0,
@@ -3004,7 +2919,6 @@ const createAgentChatState: StateCreator<AgentChatState> = (set, get) => ({
     }
     set((s) =>
       applyTabUpdate(s, activeTabId, {
-        ...permissionDefaults(),
         runtimeSessionKey: nextRuntimeSessionKey(),
         pauseState: null,
         turnPhase: null,
@@ -3021,7 +2935,6 @@ const createAgentChatState: StateCreator<AgentChatState> = (set, get) => ({
         pendingCrossProviderTranscript: null,
         error: null,
         isStreaming: false,
-        pendingClaudeExecutionMode: null,
         agentWorkspace: null,
         totalInputTokens: 0,
         totalOutputTokens: 0,
@@ -3150,7 +3063,6 @@ const createAgentChatState: StateCreator<AgentChatState> = (set, get) => ({
         totalInputTokens: 0,
         totalOutputTokens: 0,
         pendingResumeChoice: null,
-        pendingClaudeExecutionMode: null,
       }),
     );
   },
@@ -3206,7 +3118,7 @@ const createAgentChatState: StateCreator<AgentChatState> = (set, get) => ({
       tabs: [...s.tabs, newTab],
       activeTabId: id,
       selectedProvider: newTab.provider,
-      ...tabPermissions(newTab, s),
+      ...newTab.modelSelection,
       // Project new tab fields to top-level
       messages: newTab.messages,
       sessionId: newTab.sessionId,
@@ -3331,7 +3243,7 @@ const createAgentChatState: StateCreator<AgentChatState> = (set, get) => ({
           return null;
         const id = nextTabId();
         const metadata = makeDefaultTab(id, source.provider);
-        Object.assign(metadata, tabPermissions(source, state), {
+        Object.assign(metadata, source.modelSelection, {
           title: `${source.title.trim() || "New Chat"} (fork)`,
         });
         const fork = await invoke<TabState>("desktop:chat:fork", {
@@ -3433,7 +3345,7 @@ const createAgentChatState: StateCreator<AgentChatState> = (set, get) => ({
 
     const id = nextTabId();
     const forkedTab = makeDefaultTab(id, sourceTab.provider);
-    Object.assign(forkedTab, tabPermissions(sourceTab, state));
+    Object.assign(forkedTab, sourceTab.modelSelection);
     forkedTab.title = `${sourceTab.title.trim() || "New Chat"} (fork)`;
     forkedTab.messages = sourceTab.messages
       .slice(0, messageIndex + 1)
@@ -3454,7 +3366,7 @@ const createAgentChatState: StateCreator<AgentChatState> = (set, get) => ({
       tabs: [...discardEmptyNewChats(current.tabs), forkedTab],
       activeTabId: id,
       selectedProvider: forkedTab.provider,
-      ...tabPermissions(forkedTab, current),
+      ...forkedTab.modelSelection,
       messages: forkedTab.messages,
       sessionId: null,
       isStreaming: false,
@@ -3669,7 +3581,7 @@ const createAgentChatState: StateCreator<AgentChatState> = (set, get) => ({
         ),
         activeTabId: newActive.id,
         selectedProvider: newActive.provider,
-        ...tabPermissions(newActive, state),
+        ...newActive.modelSelection,
         // Project new active tab
         messages: newActive.messages,
         sessionId: newActive.sessionId,
@@ -3720,7 +3632,7 @@ const createAgentChatState: StateCreator<AgentChatState> = (set, get) => ({
       ),
       activeTabId: tabId,
       selectedProvider: targetTab.provider,
-      ...tabPermissions(targetTab, state),
+      ...targetTab.modelSelection,
       messages: targetTab.messages,
       sessionId: targetTab.sessionId,
       isStreaming: targetTab.isStreaming,
@@ -4025,7 +3937,6 @@ const createAgentChatState: StateCreator<AgentChatState> = (set, get) => ({
         ...(streaming
           ? {}
           : {
-              pendingClaudeExecutionMode: null,
               cancelledByUser: false,
               ...(tab?.cancelledByUser && !tab.pauseState
                 ? { pendingQuestion: null, retryRequest: null }
@@ -4151,7 +4062,6 @@ const createAgentChatState: StateCreator<AgentChatState> = (set, get) => ({
         pausedRequest: null,
         pendingResumeChoice: null,
         pendingFileBaseline: null,
-        pendingClaudeExecutionMode: null,
         retryRequest: null,
         pendingQuestion: null,
         pendingReviewDecisions: [],
@@ -4188,7 +4098,6 @@ const createAgentChatState: StateCreator<AgentChatState> = (set, get) => ({
               ...tab,
               agentWorkspace: null,
               isStreaming: false,
-              pendingClaudeExecutionMode: null,
               cancelledByUser: false,
             }
           : tab,
@@ -4218,9 +4127,6 @@ const projectedChatKeys = [
   "error",
   "totalInputTokens",
   "totalOutputTokens",
-  "selectedClaudeExecutionMode",
-  "selectedCodexExecutionMode",
-  "selectedPiExecutionMode",
   ...modelSelectionKeys,
 ] as const;
 
@@ -4231,7 +4137,7 @@ function projectChatState(
   const tab = state.tabs.find((item) => item.id === tabId);
   return {
     ...state,
-    ...(tab ? tabPermissions(tab, state) : {}),
+    ...(tab ? tab.modelSelection : {}),
     activeTabId: tabId,
     selectedProvider: tab?.provider ?? state.selectedProvider,
     messages: tab?.messages ?? [],

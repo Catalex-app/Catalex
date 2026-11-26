@@ -265,7 +265,8 @@ export function SessionSelector({
             : selectedProvider === "claude"
               ? sessionClaudeModel !== null &&
                 selectedClaudeModel !== sessionClaudeModel
-              : sessionCodexModel !== null &&
+              : selectedProvider === "codex" &&
+                sessionCodexModel !== null &&
                 selectedCodexModel !== sessionCodexModel;
 
         if (providerMismatch || modelMismatch) {

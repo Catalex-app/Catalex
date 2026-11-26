@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import type { BrowserHarness } from "../src/renderer/lib/desktop/bridge";
 
 test.beforeEach(async ({ context }) => {
   // The browser harness loads the renderer as individual development modules.
@@ -705,10 +706,40 @@ test("Antigravity is opt-in and labels the selected model in Full chat", async (
   await page.goto("/?debug=claude-models&section=agent&provider=antigravity");
   const enable = page.getByRole("switch", { name: "Enable Antigravity" });
   await expect(enable).toHaveAttribute("aria-checked", "false");
-  await expect(page.getByRole("button", { name: "Install CLI" })).toBeHidden();
+  await page.evaluate(() => {
+    const bridge = (window as Window & { __TAURI_INTERNALS__: BrowserHarness })
+      .__TAURI_INTERNALS__;
+    const invoke = bridge.invoke;
+    let empty = true;
+    bridge.invoke = async (command, args) => {
+      if (command !== "check_antigravity_status") return invoke(command, args);
+      const models = empty
+        ? []
+        : [{ value: "gemini-fixture-high", label: "Gemini Fixture (High)" }];
+      empty = false;
+      return { installed: true, models };
+    };
+  });
+  for (const name of ["Codex", "Claude Code", "Pi"]) {
+    await page.getByRole("tab", { name: new RegExp(`^${name}\\b`) }).click();
+    const toggle = page.getByRole("switch", { name: `Enable ${name}` });
+    if ((await toggle.getAttribute("aria-checked")) === "true")
+      await toggle.click();
+  }
+  await page.getByRole("tab", { name: /^Antigravity/ }).click();
   await enable.click();
-  await expect(enable).toHaveAttribute("aria-checked", "true");
-  await expect(page.getByRole("button", { name: "Install CLI" })).toBeVisible();
+  const settings = page.locator("#agent-provider-panel");
+  const defaultModel = settings.getByRole("combobox", {
+    name: "Default model",
+  });
+  await expect(defaultModel).toHaveText("CLI default");
+  await expect(defaultModel).toBeDisabled();
+  await settings.getByRole("button", { name: "Retry" }).click();
+  await defaultModel.click();
+  await page.getByRole("option", { name: "Gemini Fixture (High)" }).click();
+  await expect(settings.getByText("Antigravity executable")).toHaveCount(0);
+  await page.getByRole("tab", { name: /^Codex/ }).click();
+  await page.getByRole("switch", { name: "Enable Codex" }).click();
 
   await page.goto("/?debug=comment-workspace&pdf");
   await expect(page.locator(".mupdf-text-layer").first()).toBeVisible();
@@ -734,14 +765,14 @@ test("Antigravity is opt-in and labels the selected model in Full chat", async (
     useAntigravitySetupStore.setState({
       status: "ready",
       error: null,
+      models: [
+        { value: "gemini-fixture-high", label: "Gemini Fixture (High)" },
+      ],
       options: [
         {
-          category: "model",
-          currentValue: "gemini-default",
-          options: [
-            { value: "gemini-default", name: "Gemini Default" },
-            { value: "gemini-fixture", name: "Gemini Fixture" },
-          ],
+          category: "thought_level",
+          currentValue: "high",
+          options: [{ value: "high", name: "High" }],
         },
       ],
     });
@@ -752,14 +783,15 @@ test("Antigravity is opt-in and labels the selected model in Full chat", async (
     .getByRole("button", { name: "Antigravity", exact: true })
     .click();
   const model = page.getByRole("button", {
-    name: "Gemini Fixture",
+    name: "Gemini Fixture (High)",
     exact: true,
   });
   await model.click();
   await expect(model).toHaveClass(/bg-accent/);
+  await expect(page.getByRole("group", { name: "Effort" })).toHaveCount(0);
   await page.keyboard.press("Escape");
   await pane
-    .getByRole("button", { name: "Agent permission", exact: true })
+    .getByRole("button", { name: "Writing permission", exact: true })
     .click();
   const menu = page.getByRole("group", { name: "Agent permission" });
   await expect(menu.getByRole("button")).toHaveText([
@@ -771,14 +803,46 @@ test("Antigravity is opt-in and labels the selected model in Full chat", async (
   await expect(
     menu.getByRole("button", { name: "Approve for me" }),
   ).toHaveAttribute("aria-pressed", "true");
+  const writing = page.getByRole("group", { name: "Writing permission" });
+  await writing.getByRole("button", { name: "Auto-apply" }).click();
   await expect(
-    page.getByRole("group", { name: "Writing permission" }),
-  ).toHaveCount(0);
+    writing.getByRole("button", { name: "Auto-apply" }),
+  ).toHaveAttribute("aria-pressed", "true");
   await menu.getByRole("button", { name: "Same as CLI setting" }).click();
   await expect(
     menu.getByRole("button", { name: "Same as CLI setting" }),
   ).toHaveAttribute("aria-pressed", "true");
   await page.keyboard.press("Escape");
+  await page.evaluate(() => {
+    const bridge = (window as Window & { __TAURI_INTERNALS__: BrowserHarness })
+      .__TAURI_INTERNALS__;
+    const invoke = bridge.invoke;
+    bridge.invoke = async (command, args, options) => {
+      const { projectPath, provider } = (args ?? {}) as Record<string, string>;
+      if (command !== "slash_commands_list" || provider !== "antigravity") {
+        return invoke(command, args, options);
+      }
+      return [
+        {
+          id: "skill-fixture",
+          name: "Fixture skill",
+          full_command: "/fixture-skill",
+          scope: "skill",
+          file_path: `${projectPath}/.agents/skills/fixture-skill/SKILL.md`,
+          content: "Fixture skill instructions",
+        },
+      ];
+    };
+  });
+  const input = pane.locator("[data-chat-composer-input]:visible");
+  await input.fill("/fixture");
+  await expect(
+    page.getByRole("button", { name: /\/fixture-skill.*Local Skills/ }),
+  ).toBeVisible();
+  await input.press("Tab");
+  await expect(input).toHaveValue("/fixture-skill ");
+  await input.fill("");
+
   await page.evaluate(async () => {
     const url = (name: string) =>
       performance
@@ -806,9 +870,9 @@ test("Antigravity is opt-in and labels the selected model in Full chat", async (
   ).toHaveText("Antigravity");
   await expect(
     pane.locator("[data-chat-title-current] [data-chat-last-model]"),
-  ).toHaveText("gemini-fixture");
+  ).toHaveText("gemini-fixture-high");
   await expect(pane.locator("[data-chat-model-divider]").last()).toHaveText(
-    "Antigravity · gemini-fixture",
+    "Antigravity · gemini-fixture-high",
   );
 });
 
@@ -841,7 +905,6 @@ test("provider and writing permissions share one menu and a paused draft shows i
     const { useAgentChatStore } = await import(/* @vite-ignore */ url);
     useAgentChatStore.setState((state: any) => ({
       selectedProvider: "codex",
-      selectedCodexExecutionMode: "edit",
       tabs: state.tabs.map((tab: any) =>
         tab.id === state.activeTabId
           ? {
@@ -851,7 +914,6 @@ test("provider and writing permissions share one menu and a paused draft shows i
               providerSessionIds: {},
               pauseState: "paused",
               draft: { input: "", pinnedContexts: [] },
-              selectedCodexExecutionMode: "edit",
               agentWorkspace: {
                 version: 2,
                 sessionId: "paused-demo",
@@ -903,6 +965,7 @@ test("provider and writing permissions share one menu and a paused draft shows i
       ),
     )
     .toBe("never");
+  await writing.getByRole("button", { name: "Auto-apply" }).click();
   await writing.getByRole("button", { name: "Need approval" }).click();
   await expect(
     pane.getByText("This draft: Auto-apply", { exact: true }),

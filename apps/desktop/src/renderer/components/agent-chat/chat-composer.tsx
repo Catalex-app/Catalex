@@ -1,4 +1,5 @@
 import { broadcastSettingsChanged } from "@/components/settings/solar-mode-effect";
+import { HARNESSES } from "@/lib/agent-harness";
 import { useLibraryPromptsExpanded } from "@/hooks/use-library-prompts-expanded";
 import { PromptSuggestions } from "./prompt-suggestions";
 import { PRODUCT_NAME } from "../../../branding";
@@ -471,12 +472,6 @@ export const ChatComposer: FC<{
   const setSelectedClaudeModel = useAgentChatStore(
     (s) => s.setSelectedClaudeModel,
   );
-  const selectedClaudeExecutionMode = useAgentChatStore(
-    (s) => s.selectedClaudeExecutionMode,
-  );
-  const setSelectedClaudeExecutionMode = useAgentChatStore(
-    (s) => s.setSelectedClaudeExecutionMode,
-  );
   const selectedPiModel = useAgentChatStore((s) => s.selectedPiModel);
   const setSelectedPiModel = useAgentChatStore((s) => s.setSelectedPiModel);
   const selectedPiReasoningEffort = useAgentChatStore(
@@ -484,12 +479,6 @@ export const ChatComposer: FC<{
   );
   const setSelectedPiReasoningEffort = useAgentChatStore(
     (s) => s.setSelectedPiReasoningEffort,
-  );
-  const selectedPiExecutionMode = useAgentChatStore(
-    (s) => s.selectedPiExecutionMode,
-  );
-  const setSelectedPiExecutionMode = useAgentChatStore(
-    (s) => s.setSelectedPiExecutionMode,
   );
   const selectedCodexModel = useAgentChatStore((s) => s.selectedCodexModel);
   const selectedCodexFastMode = useAgentChatStore(
@@ -506,12 +495,6 @@ export const ChatComposer: FC<{
   );
   const setSelectedCodexReasoningEffort = useAgentChatStore(
     (s) => s.setSelectedCodexReasoningEffort,
-  );
-  const selectedCodexExecutionMode = useAgentChatStore(
-    (s) => s.selectedCodexExecutionMode,
-  );
-  const setSelectedCodexExecutionMode = useAgentChatStore(
-    (s) => s.setSelectedCodexExecutionMode,
   );
   const pendingResumeChoice = useAgentChatStore(
     (s) =>
@@ -569,24 +552,16 @@ export const ChatComposer: FC<{
     (s) => s.antigravityBinaryPath,
   );
   const antigravityModel = useSettingsStore((s) => s.antigravityModel);
-  const antigravityThinkingEffort = useSettingsStore(
-    (s) => s.antigravityThinkingEffort,
-  );
   const isAntigravity = selectedProvider === "antigravity";
   const agyModels = antigravity.options.find(
     (option) => option.category === "model",
   );
-  const agyThought = antigravity.options.find(
-    (option) => option.category === "thought_level",
-  );
   const agyModel = antigravityModel || agyModels?.currentValue;
-  const agyThink = antigravityThinkingEffort || agyThought?.currentValue;
-  const agyModelOptions =
-    agyModels?.options?.map(({ value, name, description }) => ({
-      id: value,
-      name,
-      desc: description ?? name,
-    })) ?? [];
+  const agyModelOptions = antigravity.models.map(({ value, label }) => ({
+    id: value,
+    name: label,
+    desc: label,
+  }));
   const checkAntigravity = antigravity.checkStatus;
   useEffect(() => {
     void checkAntigravity();
@@ -638,6 +613,12 @@ export const ChatComposer: FC<{
           ? claudeSetupStatus
           : codexSetupStatus) === "checking",
   );
+  const modelLoading = {
+    antigravity: antigravity.status === "checking",
+    pi: pi.modelsStatus === "loading",
+    claude: claudeModelsStatus === "loading",
+    codex: codexModelsStatus === "loading",
+  }[selectedProvider];
   const modelError = holdError(
     `${selectedProvider}:models`,
     isAntigravity
@@ -647,20 +628,14 @@ export const ChatComposer: FC<{
         : selectedProvider === "claude"
           ? claudeModelsError
           : codexModelsError,
-    (selectedProvider === "pi"
-      ? pi.modelsStatus
-      : selectedProvider === "claude"
-        ? claudeModelsStatus
-        : codexModelsStatus) === "loading",
+    modelLoading,
   );
   const enabledProviders = useSettingsStore((s) => s.enabledProviders);
   const providerDisabled = !enabledProviders[selectedProvider];
   const noProvidersEnabled = !Object.values(enabledProviders).some(Boolean);
   const multipleProvidersEnabled =
     Object.values(enabledProviders).filter(Boolean).length > 1;
-  const alternativeProvider = (
-    ["codex", "claude", "pi", "antigravity"] as const
-  ).find(
+  const alternativeProvider = (Object.keys(HARNESSES) as ChatProvider[]).find(
     (provider) => provider !== selectedProvider && enabledProviders[provider],
   );
   const providerName = isAntigravity
@@ -723,15 +698,14 @@ export const ChatComposer: FC<{
       : selectedProvider === "claude"
         ? claudePickerLabel
         : codexPickerLabel;
-  const selectedEffort = isAntigravity
-    ? (agyThink ?? "")
-    : selectedProvider === "pi"
+  const selectedEffort =
+    selectedProvider === "pi"
       ? (piEffort ?? selectedPiReasoningEffort)
       : selectedProvider === "claude"
         ? effortLevel
         : selectedCodexReasoningEffort;
   const effortOptions = isAntigravity
-    ? (agyThought?.options?.map((option) => option.value) ?? [])
+    ? []
     : selectedProvider === "pi"
       ? piModelsReady
         ? piEffortOptions
@@ -1194,17 +1168,19 @@ export const ChatComposer: FC<{
     },
     [resizeTextarea, updateMiniControlsLayout, updateMiniTextFade],
   );
+  const selectedExecutionMode = useSettingsStore(
+    (s) => s.defaultAgentExecutionMode,
+  );
+  const setDefaultExecutionMode = useSettingsStore(
+    (s) => s.setDefaultAgentExecutionMode,
+  );
   const currentLlmLabel = llmConfigLabel(
     selectedProvider,
     selectedClaudeModel,
     selectedCodexModel,
     effortLevel,
     selectedCodexReasoningEffort,
-    selectedProvider === "claude"
-      ? selectedClaudeExecutionMode
-      : selectedProvider === "pi"
-        ? selectedPiExecutionMode
-        : selectedCodexExecutionMode,
+    selectedExecutionMode,
     discoveredClaudeModels,
     selectedPiModel,
   );
@@ -1220,18 +1196,13 @@ export const ChatComposer: FC<{
         pendingResumeChoice.sessionPiModel,
       )
     : null;
-  const selectedExecutionMode =
-    selectedProvider === "claude"
-      ? selectedClaudeExecutionMode
-      : selectedProvider === "pi"
-        ? selectedPiExecutionMode
-        : selectedCodexExecutionMode;
-  const setExecutionMode =
-    selectedProvider === "claude"
-      ? setSelectedClaudeExecutionMode
-      : selectedProvider === "pi"
-        ? setSelectedPiExecutionMode
-        : setSelectedCodexExecutionMode;
+  const setExecutionMode = useCallback(
+    (mode: AgentExecutionMode) => {
+      setDefaultExecutionMode(mode);
+      broadcastSettingsChanged();
+    },
+    [setDefaultExecutionMode],
+  );
   const cycleExecutionMode = useCallback(
     () => setExecutionMode(nextExecutionMode(selectedExecutionMode)),
     [selectedExecutionMode, setExecutionMode],
@@ -1330,30 +1301,21 @@ export const ChatComposer: FC<{
         content={
           openPicker === "permission"
             ? undefined
-            : isAntigravity
-              ? "Agent permission"
-              : `Writing permission · ${executionModeLabel}`
+            : `Writing permission · ${executionModeLabel}`
         }
       >
         <PopoverTrigger asChild>
           <button
             type="button"
-            aria-label={
-              isAntigravity ? "Agent permission" : "Writing permission"
-            }
-            aria-description={isAntigravity ? undefined : executionModeLabel}
+            aria-label="Writing permission"
+            aria-description={executionModeLabel}
             className={cn(
               "flex h-7 w-6 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-muted data-[state=open]:bg-muted",
-              !isAntigravity && executionModeColor
-                ? executionModeColor
-                : "text-muted-foreground hover:text-foreground",
+              executionModeColor ||
+                "text-muted-foreground hover:text-foreground",
             )}
           >
-            {isAntigravity ? (
-              <ShieldCheckIcon className="size-3.5" aria-hidden="true" />
-            ) : (
-              <ExecutionModeIcon className="size-3.5" aria-hidden="true" />
-            )}
+            <ExecutionModeIcon className="size-3.5" aria-hidden="true" />
           </button>
         </PopoverTrigger>
       </Hint>
@@ -1424,8 +1386,8 @@ export const ChatComposer: FC<{
             </div>
           </div>
         )}
-        {selectedProvider !== "pi" && !isAntigravity && <PopupSeparator />}
-        <div hidden={isAntigravity} className="shrink-0 px-2 py-1.5">
+        {selectedProvider !== "pi" && <PopupSeparator />}
+        <div className="shrink-0 px-2 py-1.5">
           <div className="mb-1.5 font-medium text-muted-foreground text-xs">
             Writing permission
           </div>
@@ -1840,8 +1802,8 @@ export const ChatComposer: FC<{
   // Load slash commands when picker is activated (keep loaded after close for send resolution)
   useEffect(() => {
     if (slashQuery === null) return;
-    // Pi skills are expanded by Pi. Only the picker needs its native catalog.
-    if (selectedProvider === "pi") {
+    // Pi and Antigravity receive skill names directly. Only the picker needs their catalogs.
+    if (selectedProvider === "pi" || selectedProvider === "antigravity") {
       setSlashCommands([]);
       return;
     }
@@ -2258,7 +2220,7 @@ export const ChatComposer: FC<{
 
       // Slash command picker is open — let the picker handle keyboard events
       // Its scoped capture listener owns these keys before the composer.
-      if (selectedProvider !== "antigravity" && slashQuery !== null) {
+      if (slashQuery !== null) {
         if (
           e.key === "Enter" ||
           e.key === "ArrowDown" ||
@@ -2321,9 +2283,7 @@ export const ChatComposer: FC<{
       const cursorPos = e.target.selectionStart;
       const textBefore = value.slice(0, cursorPos);
       // Complete a /query at the caret, including within an existing draft.
-      const slashMatch = isAntigravity
-        ? null
-        : textBefore.match(/(?:^|\s)\/(\S*)$/);
+      const slashMatch = textBefore.match(/(?:^|\s)\/(\S*)$/);
       if (slashMatch) {
         slashRangeRef.current = {
           start: cursorPos - slashMatch[1].length - 1,
@@ -2349,7 +2309,7 @@ export const ChatComposer: FC<{
 
       resizeTextarea(e.target);
     },
-    [isAntigravity, resizeTextarea],
+    [resizeTextarea],
   );
 
   // Scroll active mention into view
@@ -2671,7 +2631,7 @@ export const ChatComposer: FC<{
         </div>
       )}
       {/* / slash command picker — portal to body to escape all stacking contexts */}
-      {!isAntigravity && slashQuery !== null && (
+      {slashQuery !== null && (
         <SlashCommandPicker
           projectPath={projectRoot}
           provider={selectedProvider}
@@ -2875,34 +2835,31 @@ export const ChatComposer: FC<{
               >
                 <div className="flex items-center justify-between px-2 py-1 font-medium text-muted-foreground text-xs">
                   <span>Available models</span>
-                  {!isAntigravity && (
-                    <button
-                      type="button"
-                      disabled={
-                        (selectedProvider === "pi"
-                          ? pi.modelsStatus
-                          : selectedProvider === "claude"
-                            ? claudeModelsStatus
-                            : codexModelsStatus) === "loading"
-                      }
-                      onClick={() =>
-                        void (selectedProvider === "pi"
-                          ? pi.refreshModels()
-                          : selectedProvider === "claude"
-                            ? refreshClaudeModels()
-                            : refreshCodexModels())
-                      }
-                      className="hover:text-foreground disabled:opacity-50"
-                    >
-                      Refresh
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    disabled={modelLoading}
+                    onClick={() =>
+                      void {
+                        antigravity: antigravity.refreshModels,
+                        pi: pi.refreshModels,
+                        claude: refreshClaudeModels,
+                        codex: refreshCodexModels,
+                      }[selectedProvider]()
+                    }
+                    className="hover:text-foreground disabled:opacity-50"
+                  >
+                    {isAntigravity && !agyModelOptions.length
+                      ? "Retry"
+                      : "Refresh"}
+                  </button>
                 </div>
-                {isAntigravity && !agyModelOptions.length && (
-                  <p className="px-2 py-2 text-muted-foreground text-xs">
-                    Send a message to load Antigravity models.
-                  </p>
-                )}
+                {isAntigravity &&
+                  antigravity.status === "ready" &&
+                  !agyModelOptions.length && (
+                    <p className="px-2 py-2 text-muted-foreground text-xs">
+                      CLI default
+                    </p>
+                  )}
                 {modelSelectionBlocked && (
                   <p className="px-2 py-2 text-muted-foreground text-xs">
                     {pickerLabel}
@@ -2941,10 +2898,7 @@ export const ChatComposer: FC<{
                       } else if (selectedProvider === "pi") {
                         setSelectedPiModel(m.id);
                       } else if (isAntigravity) {
-                        useSettingsStore.setState({
-                          antigravityModel: m.id,
-                          antigravityThinkingEffort: "",
-                        });
+                        useSettingsStore.setState({ antigravityModel: m.id });
                       } else {
                         setSelectedCodexModel(m.id as CodexModelId);
                       }
@@ -3060,10 +3014,6 @@ export const ChatComposer: FC<{
                                 setEffortLevel(level);
                               } else if (selectedProvider === "pi") {
                                 setSelectedPiReasoningEffort(level);
-                              } else if (isAntigravity) {
-                                useSettingsStore.setState({
-                                  antigravityThinkingEffort: level,
-                                });
                               } else {
                                 setSelectedCodexReasoningEffort(level);
                               }

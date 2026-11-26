@@ -370,7 +370,8 @@ fn create_builtin_skill_commands(provider: Option<&str>) -> Vec<SlashCommand> {
     ]
     .into_iter()
     .map(|(name, description, content)| {
-        let namespace = (!matches!(provider, Some("codex" | "pi"))).then(|| "catalex".to_string());
+        let namespace = (!matches!(provider, Some("codex" | "pi" | "antigravity")))
+            .then(|| "catalex".to_string());
         SlashCommand {
             id: format!("skill-{name}"),
             name: name.to_string(),
@@ -397,6 +398,7 @@ fn resolve_project_skills_dir(project_path: &str, provider: Option<&str>) -> Pat
     let root = match provider {
         Some("codex") => ".codex",
         Some("pi") => ".pi",
+        Some("antigravity") => ".agents",
         _ => ".claude",
     };
     PathBuf::from(project_path).join(root).join("skills")
@@ -409,10 +411,10 @@ fn resolve_global_skills_dir(provider: Option<&str>) -> Option<PathBuf> {
             .or_else(|| dirs::home_dir().map(|home| home.join(".pi/agent")))
             .map(|root| root.join("skills"));
     }
-    let root = if provider == Some("codex") {
-        ".codex"
-    } else {
-        ".claude"
+    let root = match provider {
+        Some("codex") => ".codex",
+        Some("antigravity") => ".gemini/config",
+        _ => ".claude",
     };
     dirs::home_dir().map(|home_dir| home_dir.join(root).join("skills"))
 }
@@ -431,10 +433,24 @@ pub async fn slash_commands_list(
 ) -> Result<Vec<SlashCommand>, String> {
     let mut commands = Vec::new();
 
-    commands.extend(create_builtin_skill_commands(provider.as_deref()));
+    let uses_claude_commands = !matches!(provider.as_deref(), Some("pi" | "antigravity"));
+    if provider.as_deref() == Some("antigravity") {
+        // agy's CLI-specific and shared skill directories take priority.
+        if let Some(home) = dirs::home_dir() {
+            for directory in [".gemini/antigravity-cli/skills", ".gemini/skills"] {
+                merge_unique_skills(
+                    &mut commands,
+                    load_skills_from_dir(&home.join(directory), "skill"),
+                );
+            }
+        }
+    }
+    merge_unique_skills(
+        &mut commands,
+        create_builtin_skill_commands(provider.as_deref()),
+    );
 
-    // Pi discovers its prompt templates itself; do not advertise Claude commands.
-    if provider.as_deref() != Some("pi") {
+    if uses_claude_commands {
         // Load project commands
         if let Some(ref proj_path) = project_path {
             let project_commands_dir = PathBuf::from(proj_path).join(".claude").join("commands");
@@ -491,7 +507,7 @@ pub async fn slash_commands_list(
             let plugin_skills = load_recursive_skills_from_dir(&plugin_skills_root, "skill", true);
             merge_unique_skills(&mut commands, plugin_skills);
         }
-    } else if provider.as_deref() != Some("pi") {
+    } else if uses_claude_commands {
         if let Some(plugin_skills_root) = resolve_claude_plugin_skills_root() {
             let plugin_skills = load_recursive_skills_from_dir(&plugin_skills_root, "skill", true);
             merge_unique_skills(&mut commands, plugin_skills);
@@ -715,33 +731,33 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn pi_catalog_uses_pi_skills_without_claude_commands() {
+    async fn native_skill_catalogs_use_their_own_skills_without_claude_commands() {
         let project = tempfile::tempdir().unwrap();
-        let pi_skill = project.path().join(".pi/skills/pi-only");
         let claude_command = project.path().join(".claude/commands");
-        fs::create_dir_all(&pi_skill).unwrap();
         fs::create_dir_all(&claude_command).unwrap();
-        fs::write(
-            pi_skill.join("SKILL.md"),
-            "---\nname: Pi only\ndescription: Pi fixture\n---\nbody",
-        )
-        .unwrap();
         fs::write(claude_command.join("claude-only.md"), "Claude only").unwrap();
-        let commands = slash_commands_list(
-            Some(project.path().to_string_lossy().into()),
-            Some("pi".into()),
-        )
-        .await
-        .unwrap();
-        assert!(commands
-            .iter()
-            .any(|command| command.full_command == "/pi-only"));
-        assert!(commands
-            .iter()
-            .any(|command| command.full_command == "/review-document"));
-        assert!(!commands
-            .iter()
-            .any(|command| command.full_command == "/claude-only"));
+        for (provider, root) in [("pi", ".pi"), ("antigravity", ".agents")] {
+            let skill = project.path().join(root).join("skills/project-only");
+            fs::create_dir_all(&skill).unwrap();
+            let skill_file = skill.join("SKILL.md");
+            fs::write(&skill_file, "# Project fixture").unwrap();
+            let commands = slash_commands_list(
+                Some(project.path().to_string_lossy().into()),
+                Some(provider.into()),
+            )
+            .await
+            .unwrap();
+            assert!(commands.iter().any(|command| {
+                command.full_command == "/project-only"
+                    && Path::new(&command.file_path) == skill_file
+            }));
+            assert!(commands
+                .iter()
+                .any(|command| command.full_command == "/review-document"));
+            assert!(!commands
+                .iter()
+                .any(|command| command.full_command == "/claude-only"));
+        }
     }
 
     #[test]

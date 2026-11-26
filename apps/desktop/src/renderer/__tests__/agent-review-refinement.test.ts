@@ -97,7 +97,6 @@ beforeEach(() => {
     activeTabId: "a",
     selectedProvider: "codex",
     selectedCodexModel: "gpt-5.4",
-    selectedCodexExecutionMode: "default",
     isLeavingProject: false,
     messages: [],
     error: null,

@@ -127,13 +127,28 @@ function isPluginSkill(path: string, provider: ChatProvider): boolean {
   return provider === "claude" && normalized.includes("/.claude/plugins/");
 }
 
+const projectSkillsDirs = {
+  pi: ".pi/skills",
+  codex: ".codex/skills",
+  claude: ".claude/skills",
+  antigravity: ".agents/skills",
+} as const satisfies Record<ChatProvider, string>;
+
+const globalSkillsDirs = {
+  pi: ".pi/agent/skills",
+  codex: ".codex/skills",
+  claude: ".claude/skills",
+  antigravity: ".gemini/antigravity-cli/skills",
+} as const satisfies Record<ChatProvider, string>;
+
 function isGlobalSkill(path: string, provider: ChatProvider): boolean {
   const normalized = normalizePath(path);
-  return provider === "pi"
-    ? normalized.includes("/.pi/agent/skills/")
-    : provider === "codex"
-      ? normalized.includes("/.codex/skills/")
-      : normalized.includes("/.claude/skills/");
+  return (
+    normalized.includes(`/${globalSkillsDirs[provider]}/`) ||
+    (provider === "antigravity" &&
+      (normalized.includes("/.gemini/skills/") ||
+        normalized.includes("/.gemini/config/skills/")))
+  );
 }
 
 function commandTabForScope(
@@ -148,9 +163,7 @@ function commandTabForScope(
 
   const normalizedFilePath = normalizePath(command.file_path);
   const localSkillsRoot = projectPath
-    ? normalizePath(
-        `${projectPath}/${provider === "pi" ? ".pi" : provider === "codex" ? ".codex" : ".claude"}/skills`,
-      )
+    ? normalizePath(`${projectPath}/${projectSkillsDirs[provider]}`)
     : null;
 
   if (isWithinPath(normalizedFilePath, localSkillsRoot)) return "local-skills";
@@ -169,7 +182,7 @@ function commandTabForScope(
 }
 
 function availableTabsForProvider(provider: ChatProvider): Tab[] {
-  return provider === "pi"
+  return provider === "pi" || provider === "antigravity"
     ? ["all", "catalex", "global-skills", "local-skills"]
     : provider === "codex"
       ? ["all", "catalex", "global-skills", "local-skills", "built-in-skills"]
@@ -841,25 +854,13 @@ export const SlashCommandPicker: FC<SlashCommandPickerProps> = ({
       "global-skills": (
         <p className="mt-1 px-4 text-center text-muted-foreground text-xs">
           Install skills in{" "}
-          <code className="px-1">
-            {provider === "pi"
-              ? "~/.pi/agent/skills/"
-              : provider === "codex"
-                ? "~/.codex/skills/"
-                : "~/.claude/skills/"}
-          </code>
+          <code className="px-1">~/{globalSkillsDirs[provider]}/</code>
         </p>
       ),
       "local-skills": (
         <p className="mt-1 px-4 text-center text-muted-foreground text-xs">
           Add project skills in{" "}
-          <code className="px-1">
-            {provider === "pi"
-              ? ".pi/skills/"
-              : provider === "codex"
-                ? ".codex/skills/"
-                : ".claude/skills/"}
-          </code>
+          <code className="px-1">{projectSkillsDirs[provider]}/</code>
         </p>
       ),
       "plugin-skills": null,

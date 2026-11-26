@@ -151,10 +151,8 @@ function resetAgentChatStore() {
     totalInputTokens: 0,
     totalOutputTokens: 0,
     selectedClaudeModel: "opus",
-    selectedClaudeExecutionMode: "default",
     selectedCodexModel: "gpt-5.4",
     selectedCodexReasoningEffort: "medium",
-    selectedCodexExecutionMode: "default",
     effortLevel: "medium",
     tabs: [
       {
@@ -175,7 +173,6 @@ function resetAgentChatStore() {
         draft: { input: "", pinnedContexts: [] },
         pendingResumeChoice: null,
         pendingFileBaseline: null,
-        pendingClaudeExecutionMode: null,
       },
     ],
     activeTabId: "tab-default",
@@ -2151,12 +2148,10 @@ describe("useAgentEvents provider updates", () => {
     vi.mocked(readTexFileContent).mockResolvedValue("after");
     useAgentChatStore.setState((state) => ({
       selectedProvider: "claude",
-      selectedClaudeExecutionMode: "edit",
       tabs: state.tabs.map((tab) => ({
         ...tab,
         provider: "claude",
         isStreaming: true,
-        pendingClaudeExecutionMode: "edit",
       })),
       isStreaming: true,
     }));
@@ -2222,12 +2217,10 @@ describe("useAgentEvents provider updates", () => {
     vi.mocked(readTexFileContent).mockResolvedValue("after");
     useAgentChatStore.setState((state) => ({
       selectedProvider: "claude",
-      selectedClaudeExecutionMode: "default",
       tabs: state.tabs.map((tab) => ({
         ...tab,
         provider: "claude",
         isStreaming: true,
-        pendingClaudeExecutionMode: "default",
       })),
       isStreaming: true,
     }));

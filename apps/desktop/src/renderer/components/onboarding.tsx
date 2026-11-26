@@ -8,7 +8,12 @@ import {
   piModelLabel,
 } from "@/lib/pi-models";
 import { PRODUCT_NAME } from "../../branding";
-import { ProviderToggle } from "./provider-toggle";
+import {
+  ProviderSettings,
+  ProviderSetupStatus,
+  ProviderToggle,
+} from "./provider-toggle";
+import { useAntigravitySetupStore } from "@/stores/antigravity-setup-store";
 import { finishWithCatHandoff } from "@/lib/cat-handoff";
 import { MissingInstallationCard } from "@/components/missing-installation-card";
 import { OnboardingTitle } from "@/components/onboarding-title";
@@ -80,6 +85,15 @@ export function Onboarding() {
   const claude = useClaudeSetupStore();
   const codex = useCodexSetupStore();
   const pi = usePiSetupStore();
+  const antigravity = useAntigravitySetupStore();
+  const checkAntigravity = antigravity.checkStatus;
+  useEffect(() => {
+    void checkAntigravity();
+  }, [
+    checkAntigravity,
+    settings.enabledProviders.antigravity,
+    settings.antigravityBinaryPath,
+  ]);
   const piPathSettings = usePiPathSettings();
   const [detectedLatex, setLatex] = useState<TexliveStatus | null>(null);
   const selectedInstallation = detectedLatex?.installations?.find(
@@ -126,32 +140,43 @@ export function Onboarding() {
   }, [step]);
   const [provider, setProvider] = useState(settings.defaultAgent);
   const [backend, setBackend] = useState(settings.compilerBackend);
-  const agent = provider === "pi" ? pi : provider === "claude" ? claude : codex;
-  const noAgentAvailable =
-    claude.status !== "ready" &&
-    codex.status !== "ready" &&
-    pi.status !== "ready";
-  const models =
-    provider === "pi"
-      ? pi.models.map((m) => ({
-          value: piModelValue(m),
-          label: piModelLabel(piModelValue(m), pi.models),
-        }))
-      : provider === "claude"
-        ? claude.models.map((m) => ({ value: m.value, label: m.displayName }))
-        : codex.models.map((m) => ({ value: m.model, label: m.display_name }));
-  const model =
-    provider === "pi"
-      ? settings.defaultPiModel
-      : provider === "claude"
-        ? settings.defaultClaudeModel
-        : settings.defaultCodexModel;
-  const setModel =
-    provider === "pi"
-      ? settings.setDefaultPiModel
-      : provider === "claude"
-        ? settings.setDefaultClaudeModel
-        : settings.setDefaultCodexModel;
+  const agents = { claude, codex, pi, antigravity };
+  const agent = agents[provider];
+  const noAgentAvailable = AGENT_OPTIONS.every(
+    ({ value }) =>
+      !settings.enabledProviders[value] || agents[value].status !== "ready",
+  );
+  const models = {
+    pi: pi.models.map((m) => ({
+      value: piModelValue(m),
+      label: piModelLabel(piModelValue(m), pi.models),
+    })),
+    claude: claude.models.map((m) => ({
+      value: m.value,
+      label: m.displayName,
+    })),
+    codex: codex.models.map((m) => ({ value: m.model, label: m.display_name })),
+    antigravity: antigravity.models,
+  }[provider];
+  const model = {
+    pi: settings.defaultPiModel,
+    claude: settings.defaultClaudeModel,
+    codex: settings.defaultCodexModel,
+    antigravity: settings.antigravityModel,
+  }[provider];
+  const setModel = {
+    pi: settings.setDefaultPiModel,
+    claude: settings.setDefaultClaudeModel,
+    codex: settings.setDefaultCodexModel,
+    antigravity: (value: string) =>
+      useSettingsStore.setState({
+        antigravityModel: value,
+      }),
+  }[provider];
+  const modelOptions =
+    model && !models.some((option) => option.value === model)
+      ? [{ value: model, label: `${model} (saved default)` }, ...models]
+      : models;
   const piModelInfo = findPiModel(pi.models, settings.defaultPiModel);
   const piEffortOptions = piModelInfo?.reasoning
     ? piModelThinkingLevels(piModelInfo)
@@ -567,20 +592,8 @@ export function Onboarding() {
                     className="mb-4 flex h-9 w-fit items-center gap-1"
                   >
                     {AGENT_OPTIONS.map((option) => {
-                      const failed =
-                        (option.value === "pi"
-                          ? pi
-                          : option.value === "claude"
-                            ? claude
-                            : codex
-                        ).status === "error";
-                      const ready =
-                        (option.value === "pi"
-                          ? pi
-                          : option.value === "claude"
-                            ? claude
-                            : codex
-                        ).status === "ready";
+                      const failed = agents[option.value].status === "error";
+                      const ready = agents[option.value].status === "ready";
                       return (
                         <button
                           key={option.value}
@@ -641,8 +654,9 @@ export function Onboarding() {
                     <ProviderToggle provider={provider} />
                     {settings.enabledProviders[provider] &&
                       (agent.status !== "ready" ||
-                        (provider === "pi" &&
-                          (pi.error || pi.modelsError))) && (
+                        (provider === "pi" && (pi.error || pi.modelsError)) ||
+                        (provider === "antigravity" &&
+                          !antigravity.models.length)) && (
                         <div className="mb-4">
                           {provider === "pi" ? (
                             <p
@@ -666,10 +680,29 @@ export function Onboarding() {
                                 Check again
                               </Button>
                             </p>
-                          ) : provider === "claude" ? (
-                            <ClaudeSetup />
                           ) : (
-                            <CodexSetup />
+                            {
+                              claude: <ClaudeSetup />,
+                              codex: <CodexSetup />,
+                              antigravity:
+                                antigravity.status === "not-installed" ? (
+                                  <MissingInstallationCard
+                                    title="Antigravity CLI not found"
+                                    description="Install Antigravity CLI in your terminal, then check again."
+                                  >
+                                    <Button
+                                      variant="outline"
+                                      onClick={() =>
+                                        void antigravity.checkStatus()
+                                      }
+                                    >
+                                      Retry
+                                    </Button>
+                                  </MissingInstallationCard>
+                                ) : (
+                                  <ProviderSetupStatus setup={antigravity} />
+                                ),
+                            }[provider]
                           )}
                         </div>
                       )}
@@ -685,60 +718,25 @@ export function Onboarding() {
                             <SettingsDropdown {...field.dropdown} />
                           </SettingsRow>
                         ))}
-                      {settings.enabledProviders[provider] &&
-                        agent.status !== "not-installed" && (
-                          <SettingsRow
-                            title={`Use ${provider === "pi" ? "Pi" : provider === "claude" ? "Claude Code" : "Codex"} by default`}
-                          >
-                            <SettingsSwitch
-                              label="Default provider"
-                              checked={settings.defaultAgent === provider}
-                              onCheckedChange={(checked) =>
-                                settings.setDefaultAgent(
-                                  checked
-                                    ? provider
-                                    : (AGENT_OPTIONS.find(
-                                        (option) =>
-                                          option.value !== provider &&
-                                          settings.enabledProviders[
-                                            option.value
-                                          ],
-                                      )?.value ?? provider),
-                                )
+                      <ProviderSettings
+                        provider={provider}
+                        status={agent.status}
+                        defaultLabel="Default provider"
+                        model={
+                          agent.status === "ready"
+                            ? {
+                                value: model,
+                                onChange: setModel,
+                                disabled: !models.length,
+                                placeholder:
+                                  provider === "antigravity"
+                                    ? "CLI default"
+                                    : "Select…",
+                                options: models.length ? modelOptions : [],
                               }
-                            />
-                          </SettingsRow>
-                        )}
-                      {agent.status === "ready" && (
-                        <SettingsRow title="Default model">
-                          <SettingsDropdown
-                            ariaLabel="Default model"
-                            value={model}
-                            onChange={setModel}
-                            disabled={
-                              provider === "pi" && pi.modelsStatus !== "ready"
-                            }
-                            placeholder={
-                              provider === "pi" && pi.modelsStatus === "loading"
-                                ? "Loading models…"
-                                : "Select…"
-                            }
-                            options={[
-                              ...(model
-                                ? [
-                                    {
-                                      value: model,
-                                      label:
-                                        models.find((m) => m.value === model)
-                                          ?.label ?? `${model} (saved default)`,
-                                    },
-                                  ]
-                                : []),
-                              ...models.filter((m) => m.value !== model),
-                            ]}
-                          />
-                        </SettingsRow>
-                      )}
+                            : undefined
+                        }
+                      />
                       {agent.status === "ready" &&
                         provider === "claude" &&
                         claudeModelEfforts(
@@ -797,7 +795,7 @@ export function Onboarding() {
                             />
                           </SettingsRow>
                         )}
-                      {agent.modelsError && (
+                      {"modelsError" in agent && agent.modelsError && (
                         <p
                           role="status"
                           className="py-2 text-muted-foreground text-sm"

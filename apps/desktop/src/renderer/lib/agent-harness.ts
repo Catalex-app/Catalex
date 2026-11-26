@@ -3,8 +3,8 @@ import { invoke } from "./desktop/core";
 
 /** App-facing lifecycle names; each backend owns its native protocol. */
 export const HARNESSES = {
-  claude: { label: "Claude Code", compact: true },
   codex: { label: "Codex", compact: true },
+  claude: { label: "Claude Code", compact: true },
   pi: { label: "Pi", compact: true },
   antigravity: { label: "Antigravity", compact: false },
 } as const satisfies Record<ChatProvider, { label: string; compact: boolean }>;

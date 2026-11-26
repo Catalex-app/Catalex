@@ -122,9 +122,10 @@ export function ChatErrorRecovery({
     if (source === "models") await setup.getState().refreshModels();
     else await setup.getState().checkStatus();
     const status = setup.getState();
-    if (status.status === "ready" && status.modelsStatus === "ready") clear();
-    else if (status.error || status.modelsError)
-      throw new Error(status.error ?? status.modelsError ?? message);
+    const modelsError = "modelsError" in status ? status.modelsError : null;
+    if (status.status === "ready" && !(status.error || modelsError)) clear();
+    else if (status.error || modelsError)
+      throw new Error(status.error ?? modelsError ?? message);
   };
   const reconnect = async () => {
     // Reset a failed runtime without replaying a conversation turn. The saved
@@ -134,10 +135,13 @@ export function ChatErrorRecovery({
     await setup.getState().checkStatus();
     if (!current()) return;
     const status = setup.getState();
-    if (status.status !== "ready" || status.modelsStatus !== "ready") {
+    if (
+      status.status !== "ready" ||
+      ("modelsStatus" in status && status.modelsStatus !== "ready")
+    ) {
       throw new Error(
         status.error ??
-          status.modelsError ??
+          ("modelsError" in status ? status.modelsError : null) ??
           "The agent is not ready. Check Agent Settings and reconnect again.",
       );
     }

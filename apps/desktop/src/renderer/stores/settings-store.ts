@@ -183,7 +183,6 @@ export interface SettingsState {
   };
   antigravityBinaryPath: string;
   antigravityModel: string;
-  antigravityThinkingEffort: string;
   agentPermissions: AgentPermissions;
   codexExplicitPolicies: Record<string, CodexExplicitPolicy>;
   setAgentPermission: (provider: PermissionProvider, mode: string) => void;
@@ -943,7 +942,6 @@ export const useSettingsStore = create<SettingsState>()(
       },
       antigravityBinaryPath: "",
       antigravityModel: "",
-      antigravityThinkingEffort: "",
       agentPermissions: {},
       codexExplicitPolicies: {},
       setAgentPermission: (provider, mode) =>

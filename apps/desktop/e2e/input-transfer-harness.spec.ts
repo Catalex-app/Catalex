@@ -178,22 +178,36 @@ test("layout switches and new chats share one default permission", async ({
   await page.goto("/?debug=input-transfer");
   await expect(page.locator(".cm-editor")).toBeVisible();
   await expect(page.locator("#loading-screen")).toHaveCount(0);
-  const expectManual = async (panel: string) => {
+  const expectWritingPermission = async (
+    panel: string,
+    selected: "Need approval" | "Auto-apply",
+    changeTo?: "Auto-apply",
+  ) => {
     const trigger = page
       .locator(panel)
       .getByRole("button", { name: "Writing permission", exact: true });
     await trigger.click();
-    const popup = page.getByRole("dialog", {
-      name: "Writing permission",
-      exact: true,
-    });
+    const popup = page.getByRole("dialog", { name: "Permission", exact: true });
+    const writing = popup.getByRole("group", { name: "Writing permission" });
     await expect(
-      popup.getByRole("button", { name: "Need approval", exact: true }),
+      writing.getByRole("button", { name: selected, exact: true }),
     ).toHaveAttribute("aria-pressed", "true");
+    if (changeTo) {
+      const option = writing.getByRole("button", {
+        name: changeTo,
+        exact: true,
+      });
+      await option.click();
+      await expect(option).toHaveAttribute("aria-pressed", "true");
+    }
     await popup.press("Escape");
     await expect(trigger).toBeFocused();
   };
-  await expectManual("[data-chat-drawer-panel]");
+  await expectWritingPermission(
+    "[data-chat-drawer-panel]",
+    "Need approval",
+    "Auto-apply",
+  );
   await page.waitForTimeout(800);
   await page
     .getByRole("button", { name: "Toggle drawer", exact: true })
@@ -204,17 +218,17 @@ test("layout switches and new chats share one default permission", async ({
     "data-chat-layout",
     "workspace",
   );
-  await expectManual("[data-workspace-chat-pane]");
+  await expectWritingPermission("[data-workspace-chat-pane]", "Auto-apply");
   await page.evaluate(() => window.__newInputTransferChat?.());
-  await expectManual("[data-workspace-chat-pane]");
+  await expectWritingPermission("[data-workspace-chat-pane]", "Auto-apply");
   await page.getByRole("button", { name: "Half", exact: true }).click();
   await expect(page.locator("[data-workspace-mode-area]")).toHaveAttribute(
     "data-chat-layout",
     "drawer",
   );
-  await expectManual("[data-chat-drawer-panel]");
+  await expectWritingPermission("[data-chat-drawer-panel]", "Auto-apply");
   await page.evaluate(() => window.__newInputTransferChat?.());
-  await expectManual("[data-chat-drawer-panel]");
+  await expectWritingPermission("[data-chat-drawer-panel]", "Auto-apply");
 });
 
 test("removing a badge while typing preserves chat focus and caret", async ({
@@ -407,7 +421,10 @@ test("chat layout preserves a running session, model, permission, and draft", as
     const { useAgentChatStore } = await import(path);
     const state = useAgentChatStore.getState();
     state.setSelectedCodexModel("demo");
-    state.setSelectedCodexExecutionMode("edit");
+    const { useSettingsStore } = await import(
+      "/src/renderer/stores/settings-store.ts"
+    );
+    useSettingsStore.getState().setDefaultAgentExecutionMode("edit");
     const next = useAgentChatStore.getState();
     const tabs = next.tabs.map((tab: { id: string; draft: object }) =>
       tab.id === next.activeTabId
@@ -424,7 +441,7 @@ test("chat layout preserves a running session, model, permission, and draft", as
       activeTabId: next.activeTabId,
       tab: tabs.find((tab: { id: string }) => tab.id === next.activeTabId),
       model: next.selectedCodexModel,
-      permission: next.selectedCodexExecutionMode,
+      permission: useSettingsStore.getState().defaultAgentExecutionMode,
     };
   });
   for (const [button, layout] of [
@@ -448,13 +465,16 @@ test("chat layout preserves a running session, model, permission, and draft", as
       const path = "/src/renderer/stores/agent-chat-store.ts";
       const { useAgentChatStore } = await import(path);
       const state = useAgentChatStore.getState();
+      const { useSettingsStore } = await import(
+        "/src/renderer/stores/settings-store.ts"
+      );
       return {
         activeTabId: state.activeTabId,
         tab: state.tabs.find(
           (tab: { id: string }) => tab.id === state.activeTabId,
         ),
         model: state.selectedCodexModel,
-        permission: state.selectedCodexExecutionMode,
+        permission: useSettingsStore.getState().defaultAgentExecutionMode,
       };
     });
     expect(after).toEqual(before);

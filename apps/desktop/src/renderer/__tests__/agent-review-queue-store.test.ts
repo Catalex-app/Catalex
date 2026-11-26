@@ -1,3 +1,4 @@
+import { useSettingsStore } from "@/stores/settings-store";
 import { retireAgentDraft } from "@/lib/retire-agent-draft";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { invoke } from "@/lib/desktop/core";
@@ -64,6 +65,7 @@ function preview(id: string, conflict = false): AgentWorkspacePreview {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  useSettingsStore.getState().setDefaultAgentExecutionMode("default");
   useHistoryStore.setState({
     init: vi.fn(async () => {}),
     createSnapshot: vi.fn(async () => null),
@@ -1036,8 +1038,6 @@ describe("Edit mode automatic acceptance", () => {
     mockApply();
     useAgentChatStore.setState({
       selectedProvider: provider as "claude" | "codex",
-      selectedClaudeExecutionMode: "default",
-      selectedCodexExecutionMode: "default",
     });
     const shown: number[] = [];
     const unsubscribe = useProposedChangesStore.subscribe((state) =>
@@ -1120,10 +1120,7 @@ describe("Edit mode automatic acceptance", () => {
 
   it("leaves Ask manual even if the current mode selector changes to Edit", async () => {
     mockApply();
-    useAgentChatStore.setState({
-      selectedClaudeExecutionMode: "edit",
-      selectedCodexExecutionMode: "edit",
-    });
+    useSettingsStore.getState().setDefaultAgentExecutionMode("edit");
     await useAgentReviewQueueStore.getState().enqueue(session("a"));
     await useAgentReviewQueueStore
       .getState()

@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import type { BrowserHarness } from "../src/renderer/lib/desktop/bridge";
 
 const demo = process.env.CATALEX_ONBOARDING_DEMO_URL ?? "/?onboarding-demo";
 test("fullscreen onboarding persists choices and enters the full app", async ({
@@ -162,6 +163,53 @@ test("missing dependencies can be skipped and compact screens remain usable", as
   await page.reload();
   await expect(page.locator("#loading-screen")).toHaveCount(0);
   await expect(page.getByTestId("onboarding")).toHaveCount(0);
+});
+
+test("Antigravity works in onboarding when the other CLIs are missing", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    localStorage.setItem(
+      "catalex-onboarding",
+      JSON.stringify({ state: { completed: false, step: 2 }, version: 0 }),
+    );
+  });
+  await page.goto(`${demo}&scenario=missing-providers`);
+  const tabs = page.getByRole("tablist", { name: "Agent provider" });
+  const tab = tabs.getByRole("tab", { name: /Antigravity/ });
+  await tab.click();
+  await page.evaluate(() => {
+    const bridge = (window as Window & { __TAURI_INTERNALS__: BrowserHarness })
+      .__TAURI_INTERNALS__;
+    const invoke = bridge.invoke;
+    let missing = true;
+    bridge.invoke = async (command, args) => {
+      if (command !== "check_antigravity_status") return invoke(command, args);
+      if (missing) {
+        missing = false;
+        return { installed: false };
+      }
+      return {
+        installed: true,
+        models: [{ value: "gemini-fixture", label: "Gemini Fixture" }],
+      };
+    };
+  });
+  await page.getByRole("switch", { name: "Enable Antigravity" }).click();
+  const panel = page.locator("#onboarding-agent-panel");
+  await expect(panel.getByText("Antigravity CLI not found")).toBeVisible();
+  await expect(panel.getByText("Use Antigravity by default")).toHaveCount(0);
+  await panel.getByRole("button", { name: "Retry" }).click();
+  const ready = { name: "Ready", exact: true };
+  await expect(tab.getByRole("img", ready)).toBeVisible();
+  await expect(tabs.getByRole("img", ready)).toHaveCount(1);
+  await expect(panel).not.toContainText(/Codex|GPT/);
+  await expect(panel.getByText("Use Antigravity by default")).toBeVisible();
+  const model = panel.getByRole("combobox", { name: "Default model" });
+  await expect(model).toHaveText("CLI default");
+  await model.click();
+  await page.getByRole("option", { name: "Gemini Fixture" }).click();
+  await expect(page.getByText("Continue (no agent available)")).toHaveCount(0);
 });
 
 test("appearance preview follows settings and switches example files", async ({

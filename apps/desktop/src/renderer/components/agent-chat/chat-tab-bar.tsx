@@ -534,7 +534,9 @@ function TabButton({
           ? "text-emerald-500"
           : tab.provider === "codex"
             ? "text-blue-500"
-            : "text-amber-500",
+            : tab.provider === "claude"
+              ? "text-amber-500"
+              : "text-muted-foreground",
       )}
       aria-hidden="true"
     />

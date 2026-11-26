@@ -14,7 +14,12 @@ import {
   SPELLING_LANGUAGES,
   normalizeSpellingLanguage,
 } from "@/lib/spelling/types";
-import { ProviderToggle } from "@/components/provider-toggle";
+import {
+  ProviderSettings,
+  ProviderSetupStatus,
+  ProviderToggle,
+} from "@/components/provider-toggle";
+import { HARNESSES } from "@/lib/agent-harness";
 import { SettingsSwitch } from "./settings-switch";
 export { SettingsSwitch } from "./settings-switch";
 import { useOnboardingStore } from "@/stores/onboarding-store";
@@ -83,7 +88,6 @@ import {
   Trash2Icon,
 } from "lucide-react";
 import { open } from "@/lib/desktop/dialog";
-import { open as shellOpen } from "@/lib/desktop/shell";
 import { useAntigravitySetupStore } from "@/stores/antigravity-setup-store";
 import { useAppTheme } from "@/lib/app-theme";
 import {
@@ -255,15 +259,9 @@ export const COMPILER_ENGINE_OPTIONS: Array<{
   { value: "lualatex", label: "LuaLaTeX" },
 ];
 
-export const AGENT_OPTIONS: Array<{
-  value: DefaultAgent;
-  label: string;
-}> = [
-  { value: "codex", label: "Codex" },
-  { value: "claude", label: "Claude Code" },
-  { value: "pi", label: "Pi" },
-  { value: "antigravity", label: "Antigravity" },
-];
+export const AGENT_OPTIONS = (
+  ["codex", "claude", "pi", "antigravity"] as const
+).map((value) => ({ value, label: HARNESSES[value].label }));
 
 const FALLBACK_CODEX_MODEL_OPTIONS: Array<{
   value: CodexModelId;
@@ -846,7 +844,6 @@ export function SettingsWindow() {
   const setCompilerEngine = useSettingsStore((s) => s.setCompilerEngine);
   const enabledProviders = useSettingsStore((s) => s.enabledProviders);
   const defaultAgent = useSettingsStore((s) => s.defaultAgent);
-  const setDefaultAgent = useSettingsStore((s) => s.setDefaultAgent);
   const defaultClaudeModel = useSettingsStore((s) => s.defaultClaudeModel);
   const setDefaultClaudeModel = useSettingsStore(
     (s) => s.setDefaultClaudeModel,
@@ -867,16 +864,14 @@ export function SettingsWindow() {
   );
   const pi = usePiSetupStore();
   const antigravity = useAntigravitySetupStore();
-  const antigravityBinaryPath = useSettingsStore(
-    (s) => s.antigravityBinaryPath,
-  );
+  const antigravityModel = useSettingsStore((s) => s.antigravityModel);
   const antigravityEnabled = useSettingsStore(
     (s) => s.enabledProviders.antigravity,
   );
   const checkAntigravity = antigravity.checkStatus;
   useEffect(() => {
     void checkAntigravity();
-  }, [checkAntigravity, antigravityBinaryPath, antigravityEnabled]);
+  }, [checkAntigravity, antigravityEnabled]);
   const piPathSettings = usePiPathSettings();
   const piBinaryPath = useSettingsStore((s) => s.piBinaryPath);
   const piConfigDirectory = useSettingsStore((s) => s.piConfigDirectory);
@@ -2581,49 +2576,47 @@ export function SettingsWindow() {
                               hidden={!enabledProviders[agentProvider]}
                               className="border-border/45 border-t"
                             >
-                              <SettingsRow
-                                id="agent-default-agent"
-                                title={`Use ${getOptionLabel(AGENT_OPTIONS, agentProvider)} by default`}
-                              >
-                                <SettingsSwitch
-                                  label={`Use ${getOptionLabel(AGENT_OPTIONS, agentProvider)} by default`}
-                                  checked={defaultAgent === agentProvider}
-                                  onCheckedChange={(checked) => {
-                                    setDefaultAgent(
-                                      checked
-                                        ? agentProvider
-                                        : ((
-                                            [
-                                              "codex",
-                                              "claude",
-                                              "pi",
-                                              "antigravity",
-                                            ] as const
-                                          ).find(
-                                            (provider) =>
-                                              provider !== agentProvider &&
-                                              enabledProviders[provider],
-                                          ) ?? agentProvider),
-                                    );
-                                    broadcastSettingsChanged();
-                                  }}
-                                />
-                              </SettingsRow>
+                              <ProviderSettings
+                                provider={agentProvider}
+                                status={
+                                  agentProvider === "antigravity"
+                                    ? antigravity.status
+                                    : undefined
+                                }
+                                model={
+                                  {
+                                    claude: {
+                                      value: defaultClaudeModel,
+                                      options: claudeModelOptions,
+                                      disabled: !discoveredClaudeModels.length,
+                                      onChange: setDefaultClaudeModel,
+                                    },
+                                    codex: {
+                                      value: defaultCodexModel,
+                                      options: codexModelOptions,
+                                      onChange: setDefaultCodexModel,
+                                    },
+                                    pi: {
+                                      value: defaultPiModel,
+                                      options: piModelOptions,
+                                      disabled: pi.modelsStatus !== "ready",
+                                      onChange: setDefaultPiModel,
+                                    },
+                                    antigravity: {
+                                      value: antigravityModel,
+                                      options: antigravity.models,
+                                      disabled: !antigravity.models.length,
+                                      placeholder: "CLI default",
+                                      onChange: (value: string) =>
+                                        useSettingsStore.setState({
+                                          antigravityModel: value,
+                                        }),
+                                    },
+                                  }[agentProvider]
+                                }
+                              />
                               {agentProvider === "claude" && (
                                 <>
-                                  <SettingsRow
-                                    id="agent-claude-model"
-                                    title="Default model"
-                                  >
-                                    <SettingsDropdown
-                                      value={defaultClaudeModel}
-                                      options={claudeModelOptions}
-                                      disabled={
-                                        discoveredClaudeModels.length === 0
-                                      }
-                                      onChange={setDefaultClaudeModel}
-                                    />
-                                  </SettingsRow>
                                   {claudeModelsStatus !== "ready" && (
                                     <div
                                       className="px-4 pb-3 text-muted-foreground text-xs"
@@ -2668,16 +2661,6 @@ export function SettingsWindow() {
                               )}
                               {agentProvider === "codex" && (
                                 <>
-                                  <SettingsRow
-                                    id="agent-codex-model"
-                                    title="Default model"
-                                  >
-                                    <SettingsDropdown
-                                      value={defaultCodexModel}
-                                      options={codexModelOptions}
-                                      onChange={setDefaultCodexModel}
-                                    />
-                                  </SettingsRow>
                                   <SettingsRow
                                     id="agent-codex-reasoning"
                                     title="Reasoning"
@@ -2749,17 +2732,6 @@ export function SettingsWindow() {
                                       {pi.error ?? pi.modelsError}
                                     </p>
                                   )}
-                                  <SettingsRow
-                                    id="agent-pi-model"
-                                    title="Default model"
-                                  >
-                                    <SettingsDropdown
-                                      value={defaultPiModel}
-                                      options={piModelOptions}
-                                      onChange={setDefaultPiModel}
-                                      disabled={pi.modelsStatus !== "ready"}
-                                    />
-                                  </SettingsRow>
                                   {piEffortOptions.length > 0 && (
                                     <SettingsRow
                                       id="agent-pi-reasoning"
@@ -2782,96 +2754,7 @@ export function SettingsWindow() {
                                 </>
                               )}
                               {agentProvider === "antigravity" && (
-                                <>
-                                  <SettingsRow
-                                    id="agent-antigravity-executable"
-                                    title="Antigravity executable"
-                                  >
-                                    <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
-                                      <span
-                                        className="min-w-0 truncate text-xs"
-                                        title={antigravityBinaryPath}
-                                      >
-                                        {antigravityBinaryPath ||
-                                          "Detect automatically"}
-                                      </span>
-                                      <Button
-                                        size="sm"
-                                        variant="outline"
-                                        onClick={() => {
-                                          void open({
-                                            title:
-                                              "Choose Antigravity executable",
-                                            noResolveAliases: true,
-                                          }).then((chosen) => {
-                                            if (chosen)
-                                              useSettingsStore.setState({
-                                                antigravityBinaryPath: chosen,
-                                                antigravityModel: "",
-                                                antigravityThinkingEffort: "",
-                                              });
-                                          });
-                                        }}
-                                      >
-                                        Browse
-                                      </Button>
-                                      {antigravityBinaryPath && (
-                                        <Button
-                                          size="sm"
-                                          variant="ghost"
-                                          onClick={() => {
-                                            useSettingsStore.setState({
-                                              antigravityBinaryPath: "",
-                                              antigravityModel: "",
-                                              antigravityThinkingEffort: "",
-                                            });
-                                          }}
-                                        >
-                                          Reset
-                                        </Button>
-                                      )}
-                                    </div>
-                                  </SettingsRow>
-                                  <SettingsRow
-                                    id="agent-antigravity-status"
-                                    title="Setup"
-                                  >
-                                    <div className="flex flex-wrap items-center justify-end gap-2">
-                                      <span
-                                        aria-live="polite"
-                                        className="text-xs"
-                                      >
-                                        {antigravity.status === "checking"
-                                          ? "Checking…"
-                                          : antigravity.status === "ready"
-                                            ? `CLI detected · v${antigravity.version}`
-                                            : antigravity.error}
-                                      </span>
-                                      <Button
-                                        size="sm"
-                                        variant="outline"
-                                        onClick={() => void checkAntigravity()}
-                                      >
-                                        Check
-                                      </Button>
-                                      <Button
-                                        size="sm"
-                                        variant="link"
-                                        onClick={() =>
-                                          void shellOpen(
-                                            "https://antigravity.google/docs/getting-started?tab=cli",
-                                          )
-                                        }
-                                      >
-                                        Install CLI
-                                      </Button>
-                                    </div>
-                                  </SettingsRow>
-                                  <p className="px-4 pb-3 text-muted-foreground text-xs">
-                                    Sign in by running <code>agy</code> in your
-                                    terminal.
-                                  </p>
-                                </>
+                                <ProviderSetupStatus setup={antigravity} />
                               )}
                               {(agentProvider === "claude" ||
                                 agentProvider === "codex") && (
@@ -2939,7 +2822,10 @@ export function SettingsWindow() {
                                 ariaLabel="Default approval mode"
                                 value={defaultAgentExecutionMode}
                                 options={AGENT_MODE_OPTIONS}
-                                onChange={setDefaultAgentExecutionMode}
+                                onChange={(mode) => {
+                                  setDefaultAgentExecutionMode(mode);
+                                  broadcastSettingsChanged();
+                                }}
                               />
                             </SettingsRow>
                           </SettingsGroup>

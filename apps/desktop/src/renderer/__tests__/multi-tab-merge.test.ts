@@ -117,10 +117,8 @@ function resetStores() {
     totalInputTokens: 0,
     totalOutputTokens: 0,
     selectedClaudeModel: "opus",
-    selectedClaudeExecutionMode: "default",
     selectedCodexModel: "gpt-5.4",
     selectedCodexReasoningEffort: "medium",
-    selectedCodexExecutionMode: "default",
     selectedPiModel: JSON.stringify(["fixture", "pi-model"]),
     selectedPiReasoningEffort: "medium",
     effortLevel: "medium",
@@ -144,12 +142,12 @@ function resetStores() {
         draft: { input: "", pinnedContexts: [] },
         pendingResumeChoice: null,
         pendingFileBaseline: null,
-        pendingClaudeExecutionMode: null,
       },
     ],
     activeTabId: "tab-default",
   });
   useSettingsStore.setState({
+    defaultAgentExecutionMode: "default",
     enabledProviders: { claude: true, codex: true, pi: true },
     piBinaryPath: "/fixture/bin/pi",
     piConfigDirectory: "/fixture/agent",
@@ -1154,7 +1152,6 @@ describe("Multi-tab merge triggers", () => {
       } as any);
       useAgentChatStore.setState((s) => ({
         selectedProvider: "codex",
-        selectedCodexExecutionMode: "default",
         tabs: s.tabs.map((tab) =>
           tab.id === "tab-default" ? { ...tab, provider: "codex" } : tab,
         ),
@@ -1727,7 +1724,10 @@ describe("Multi-tab merge triggers", () => {
       );
     });
 
-    it("runs Codex edit mode without a proposed-change baseline", async () => {
+    it.each([
+      ["codex", "execute_codex_code"],
+      ["antigravity", "execute_antigravity_code"],
+    ] as const)("uses the app-wide Auto-apply setting for %s", async (provider, command) => {
       vi.mocked(useDocumentStore.getState).mockReturnValue({
         projectRoot: "/project",
         files: [
@@ -1744,11 +1744,12 @@ describe("Multi-tab merge triggers", () => {
         refreshFiles: vi.fn(() => Promise.resolve()),
         saveAllFiles: vi.fn(() => Promise.resolve()),
       } as any);
+      useSettingsStore.getState().setProviderEnabled(provider, true);
+      useSettingsStore.getState().setDefaultAgentExecutionMode("edit");
       useAgentChatStore.setState((s) => ({
-        selectedProvider: "codex",
-        selectedCodexExecutionMode: "edit",
+        selectedProvider: provider,
         tabs: s.tabs.map((tab) =>
-          tab.id === "tab-default" ? { ...tab, provider: "codex" } : tab,
+          tab.id === "tab-default" ? { ...tab, provider } : tab,
         ),
       }));
 
@@ -1759,7 +1760,11 @@ describe("Multi-tab merge triggers", () => {
         .tabs.find((t) => t.id === "tab-default")!;
       expect(tab.pendingFileBaseline).toBeNull();
       expect(invoke).toHaveBeenCalledWith(
-        "execute_codex_code",
+        "prepare_agent_workspace",
+        expect.objectContaining({ mode: "edit" }),
+      );
+      expect(invoke).toHaveBeenCalledWith(
+        command,
         expect.objectContaining({
           tabId: "tab-default",
           prompt: expect.stringContaining("Edit the draft"),

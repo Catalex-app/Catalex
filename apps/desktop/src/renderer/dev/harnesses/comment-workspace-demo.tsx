@@ -564,7 +564,6 @@ function initializeDemo() {
       messages,
       isStreaming: false,
       error: null,
-      selectedCodexExecutionMode: "default" as const,
     };
     return {
       chatProjectRoot: projectRoot,
@@ -572,7 +571,6 @@ function initializeDemo() {
       activeTabId: tab.id,
       messages,
       selectedProvider: "codex",
-      selectedCodexExecutionMode: "default",
       isStreaming: false,
       error: null,
     };
