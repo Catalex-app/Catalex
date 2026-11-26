@@ -520,7 +520,12 @@ test("keeps wide MathJax displays scrollable inside the preview and recovers fro
   await page.goto("/?debug=markdown-preview");
   const preview = page.frameLocator('iframe[title="README.md preview"]');
   const source = `# Wide math\n\nBefore.\n\n$$\n${Array.from({ length: 40 }, (_, i) => `x_{${i}}`).join(" + ")}\n$$\n\nAfter.`;
-  await page.locator(".cm-content").fill(source);
+  const editor = page.locator(".cm-content");
+  const replaceSource = async (value: string) => {
+    await editor.press("ControlOrMeta+a");
+    await page.keyboard.insertText(value);
+  };
+  await replaceSource(source);
   await page.getByRole("button", { name: "Markdown preview settings" }).click();
   await page
     .getByRole("menuitemradio", { name: "MathJax (OpenReview)", exact: true })
@@ -547,10 +552,10 @@ test("keeps wide MathJax displays scrollable inside the preview and recovers fro
     path: "../../output/playwright/markdown-mathjax-wide.png",
     animations: "disabled",
   });
-  await page.locator(".cm-content").fill("Before $\\frac{$ after.");
+  await replaceSource("Before $\\frac{$ after.");
   await expect(preview.locator('[data-mml-node="merror"]')).toHaveCount(1);
   await expect(preview.locator("p")).toContainText("Before");
-  await page.locator(".cm-content").fill("Before $\\frac{a}{b}$ after.");
+  await replaceSource("Before $\\frac{a}{b}$ after.");
   await expect(preview.locator('[data-mml-node="merror"]')).toHaveCount(0);
   await expect(preview.locator("mjx-container svg")).toHaveCount(1);
 });
