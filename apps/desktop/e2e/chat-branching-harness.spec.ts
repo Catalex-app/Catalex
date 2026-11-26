@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-test("forks a completed assistant response into an independent chat", async ({
+test("forks a completed assistant response into an independent chat @core", async ({
   page,
 }) => {
   await page.goto("/?debug=chat-branching");

@@ -111,7 +111,7 @@ test("shows and refreshes only enabled agents, including Pi", async ({
   });
 });
 
-test("shows Pi checking and unavailable states, and recovers on refresh", async ({
+test("shows Pi checking and unavailable states, and recovers on refresh @core", async ({
   page,
 }) => {
   const sidebar = page.getByTestId("welcome-sidebar-panel");

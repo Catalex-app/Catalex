@@ -160,7 +160,7 @@ test("preview selection works without comments or source mapping and clears on f
   await expect(chips(page)).toHaveCount(0);
 });
 
-test("editor and preview selections replace each other without a stale badge", async ({
+test("editor and preview selections replace each other without a stale badge @core", async ({
   page,
 }) => {
   await openWorkspace(page);

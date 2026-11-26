@@ -194,7 +194,7 @@ test("page gaps and shadows scale with zoom and stay consistent when a pinch set
 
 test.describe("Retina high zoom", () => {
   test.use({ deviceScaleFactor: 2, viewport: { width: 1200, height: 800 } });
-  test("renders and pans a 1200% PDF without allocating an unbounded page bitmap", async ({
+  test("renders and pans a 1200% PDF without allocating an unbounded page bitmap @core", async ({
     page,
   }, testInfo) => {
     await page.goto("/?debug=pdf-comments&performance");

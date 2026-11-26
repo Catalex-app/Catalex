@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-test("large saved chats load bounded windows and virtualize their messages", async ({
+test("large saved chats load bounded windows and virtualize their messages @core", async ({
   page,
 }) => {
   await page.goto("/?debug=agent-file-review");

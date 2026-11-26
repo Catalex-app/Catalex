@@ -76,7 +76,7 @@ for (const scenario of scenarios) {
   });
 }
 
-test("the built-in skill is discoverable and inserts a typed Codex marker", async ({
+test("the built-in skill is discoverable and inserts a typed Codex marker @core", async ({
   page,
 }) => {
   await page.goto("/?debug=agent-verify-skill&scenario=success", {

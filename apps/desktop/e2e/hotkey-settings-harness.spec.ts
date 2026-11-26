@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-test("customizes keyboard shortcuts and prevents conflicts", async ({
+test("customizes keyboard shortcuts and prevents conflicts @core", async ({
   page,
 }) => {
   await page.goto("/?debug=markdown-settings", {

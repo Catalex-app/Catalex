@@ -165,7 +165,7 @@ test("missing dependencies can be skipped and compact screens remain usable", as
   await expect(page.getByTestId("onboarding")).toHaveCount(0);
 });
 
-test("Antigravity works in onboarding when the other CLIs are missing", async ({
+test("Antigravity works in onboarding when the other CLIs are missing @core", async ({
   page,
 }) => {
   await page.addInitScript(() => {

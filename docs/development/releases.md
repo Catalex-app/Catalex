@@ -6,17 +6,21 @@
    yet; move those notes into the version entry before releasing.
 3. Run the required checks and `pnpm package:mac:signed` for stable releases
    (`pnpm package:desktop` for previews). Verify the signed installer as described
-   below. The version command synchronizes
-   the native crate version in Cargo.lock so locked builds can verify it. Commit the version files,
-   changelog, and changes together on `main`.
-4. Create an annotated tag on that commit:
+   below. The version command synchronizes the native crate version in Cargo.lock
+   so locked builds can verify it. Commit the version files, changelog, and
+   changes together on the candidate branch.
+4. Dispatch **Release Tests** in GitHub Actions on the candidate branch. Confirm
+   the run is for the candidate commit and wait for the full browser suite and
+   Electron smoke tests on macOS to pass before the approved merge into `main`.
+5. Create an annotated tag on the verified release commit:
 
    ```bash
    git tag -a v<version> -m "Catalex v<version>"
    ```
 
-5. Click **Push origin** in GitHub Desktop; it includes annotated tags with
-   their commits. For ordinary command-line pushes, enable this once per clone:
+6. After approval, click **Push origin** in GitHub Desktop. It includes
+   annotated tags with their commits. For ordinary command-line pushes, enable
+   this once per clone:
 
    ```bash
    git config --local push.followTags true
@@ -25,6 +29,9 @@
    Then `git push origin main` includes the annotated version tag. To push only
    the intended branch and release tag explicitly, use
    `git push --atomic origin main v<version>`.
+
+7. In GitHub Actions, wait for **Release Tests** to pass on the tag before
+   publishing.
 
 Use annotated release tags, not lightweight tags. Never recreate a tag that has
 already reached GitHub just to change its type.
@@ -58,8 +65,9 @@ asset upload is verified, including while the release is still a draft. This doe
 not delete the release's installer. Keep Actions artifact usage within the account
 allowance; starting a new private repository does not reset that allowance.
 
-Manual runs against a branch only build; runs against a version tag can prepare
-a draft. Release tags must point to a commit containing the release workflow.
+Manual runs of **Build and Prepare Electron Release** against a branch only
+build. Runs against a version tag can prepare a draft. Release tags must point
+to a commit containing the release workflow.
 Never move an existing release tag.
 
 GitHub supplies the release token automatically; no personal token is required.

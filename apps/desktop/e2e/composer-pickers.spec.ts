@@ -24,7 +24,7 @@ async function workspace(page: Page) {
     .evaluate((element) => element.remove());
 }
 
-test("Mini fits a draft beside separate model and permission controls", async ({
+test("Mini fits a draft beside separate model and permission controls @core", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1400, height: 900 });

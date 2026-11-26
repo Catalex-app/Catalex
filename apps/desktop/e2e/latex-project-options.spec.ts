@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-test("LaTeX project pickers show defaults, scope files, persist, and flag missing choices", async ({
+test("LaTeX project pickers show defaults, scope files, persist, and flag missing choices @core", async ({
   page,
 }) => {
   await page.goto("/?debug=pdf-preview");

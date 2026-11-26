@@ -55,7 +55,7 @@ for (const kind of ["file", "folder"] as const) {
   });
 }
 
-test("Trash confirmation swaps horizontally without resizing the menu", async ({
+test("Trash confirmation swaps horizontally without resizing the menu @core", async ({
   page,
 }) => {
   await page.goto("/?debug=sidebar-animation&trash-confirmation");

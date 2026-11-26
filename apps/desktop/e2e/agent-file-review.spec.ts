@@ -176,7 +176,7 @@ test("review new and replaced figures alongside text; preserve unsent feedback",
   );
 });
 
-test("deleted and unpreviewable files remain reviewable after refresh", async ({
+test("deleted and unpreviewable files remain reviewable after refresh @core", async ({
   page,
 }) => {
   await page.goto("/?debug=agent-file-review&extras");

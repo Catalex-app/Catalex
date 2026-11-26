@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 for (const surface of ["sidebar", "popup"]) {
-  test(`${surface}: saved session context restores into a pop-out while the main agent keeps running`, async ({
+  test(`${surface}: saved session context restores into a pop-out while the main agent keeps running${surface === "sidebar" ? " @core" : ""}`, async ({
     page,
     context,
   }) => {

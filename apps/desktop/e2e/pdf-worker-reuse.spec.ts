@@ -70,7 +70,7 @@ test("PDF refresh retains one worker and identical page pixels and text", async 
   await page.screenshot({ path: test.info().outputPath("reused-worker.png") });
 });
 
-test("worker replacement discards page state even when document IDs repeat", async ({
+test("worker replacement discards page state even when document IDs repeat @core", async ({
   page,
 }) => {
   const workers: string[] = [];

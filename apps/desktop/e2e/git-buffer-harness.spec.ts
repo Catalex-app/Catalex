@@ -174,7 +174,7 @@ test.afterEach(async ({ page }) => {
   await rm(root, { recursive: true, force: true });
 });
 
-test("switching branches immediately after editing saves first and lets Git protect the edit", async ({
+test("switching branches immediately after editing saves first and lets Git protect the edit @core", async ({
   page,
 }) => {
   await openHarness(page);

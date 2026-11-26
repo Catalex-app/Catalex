@@ -132,7 +132,7 @@ for (const surface of ["vibe", "duet"] as const) {
   });
 }
 
-test("history ages locally and refreshes an existing chat after saving", async ({
+test("history ages locally and refreshes an existing chat after saving @core", async ({
   page,
 }) => {
   await page.clock.install();

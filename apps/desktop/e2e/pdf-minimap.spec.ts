@@ -330,7 +330,7 @@ test("standalone markers filter by author, open the comment and disappear on res
   await expect(map.locator("[data-minimap-marker]")).toHaveCount(0);
 });
 
-test("mixed-size pages use physical scroll positions and retain comment navigation", async ({
+test("mixed-size pages use physical scroll positions and retain comment navigation @core", async ({
   page,
 }) => {
   const doc = new mupdf.PDFDocument();

@@ -316,7 +316,7 @@ test("shows the consolidated new-project menu below the welcome cat", async ({
   ).toBeVisible();
 });
 
-test("creates only main.tex and initializes Git for a blank project", async ({
+test("creates only main.tex and initializes Git for a blank project @core", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1120, height: 780 });

@@ -27,16 +27,21 @@ Catalex is a desktop app with related workspace packages, using pnpm workspaces,
 - `pnpm dev:desktop` prepares the native service and Claude bridge, then starts Electron with Vite.
 - `pnpm build:desktop` builds the production application directory; `pnpm package:desktop` also creates a platform distributable.
 - `apps/desktop/backend/` contains the headless Rust service and bundled resources. Electron main, preload, and renderer code live in their respective directories under `apps/desktop/src/`. Packaging icons live in `apps/desktop/build/icons/`.
-- Develop on the configured target branch; `main` receives approved integrations.
+- Develop on the configured target branch. Approved completions push only the target branch (`dev`). Pushing to or merging into `main`, creating or pushing tags, bumping versions, and releasing require explicit user approval. Never force-push.
 
 ## Verification
 
-Subissues require the existing non-build checks. Parent and standalone completion require the existing checks plus the frontend build, desktop build, and desktop packaging commands below. Verify the working branch when not merging, or the final merged result after any version update when merging.
+Verify the working branch or the final merge candidate after any version update.
 
-- Before closing a GitHub issue as completed or creating a completion commit, run `npx --yes corepack pnpm exec biome ci`.
-- Verify frontend TypeScript and production Vite output with `npx --yes corepack pnpm -C apps/desktop build`.
-- For parent and standalone completion, run `npx --yes corepack pnpm build:desktop` and `npx --yes corepack pnpm package:desktop` for final verification. For stable releases, use the signed packaging command below instead of `package:desktop`.
-- Verify Electron main/preload types with `npx --yes corepack pnpm -C apps/desktop electron:typecheck`. Browser harnesses do not establish native IPC, subprocess, or packaged-resource behavior; check the actual Electron application for changes to those surfaces.
+- **Subissue gate.** Use `npx --yes corepack pnpm` for these commands.
+  - `exec biome ci`.
+  - `-C apps/desktop build` for frontend TypeScript and Vite, and `-C apps/desktop electron:typecheck` for Electron main and preload.
+  - `-C apps/desktop test` and `-C apps/desktop test:electron` for renderer and Electron unit tests.
+  - `-C apps/desktop exec playwright test -c playwright.config.ts` with the spec files for the changed area, including the applicable specs listed below.
+- **Parent or standalone gate.** Run the subissue checks plus `npx --yes corepack pnpm build:desktop`, `npx --yes corepack pnpm package:desktop`, and the relevant Electron smoke scripts. For stable releases, use the signed packaging command below. Check native IPC, subprocess, and packaged-resource changes in Electron.
+- Never run the full browser suite serially as a gate. Do not start Docker, containers, or VMs on the developer's machine for checks.
+- **After pushing.** For eligible pushes to `dev` or `main`, GitHub's **Tests** workflow runs lint, type checks, unit tests, Rust tests, and the `@core` browser set. Report the result. If it fails, reopen the same issue if closed and fix the failure there as a small follow-up before starting the next task.
+- **Before merging into `main`.** Dispatch GitHub's **Release Tests** workflow on the candidate branch and wait for the candidate commit to pass the full browser suite and Electron smoke tests on macOS.
 - Set `CATALEX_TEST_BACKGROUND_WINDOWS=1` when running the real Electron application for checks, so its windows open on a secondary display without taking focus. See `docs/testing/README.md`.
 - For UI changes, inspect rendered behavior and visual fit yourself before asking the user to verify. Code checks and builds alone are insufficient. Prefer Playwright against Vite; use Computer Use only when explicitly requested.
 - During visual iteration, skip repeated full production builds before user checks unless diagnosing compile, import, or runtime issues.

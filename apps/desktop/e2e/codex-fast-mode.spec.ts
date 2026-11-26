@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-test("Codex Fast mode sits between models and effort and stays separate from Claude", async ({
+test("Codex Fast mode sits between models and effort and stays separate from Claude @core", async ({
   page,
 }, testInfo) => {
   await page.goto("/?debug=claude-models");

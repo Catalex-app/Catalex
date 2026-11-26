@@ -68,7 +68,7 @@ test("checkpoint saves the edited file before labeling it and appears in Rewind"
   ).toBeFocused();
 });
 
-test("optional label can be omitted and unchanged saves reuse the same checkpoint", async ({
+test("optional label can be omitted and unchanged saves reuse the same checkpoint @core", async ({
   page,
 }) => {
   let dialog = await openCheckpoint(page);

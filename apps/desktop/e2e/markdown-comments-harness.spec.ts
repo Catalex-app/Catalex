@@ -109,7 +109,7 @@ test("a Markdown preview highlight can be resized and become a source comment", 
   ).toBeVisible();
 });
 
-test("creates a Markdown preview comment, syncs it to the editor, and restores it", async ({
+test("creates a Markdown preview comment, syncs it to the editor, and restores it @core", async ({
   page,
 }) => {
   await page.goto("/?debug=markdown-preview");

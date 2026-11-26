@@ -231,7 +231,7 @@ test("layout switches and new chats share one default permission", async ({
   await expectWritingPermission("[data-chat-drawer-panel]", "Auto-apply");
 });
 
-test("removing a badge while typing preserves chat focus and caret", async ({
+test("removing a badge while typing preserves chat focus and caret @core", async ({
   page,
 }) => {
   await page.goto("/?debug=input-transfer");

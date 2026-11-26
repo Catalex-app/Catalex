@@ -77,7 +77,7 @@ async function drafts(page: Page) {
   });
 }
 
-test("single target sends directly with Main and Main & Pop-out badges, preserving drafts", async ({
+test("single target sends directly with Main and Main & Pop-out badges, preserving drafts @core", async ({
   page,
 }) => {
   await setup(page);

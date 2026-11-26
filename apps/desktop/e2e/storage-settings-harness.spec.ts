@@ -154,7 +154,7 @@ for (const theme of ["light", "dark"]) {
   });
 }
 
-test("unavailable projects can be removed after explicit confirmation, with failures visible", async ({
+test("unavailable projects can be removed after explicit confirmation, with failures visible @core", async ({
   page,
 }) => {
   await page.goto("/?debug=storage-settings&section=storage&clearFailure");

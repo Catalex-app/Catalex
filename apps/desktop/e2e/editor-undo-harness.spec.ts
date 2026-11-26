@@ -29,7 +29,7 @@ async function addSecondFile(page: Page) {
   });
 }
 
-test("each file keeps its own typing undo and redo when switching", async ({
+test("each file keeps its own typing undo and redo when switching @core", async ({
   page,
 }) => {
   await page.goto("/?debug=editor-diff&deferDiff=1");

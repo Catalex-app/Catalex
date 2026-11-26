@@ -203,7 +203,7 @@ test("answer time display is shared across chats and remembered after reload", a
   await expect(buttons).toHaveText(["Worked for: 26s", "Worked for: 1m 5s"]);
 });
 
-test("pause before output shows neither a standalone duration nor a paused timer", async ({
+test("pause before output shows neither a standalone duration nor a paused timer @core", async ({
   page,
 }, testInfo) => {
   await page.goto("/?debug=agent-pause&provider=codex");

@@ -78,7 +78,7 @@ for (const provider of ["claude", "codex"]) {
   });
 }
 
-test("full-app preview reuses the expanded and collapsed chat status", async ({
+test("full-app preview reuses the expanded and collapsed chat status @core", async ({
   page,
 }, testInfo) => {
   await page.setViewportSize({ width: 1440, height: 960 });

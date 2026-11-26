@@ -1148,7 +1148,7 @@ test("provider and writing permissions share one menu and a paused draft shows i
   });
 });
 
-test("the composer overlaps permission icons at both widths and lists Pi last", async ({
+test("the composer overlaps permission icons at both widths and lists Pi last @core", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });

@@ -170,7 +170,7 @@ for (const appearance of ["light", "dark"] as const) {
   }
 }
 
-test("theme assignments survive reload and follow changes from another window", async ({
+test("theme assignments survive reload and follow changes from another window @core", async ({
   page,
   context,
 }) => {

@@ -8,7 +8,7 @@ test.describe("new project flow", () => {
     });
   });
 
-  test("renders the template PDF preview through the shared worker", async ({
+  test("renders the template PDF preview through the shared worker @core", async ({
     page,
   }) => {
     await page.getByRole("button", { name: "New Project" }).click();
@@ -111,7 +111,7 @@ test.describe("new project flow", () => {
       .toBe(1);
   });
 
-  test("keeps trusted sources available from gallery search", async ({
+  test("keeps trusted sources available from gallery search @core", async ({
     page,
   }) => {
     await page.getByRole("button", { name: "New Project" }).click();

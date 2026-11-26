@@ -624,7 +624,7 @@ test("Stop supports keyboard activation and the compilation menu", async ({
   expect(await count(page)).toBe(3);
 });
 
-test("touch can stop compilation without hover", async ({ browser }) => {
+test("touch can stop compilation without hover @core", async ({ browser }) => {
   const context = await browser.newContext({
     hasTouch: true,
     baseURL: "http://127.0.0.1:4173",

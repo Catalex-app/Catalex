@@ -178,7 +178,7 @@ test("scopes Select All and copying to PDF text across all pages", async ({
   await expect(page.locator(".mupdf-text-layer text").first()).toBeVisible();
   const viewport = page.getByTestId("pdf-scroll-container");
   await viewport.focus();
-  await page.keyboard.press("Meta+a");
+  await page.keyboard.press("ControlOrMeta+a");
   await expect(page.locator(".mupdf-text-layer")).toHaveCount(3);
   await expect
     .poll(() => page.evaluate(() => window.getSelection()?.toString()))
@@ -222,7 +222,7 @@ test("scopes Select All and copying to PDF text across all pages", async ({
   await expect(page.locator(".pdf-selection-highlight")).toHaveCount(0);
 });
 
-test("new controls inherit shell defaults while editors and readable content remain selectable", async ({
+test("new controls inherit shell defaults while editors and readable content remain selectable @core", async ({
   page,
 }) => {
   await page.goto("/?debug=pdf-comments");
@@ -247,10 +247,10 @@ test("new controls inherit shell defaults while editors and readable content rem
     return result;
   });
   expect(result).toEqual({ button: "none", readable: "text", editor: "text" });
-  await page.keyboard.press("Meta+a");
+  await page.keyboard.press("ControlOrMeta+a");
   expect(await page.evaluate(() => window.getSelection()?.toString())).toBe("");
   await page.locator(".cm-content").first().click();
-  await page.keyboard.press("Meta+a");
+  await page.keyboard.press("ControlOrMeta+a");
   const selected = await page.evaluate(() => window.getSelection()?.toString());
   expect(selected).not.toContain("New control");
   const copied = await page

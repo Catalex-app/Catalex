@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-test("switches CSV files between raw, split, and editable table views", async ({
+test("switches CSV files between raw, split, and editable table views @core", async ({
   page,
 }) => {
   await page.addInitScript(() => {

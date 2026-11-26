@@ -743,7 +743,7 @@ test("edits during review remain synchronized between the main editor and its po
   await editor.close();
 });
 
-test("accepting one review block in a pop-out updates the shared review baseline", async ({
+test("accepting one review block in a pop-out updates the shared review baseline @core", async ({
   page,
 }) => {
   await page.goto("/?debug=agent-file-review&textReview");

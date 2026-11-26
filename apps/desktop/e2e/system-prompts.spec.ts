@@ -58,7 +58,7 @@ test("instruction rows follow enabled providers without Global controls", async 
   ).toHaveCount(0);
 });
 
-test("Create and Edit open root instruction files in the ordinary Markdown editor", async ({
+test("Create and Edit open root instruction files in the ordinary Markdown editor @core", async ({
   page,
 }) => {
   const errors: string[] = [];

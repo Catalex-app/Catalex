@@ -257,7 +257,7 @@ test("archives a paused refinement through the visible archive action", async ({
   });
 });
 
-test("interrupted refinement explains waiting reviews and links back to the holder", async ({
+test("interrupted refinement explains waiting reviews and links back to the holder @core", async ({
   page,
 }, testInfo) => {
   await page.goto("/?debug=agent-file-review");

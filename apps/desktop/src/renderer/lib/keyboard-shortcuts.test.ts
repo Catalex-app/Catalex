@@ -49,6 +49,30 @@ describe("keyboard shortcuts", () => {
     );
   });
 
+  it("ignores Control by itself and discards a previously captured modifier-only binding", () => {
+    const event = new KeyboardEvent("keydown", {
+      code: "ControlLeft",
+      ctrlKey: true,
+      key: "Control",
+    });
+
+    expect(keyboardShortcutFromEvent(event, false)).toBeNull();
+    expect(keyboardShortcutFromEvent(event, true)).toBeNull();
+    expect(
+      keyboardShortcutFromEvent(
+        new KeyboardEvent("keydown", {
+          code: "KeyK",
+          ctrlKey: true,
+          key: "k",
+        }),
+        true,
+      ),
+    ).toBe("Ctrl+KeyK");
+    expect(
+      normalizeKeyboardShortcutOverrides({ "new-window": "Mod+Control" }),
+    ).toEqual({});
+  });
+
   it("matches defaults, custom bindings, plus, and numpad zoom keys", () => {
     expect(
       getKeyboardShortcutActionForEvent(

@@ -323,7 +323,7 @@ test("an error holds pending prompts until recovery and explicit queue resume", 
     .toBe(1);
 });
 
-test("edit replaces the normal composer draft without a cancel mode or previous draft restoration", async ({
+test("edit replaces the normal composer draft without a cancel mode or previous draft restoration @core", async ({
   page,
 }) => {
   await page.goto("/?debug=agent-file-review&textReview&queueDemo");

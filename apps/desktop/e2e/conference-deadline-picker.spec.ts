@@ -24,7 +24,7 @@ const CONFERENCES = `
       timezone: UTC+0
 `;
 
-test("exact conferences lead earlier fuzzy matches in the settings picker", async ({
+test("exact conferences lead earlier fuzzy matches in the settings picker @core", async ({
   page,
 }, testInfo) => {
   await page.setViewportSize({ width: 1120, height: 780 });

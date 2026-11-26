@@ -705,7 +705,7 @@ test("editor diff harness keeps merge controls in the reserved spacer row", asyn
   );
 });
 
-test("editor diff harness centers the first AI change when entering diff mode", async ({
+test("editor diff harness centers the first AI change when entering diff mode @core", async ({
   page,
 }) => {
   await page.goto("/?debug=editor-diff&deferDiff=1", {

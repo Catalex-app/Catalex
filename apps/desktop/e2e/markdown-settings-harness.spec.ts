@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-test("sets the default Markdown math engine without replacing file choices", async ({
+test("sets the default Markdown math engine without replacing file choices @core", async ({
   page,
 }) => {
   await page.goto("/?debug=markdown-settings");

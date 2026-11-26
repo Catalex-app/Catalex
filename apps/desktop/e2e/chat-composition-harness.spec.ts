@@ -57,7 +57,7 @@ for (const draft of ["你好", "@", "/"]) {
   });
 }
 
-test("command picker respects focused buttons and keys in other panels", async ({
+test("command picker respects focused buttons and keys in other panels @core", async ({
   page,
 }) => {
   await page.goto("/?debug=input-transfer");

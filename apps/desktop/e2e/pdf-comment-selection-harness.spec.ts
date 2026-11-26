@@ -413,7 +413,9 @@ test("chat badge follows PDF and editor selections without requiring a source ma
   ).toBeVisible();
 });
 
-test("PDF chat context reuses the matched source range", async ({ page }) => {
+test("PDF chat context reuses the matched source range @core", async ({
+  page,
+}) => {
   await page.goto("/?debug=pdf-comments&formatted&mode=duet");
   await page
     .getByRole("button", { name: "Toggle chat drawer", exact: true })

@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 
 test.use({ viewport: { width: 1200, height: 750 } });
 
-test("trackpad zoom previews existing pixels and preserves its PDF anchor", async ({
+test("trackpad zoom previews existing pixels and preserves its PDF anchor @core", async ({
   page,
 }) => {
   await page.goto("/?debug=pdf-comments&performance");

@@ -87,6 +87,7 @@ const MODIFIER_ORDER = ["Mod", "Ctrl", "Alt", "Shift", "Meta"] as const;
 const MODIFIER_CODES = new Set([
   "AltLeft",
   "AltRight",
+  "Control",
   "ControlLeft",
   "ControlRight",
   "MetaLeft",

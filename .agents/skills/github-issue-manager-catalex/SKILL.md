@@ -71,9 +71,11 @@ On yes, read its full details and mark it `in progress` as work starts. On no, w
 
 ## Finish work
 
-Complete implementation and applicable checks before asking for completion approval. Track the active issue, parent, approval, version choice, applied version, issue updates, commit, and tag so retries do not duplicate work. Use project instructions for checks and version commands; never invent or skip required checks. Stage only task changes and preserve unrelated work. Keep the issue as the historical record. Approved completion includes a normal push of the current branch other than `main`. Merging into or pushing `main`, creating or pushing tags, and bumping versions require explicit approval through the existing gates.
+Complete implementation and applicable checks before asking for completion approval. Track the active issue, parent, approval, version choice, applied version, issue updates, commit, and tag so retries do not duplicate work. Use project instructions for checks and version commands; never invent or skip required checks. Stage only task changes and preserve unrelated work. Keep the issue as the historical record. Approved completion includes a normal push of the current branch under the project's branch rules. Merging, creating or pushing tags, and bumping versions require explicit approval through the existing gates.
 
 Before any push, recheck the remote branch. If it has moved ahead or diverged, stop and report for approval before any rebase or merge. Never force-push. Use `--no-follow-tags` unless tags are part of the explicit approval.
+
+If project instructions define checks that run after pushing, such as CI, report their results and follow the project instructions when they fail.
 
 Include each completed issue's qualified reference in the commit body, for example: `Catalex-app/Catalex-tasks#338`. One approved commit may cover related issues; do not create empty completion commits for changes already committed.
 

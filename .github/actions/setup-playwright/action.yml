@@ -1,0 +1,48 @@
+name: Set up Playwright
+description: Install Catalex browser-test dependencies
+
+runs:
+  using: composite
+  steps:
+    - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6
+    - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+      with:
+        node-version: 24
+        cache: pnpm
+    - name: Install workspace dependencies
+      env:
+        ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+        HUSKY: "0"
+      shell: bash
+      run: pnpm install --frozen-lockfile
+    - name: Install the document-core build target
+      shell: bash
+      run: rustup target add wasm32-unknown-unknown
+    - name: Cache Chromium
+      uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+      with:
+        path: ${{ runner.os == 'macOS' && '~/Library/Caches/ms-playwright' || '~/.cache/ms-playwright' }}
+        key: playwright-chromium-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pnpm-lock.yaml') }}
+    - name: Install Chromium and system dependencies (Linux)
+      if: runner.os == 'Linux'
+      shell: bash
+      run: pnpm -C apps/desktop exec playwright install --with-deps chromium
+    - name: Install TeX for browser demos (Linux)
+      if: runner.os == 'Linux'
+      shell: bash
+      run: |
+        sudo apt-get install -y --no-install-recommends \
+          texlive-latex-base texlive-latex-recommended texlive-xetex texlive-luatex lmodern
+    - name: Install Chromium (macOS)
+      if: runner.os == 'macOS'
+      shell: bash
+      run: pnpm -C apps/desktop exec playwright install chromium
+    - name: Install TeX for browser demos (macOS)
+      if: runner.os == 'macOS'
+      shell: bash
+      run: |
+        brew install --cask basictex
+        for engine in pdflatex xelatex lualatex; do
+          test -x "/Library/TeX/texbin/$engine"
+        done
+        echo "/Library/TeX/texbin" >> "$GITHUB_PATH"

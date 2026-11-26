@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-test("files and pathless screenshots attach while viewing a draft", async ({
+test("files and pathless screenshots attach while viewing a draft @core", async ({
   page,
 }) => {
   await page.addInitScript(() => performance.setResourceTimingBufferSize(4096));

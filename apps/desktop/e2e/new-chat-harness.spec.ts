@@ -9,7 +9,7 @@ async function chatState(page: Page) {
   });
 }
 
-test("New Chat reuses an untouched chat, focuses input, and preserves drafts", async ({
+test("New Chat reuses an untouched chat, focuses input, and preserves drafts @core", async ({
   page,
 }) => {
   await page.goto("/?debug=input-transfer");

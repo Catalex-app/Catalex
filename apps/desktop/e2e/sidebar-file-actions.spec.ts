@@ -109,7 +109,7 @@ test("collapsed destination opens after confirmation and cancellation leaves the
   ).toBeInViewport();
 });
 
-test("file context menu exposes file actions", async ({ page }) => {
+test("file context menu exposes file actions @core", async ({ page }) => {
   await setup(page);
   await page.evaluate(async () => {
     const modulePath = "/src/renderer/stores/document-store.ts";

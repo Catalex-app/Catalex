@@ -221,7 +221,7 @@ test("undo restores a removed highlight to its source chapter from the compiled 
   await preview.close();
 });
 
-test("PDF focused highlight has draggable endpoints and persists a resize", async ({
+test("PDF focused highlight has draggable endpoints and persists a resize @core", async ({
   page,
 }) => {
   const errors: string[] = [];
@@ -302,7 +302,7 @@ test("PDF focused highlight has draggable endpoints and persists a resize", asyn
   expect(errors).toEqual([]);
 });
 
-test("Markdown preview endpoints resize across formatted source and undo", async ({
+test("Markdown preview endpoints resize across formatted source and undo @core", async ({
   page,
 }) => {
   const errors: string[] = [];

@@ -204,7 +204,7 @@ for (const theme of ["modern", "classic"]) {
   });
 }
 
-test("sidebar files have exactly one keyboard stop per row", async ({
+test("sidebar files have exactly one keyboard stop per row @core", async ({
   page,
 }) => {
   await page.goto("/?debug=sidebar-animation");

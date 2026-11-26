@@ -971,7 +971,7 @@ test("a zero-diff Current resolution can still finish the merge", async ({
   await expect(page.locator('[data-merge-actions="true"]')).toHaveCount(0);
 });
 
-test("the quick action updates as soon as the final conflict is resolved", async ({
+test("the quick action updates as soon as the final conflict is resolved @core", async ({
   page,
 }) => {
   await page.goto("/?debug=git-actions&conflict=merge", {

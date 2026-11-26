@@ -8,7 +8,7 @@ async function requests(page: Page) {
   );
 }
 
-test("queries on open and provider switch, with only reported bars", async ({
+test("queries on open and provider switch, with only reported bars @core", async ({
   page,
 }, testInfo) => {
   await page.setViewportSize({ width: 720, height: 720 });

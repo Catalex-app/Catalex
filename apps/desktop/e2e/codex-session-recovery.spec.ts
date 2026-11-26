@@ -5,7 +5,7 @@ test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => performance.setResourceTimingBufferSize(4096));
 });
 
-test("session recovery requires confirmation and sends the verified owner token", async ({
+test("session recovery requires confirmation and sends the verified owner token @core", async ({
   page,
 }) => {
   await page.goto("/?debug=agent-file-review");

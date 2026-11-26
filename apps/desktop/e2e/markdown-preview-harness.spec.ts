@@ -514,7 +514,7 @@ test("shows five recent Typora themes and opens the full list at the current the
   expect(await recentNames()).toEqual([26, 29, 30, 31].map(themeName));
 });
 
-test("keeps wide MathJax displays scrollable inside the preview and recovers from invalid math", async ({
+test("keeps wide MathJax displays scrollable inside the preview and recovers from invalid math @core", async ({
   page,
 }) => {
   await page.goto("/?debug=markdown-preview");
@@ -1051,7 +1051,7 @@ test("formats Markdown from the editor header and reports live text counts", asy
     /^4\/\d[\d,]* chars$/,
   );
 
-  await page.keyboard.press("Meta+z");
+  await page.keyboard.press("ControlOrMeta+z");
   await expect(firstLine).toHaveText("# Markdown Preview");
 
   const paragraph = page
@@ -1077,7 +1077,7 @@ test("formats Markdown from the editor header and reports live text counts", asy
   );
 
   await page.locator(".cm-content").click();
-  await page.keyboard.press("Meta+End");
+  await page.keyboard.press("ControlOrMeta+End");
   await page.keyboard.press("Enter");
   const blankLine = page.locator(".cm-line").last();
   const cursorPosition = page.getByTestId("markdown-editor-cursor-position");

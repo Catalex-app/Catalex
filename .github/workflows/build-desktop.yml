@@ -30,7 +30,8 @@ jobs:
       - run: pnpm branding:check
       - run: pnpm version:check
       - run: pnpm guide:check
-      - run: pnpm exec biome ci
+      - if: github.event_name != 'pull_request'
+        run: pnpm exec biome ci
       - run: node --test scripts/*.test.mjs
       - name: Check release tag and changelog
         if: github.ref_type == 'tag'

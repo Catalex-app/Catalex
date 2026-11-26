@@ -86,7 +86,7 @@ test("automatic history cleanup failures remain inside the management dialog", a
   await expect(page.getByText("Submission")).toBeVisible();
 });
 
-test("restoring history does not hide intermediate versions", async ({
+test("restoring history does not hide intermediate versions @core", async ({
   page,
 }) => {
   await page.goto("/?debug=history-management");

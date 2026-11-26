@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-test("credential demo supports host variants and simulated retry", async ({
+test("credential demo supports host variants and simulated retry @core", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1000, height: 760 });

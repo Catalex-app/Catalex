@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-test("context indicator updates from responses without querying usage", async ({
+test("context indicator updates from responses without querying usage @core", async ({
   page,
 }, testInfo) => {
   await page.goto("/?debug=claude-models");

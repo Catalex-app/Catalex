@@ -200,7 +200,7 @@ test("Duet workspace editor cards select, switch, and clear comment focus", asyn
   await expect(chips).toHaveCount(0);
 });
 
-test("comments attach beneath selections, pin, replace, remove and send their identities", async ({
+test("comments attach beneath selections, pin, replace, remove and send their identities @core", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });

@@ -382,7 +382,7 @@ test("persists filters, supports keyboard and drag navigation and resets for ano
   await page.screenshot({ path: "test-results/editor-minimap-narrow.png" });
 });
 
-test("shows pending review regions and updates after accepting them", async ({
+test("shows pending review regions and updates after accepting them @core", async ({
   page,
 }) => {
   await page.goto("/?debug=editor-minimap");

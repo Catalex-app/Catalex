@@ -223,7 +223,7 @@ test("opts into installed Pi and chooses provider-qualified models with thinking
   );
 });
 
-test("Pi settings follow each model's supported thinking levels", async ({
+test("Pi settings follow each model's supported thinking levels @core", async ({
   page,
 }) => {
   await page.goto("/?debug=claude-models&section=agent&provider=pi");

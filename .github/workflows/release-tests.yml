@@ -1,0 +1,88 @@
+name: Release Tests
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  HUSKY: "0"
+  HOMEBREW_NO_AUTO_UPDATE: "1"
+
+jobs:
+  browser:
+    name: Browser suite (macOS ARM64, shard ${{ matrix.shard }}/4)
+    runs-on: macos-26
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-playwright
+      - name: Run browser shard
+        env:
+          SHARD: ${{ matrix.shard }}
+        run: |
+          pnpm -C apps/desktop exec playwright test -c playwright.config.ts \
+            --shard="$SHARD/4" --workers=2 \
+            --reporter=line,github,./e2e/github-fixme-reporter.ts
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: failure()
+        with:
+          name: browser-shard-${{ matrix.shard }}-failures
+          path: apps/desktop/test-results/
+          retention-days: 7
+
+  electron-smoke:
+    name: Electron smoke tests (macOS ARM64)
+    runs-on: macos-26
+    timeout-minutes: 45
+    env:
+      CATALEX_TEST_BACKGROUND_WINDOWS: "1"
+      CSC_IDENTITY_AUTO_DISCOVERY: "false"
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: rustup target add wasm32-unknown-unknown
+      - name: Install macOS native dependencies
+        run: brew install pkg-config icu4c harfbuzz graphite2 freetype fontconfig
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with:
+          workspaces: |
+            apps/desktop/backend -> target
+            packages/document-core -> target
+      - run: pnpm build:desktop
+      - name: Find the built executable
+        run: |
+          product_name=$(node -p "require('./branding.json').productName")
+          executable="$PWD/apps/desktop/release/mac-arm64/$product_name.app/Contents/MacOS/$product_name"
+          test -x "$executable"
+          printf 'CATALEX_SMOKE_EXECUTABLE=%s\nCATALEX_TEST_EXECUTABLE=%s\n' "$executable" "$executable" >> "$GITHUB_ENV"
+      - run: pnpm -C apps/desktop test:electron-smoke
+      - run: pnpm -C apps/desktop test:electron-persistence
+      - run: pnpm -C apps/desktop test:electron-profile
+      - run: pnpm -C apps/desktop test:electron-windows
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: failure()
+        with:
+          name: electron-smoke-failures
+          path: output/playwright/electron/
+          retention-days: 7

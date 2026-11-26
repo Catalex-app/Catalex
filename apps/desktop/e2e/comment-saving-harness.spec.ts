@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-test("pending comment controls stay local, preserve typing, and recover after failure", async ({
+test("pending comment controls stay local, preserve typing, and recover after failure @core", async ({
   page,
 }, testInfo) => {
   await page.addInitScript(() => {

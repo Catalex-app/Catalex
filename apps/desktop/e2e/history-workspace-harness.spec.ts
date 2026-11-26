@@ -1323,7 +1323,7 @@ test("snapshot details dismiss without exiting history and restore stays in the 
   await expect(details).toContainText("No tags");
 });
 
-test("history title details adapt to available space and restore aligns with the panel", async ({
+test("history title details adapt to available space and restore aligns with the panel @core", async ({
   page,
 }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });

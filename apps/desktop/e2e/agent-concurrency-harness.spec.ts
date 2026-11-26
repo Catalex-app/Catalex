@@ -86,7 +86,7 @@ test("rejecting A allows B to review unchanged source", async ({ page }) => {
   });
 });
 
-test("keeps A's review visible while focusing working agent B", async ({
+test("keeps A's review visible while focusing working agent B @core", async ({
   page,
 }) => {
   await page.goto("/?debug=agent-concurrency");
@@ -115,7 +115,9 @@ test("collapsed chat shares the review link without requesting drawer collapse",
   await page.screenshot({ path: "/tmp/catalex-unified-review-link.png" });
 });
 
-test("collapsed pending link focuses the earlier review", async ({ page }) => {
+test("collapsed pending link focuses the earlier review @core", async ({
+  page,
+}) => {
   await page.goto("/?debug=agent-concurrency&compact=true");
   await page.getByRole("button", { name: "Finish Agent A" }).click();
   await page.getByRole("button", { name: "Finish Agent B" }).click();

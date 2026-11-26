@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-test("a collapsed composer updates pinned comments in inactive chat tabs", async ({
+test("a collapsed composer updates pinned comments in inactive chat tabs @core", async ({
   page,
 }) => {
   await page.goto("/?debug=comment-workspace");

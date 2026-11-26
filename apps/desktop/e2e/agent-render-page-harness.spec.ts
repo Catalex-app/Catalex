@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-test("an in-turn Catalex page render returns a real image without disturbing the preview", async ({
+test("an in-turn Catalex page render returns a real image without disturbing the preview @core", async ({
   page,
 }) => {
   await page.goto("/?debug=pdf-preview&sample=paper-standard", {

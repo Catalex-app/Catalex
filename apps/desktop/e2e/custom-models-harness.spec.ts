@@ -214,7 +214,7 @@ test("default approval choices show their icons and tips", async ({ page }) => {
   await expect(approvalMode).toHaveText("Auto-apply");
 });
 
-test("provider tabs separate navigation from the exclusive default choice", async ({
+test("provider tabs separate navigation from the exclusive default choice @core", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 720, height: 520 });

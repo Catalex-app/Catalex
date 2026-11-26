@@ -363,7 +363,7 @@ test("manual edits during inline conflict review survive Accept All", async ({
   expect(source).toContain("The expanded study");
 });
 
-test("manual edits within the proposed conflict survive Accept All", async ({
+test("manual edits within the proposed conflict survive Accept All @core", async ({
   page,
 }) => {
   await open(page);

@@ -198,7 +198,7 @@ test("badge motion stays aligned when wrapping and has inspectable entrance fram
   });
 });
 
-test("a replacement selection reuses the fading live badge without sliding sideways", async ({
+test("a replacement selection reuses the fading live badge without sliding sideways @core", async ({
   page,
 }) => {
   await page.goto("/?debug=input-transfer");

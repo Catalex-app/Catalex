@@ -61,7 +61,7 @@ async function openImage(page: Page, scenario = "mixed", rebase = false) {
   return view;
 }
 
-test("unresolved files keep their icons with a right-side merge marker and conflict colors", async ({
+test("unresolved files keep their icons with a right-side merge marker and conflict colors @core", async ({
   page,
 }) => {
   await openProject(page);

@@ -78,7 +78,13 @@ test("keeps recent slots stable, evicts the least used file, and persists across
   });
   // Arrow navigation traverses the recent group and separator into other files.
   await page.keyboard.press("ArrowDown");
+  await expect(
+    page.getByRole("option", { name: "E.md", exact: true }),
+  ).toBeFocused();
   await page.keyboard.press("ArrowDown");
+  await expect(
+    page.getByRole("option", { name: "G.md", exact: true }),
+  ).toBeFocused();
   await page.keyboard.press("Enter");
   await expect(trigger).toContainText("G.md");
   await trigger.click();

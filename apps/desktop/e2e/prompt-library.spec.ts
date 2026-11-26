@@ -1363,7 +1363,7 @@ for (const display of ["Expanded", "Workspace"]) {
   });
 }
 
-test("release prompt settings expose four built-ins with persistent toggles and ordering", async ({
+test("release prompt settings expose four built-ins with persistent toggles and ordering @core", async ({
   page,
   context,
 }) => {

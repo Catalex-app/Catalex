@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-test("keeps LaTeX editor and PDF scrolling synchronized in both directions", async ({
+test("keeps LaTeX editor and PDF scrolling synchronized in both directions @core", async ({
   page,
 }) => {
   await page.goto("/?debug=latex-scroll-sync", {

@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-test("editor scroll harness reproduces scrollbar drag selection behavior", async ({
+test("editor scroll harness reproduces scrollbar drag selection behavior @core", async ({
   page,
 }) => {
   await page.goto("/?debug=editor-scroll", {

@@ -8,7 +8,7 @@ async function resolution(page: Page) {
   });
 }
 
-test("external Git resolves inline regions with native undo and preserves manual edits", async ({
+test("external Git resolves inline regions with native undo and preserves manual edits @core", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1400, height: 1000 });

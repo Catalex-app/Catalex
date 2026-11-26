@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-test("expanding a long chat starts at the bottom without a scroll animation", async ({
+test("expanding a long chat starts at the bottom without a scroll animation @core", async ({
   page,
 }) => {
   await page.goto("/?debug=agent-file-review");

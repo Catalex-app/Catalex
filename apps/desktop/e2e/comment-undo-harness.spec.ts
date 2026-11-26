@@ -43,7 +43,7 @@ test("an agent can reopen a resolved comment and undo that status change", async
   await page.screenshot({ path: "test-results/comment-reopened.png" });
 });
 
-test("a newly saved human comment keeps its number across undo and redo", async ({
+test("a newly saved human comment keeps its number across undo and redo @core", async ({
   page,
 }) => {
   await page.goto("/?debug=editor-comments");

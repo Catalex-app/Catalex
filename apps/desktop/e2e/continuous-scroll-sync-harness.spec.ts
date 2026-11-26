@@ -122,7 +122,7 @@ test("missing maps use bounded serialized native lookups during continuous input
   ).toBe(top);
 });
 
-test("changing the scroll driver discards old results and shares one native request budget", async ({
+test("changing the scroll driver discards old results and shares one native request budget @core", async ({
   page,
 }) => {
   await ready(page, "slow-native");

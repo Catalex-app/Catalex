@@ -533,7 +533,7 @@ for (const width of [720, 900, 1280]) {
   });
 }
 
-test("failed update checks can be retried without a false up-to-date message", async ({
+test("failed update checks can be retried without a false up-to-date message @core", async ({
   page,
 }) => {
   await page.goto("/?debug=updater&view=settings&scenario=error");

@@ -3,6 +3,7 @@ import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const projectDir = dirname(fileURLToPath(import.meta.url));
+const pnpm = process.env.CI ? "pnpm" : "npx --yes corepack pnpm";
 
 export default defineConfig({
   testDir: "./e2e",
@@ -22,10 +23,10 @@ export default defineConfig({
     screenshot: "only-on-failure",
   },
   webServer: {
-    command: "npx --yes corepack pnpm dev --host 127.0.0.1 --port 4173",
+    command: `${pnpm} dev --host 127.0.0.1 --port 4173 --strictPort`,
     cwd: projectDir,
     url: "http://127.0.0.1:4173",
     timeout: 120_000,
-    reuseExistingServer: true,
+    reuseExistingServer: !process.env.CI,
   },
 });

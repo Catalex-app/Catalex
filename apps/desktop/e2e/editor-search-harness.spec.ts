@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-test("editor search harness supports VS Code style search controls", async ({
+test("editor search harness supports VS Code style search controls @core", async ({
   page,
 }) => {
   await page.goto("/?debug=editor-search", {

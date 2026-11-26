@@ -107,7 +107,7 @@ for (const hasEdits of [true, false]) {
   });
 }
 
-test("retiring an old paused draft preserves chat and time and shows the existing toast", async ({
+test("retiring an old paused draft preserves chat and time and shows the existing toast @core", async ({
   page,
 }) => {
   await page.goto("/?debug=comment-workspace");

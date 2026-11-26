@@ -539,7 +539,7 @@ test("sidebar sections align their rows and keep header actions separate", async
   }
 });
 
-test("LaTeX outline uses fixed-width numbers with independent folding and navigation", async ({
+test("LaTeX outline uses fixed-width numbers with independent folding and navigation @core", async ({
   page,
 }) => {
   await page.goto("/?debug=sidebar-animation", {

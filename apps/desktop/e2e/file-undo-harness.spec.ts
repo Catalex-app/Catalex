@@ -57,7 +57,7 @@ test("file undo includes grouped unsaved comment typing, save, and source edits"
   expect(errors).toEqual([]);
 });
 
-test("preview shortcuts use the file history and new typing clears redo", async ({
+test("preview shortcuts use the file history and new typing clears redo @core", async ({
   page,
 }) => {
   await page.goto("/?debug=comment-workspace");

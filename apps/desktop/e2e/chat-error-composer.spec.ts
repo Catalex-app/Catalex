@@ -14,7 +14,7 @@ async function setup(page) {
     window.chat = (await import(url)).useAgentChatStore;
   });
 }
-test("production error panel preserves drafts and follows drawer and workspace layouts", async ({
+test("production error panel preserves drafts and follows drawer and workspace layouts @core", async ({
   page,
 }) => {
   await setup(page);
@@ -60,7 +60,7 @@ test("production error panel preserves drafts and follows drawer and workspace l
     "Keep my unsent feedback",
   );
 });
-test("model discovery failure uses production error panel and refreshes without sending chat", async ({
+test("model discovery failure uses production error panel and refreshes without sending chat @core", async ({
   page,
 }) => {
   await setup(page);

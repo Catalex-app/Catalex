@@ -78,7 +78,7 @@ for (const [mode, layout, label] of [
   });
 }
 
-test("Settings has no default app mode control", async ({ page }) => {
+test("Settings has no default app mode control @core", async ({ page }) => {
   await page.goto("/?debug=markdown-settings");
   await expect(
     page.getByRole("combobox", { name: "Appearance", exact: true }),

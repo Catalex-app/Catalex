@@ -77,7 +77,7 @@ test("PDF search scans all pages, navigates, validates queries and closes", asyn
   await expect(panel).toHaveCount(0);
 });
 
-test("Markdown iframe routes search to preview and highlights rendered text", async ({
+test("Markdown iframe routes search to preview and highlights rendered text @core", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });

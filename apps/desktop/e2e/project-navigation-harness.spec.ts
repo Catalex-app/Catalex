@@ -344,7 +344,7 @@ test("a new navigation can interrupt a transition and leave one usable screen", 
   await expect(page.locator(".cm-content").first()).toBeVisible();
 });
 
-test("rows stay still until loading finishes and remain usable after failure", async ({
+test("rows stay still until loading finishes and remain usable after failure @core", async ({
   page,
 }) => {
   await prepare(page);

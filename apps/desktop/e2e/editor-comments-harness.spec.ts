@@ -630,7 +630,7 @@ test("editor comments harness smoothly transitions the same card between read an
   );
 });
 
-test("editor comments harness rejects full-document comment ranges", async ({
+test("editor comments harness rejects full-document comment ranges @core", async ({
   page,
 }) => {
   await page.goto("/?debug=editor-comments", {
@@ -1082,7 +1082,9 @@ test("sustained typing in a long document does not accumulate editor styles", as
   });
 });
 
-test("typing optimizations preserve Chinese composition", async ({ page }) => {
+test("typing optimizations preserve Chinese composition @core", async ({
+  page,
+}) => {
   await page.goto("/?debug=editor-comments");
   await page.waitForFunction(() => window.__editorCommentsHarness?.ready);
   await page.evaluate(() => {

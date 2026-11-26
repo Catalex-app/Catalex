@@ -10,7 +10,7 @@ async function settings(page: Page, values: Record<string, unknown>) {
 }
 const marks = (page: Page) => page.locator(".cm-spelling-error");
 
-test("real Hunspell checks prose, corrects with undo, learns words, and toggles live", async ({
+test("real Hunspell checks prose, corrects with undo, learns words, and toggles live @core", async ({
   page,
 }) => {
   const errors: string[] = [];

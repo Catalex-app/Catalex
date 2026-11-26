@@ -173,7 +173,7 @@ test("split dragging starts just outside the sync controls", async ({
   await expect(controls).toHaveCSS("height", "36px");
 });
 
-test("Markdown preview refreshes outline ownership without another scroll", async ({
+test("Markdown preview refreshes outline ownership without another scroll @core", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 500 });

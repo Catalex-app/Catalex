@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-test("forks a long saved chat without transferring its complete history", async ({
+test("forks a long saved chat without transferring its complete history @core", async ({
   page,
 }) => {
   await page.addInitScript(() => performance.setResourceTimingBufferSize(4096));

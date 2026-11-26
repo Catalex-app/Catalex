@@ -618,7 +618,7 @@ for (const label of ["Editor", "PDF", "Preview"]) {
   });
 }
 
-test("the chat drawer fades out and back in when focusing a panel", async ({
+test("the chat drawer fades out and back in when focusing a panel @core", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
@@ -749,7 +749,7 @@ test("expanded window controls reveal their full icon and label together", async
   }
 });
 
-test("expanded editor escapes the project transition backdrop and remains clickable", async ({
+test("expanded editor escapes the project transition backdrop and remains clickable @core", async ({
   page,
 }) => {
   await page.goto("/?debug=markdown-workspace");

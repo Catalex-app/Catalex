@@ -534,7 +534,7 @@ test("header separators keep 8px spacing across toolbar widths", async ({
   }
 });
 
-test("blank headers toggle focus, ignore controls and support Alt double-click pop-out", async ({
+test("blank headers toggle focus, ignore controls and support Alt double-click pop-out @core", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1600, height: 900 });

@@ -768,7 +768,7 @@ for (const { viewport, draft, fixture = "input-transfer" } of [
   });
 }
 
-test("sending a file adds context without expanding the drawer", async ({
+test("sending a file adds context without expanding the drawer @core", async ({
   page,
 }) => {
   await page.goto("/?debug=input-transfer");

@@ -72,7 +72,9 @@ for (const surface of ["sidebar", "popup", "half"] as const) {
   });
 }
 
-test("menu owns keys and releases shortcuts after Escape", async ({ page }) => {
+test("menu owns keys and releases shortcuts after Escape @core", async ({
+  page,
+}) => {
   await page.goto("/?debug=context-menu");
   await page.evaluate(() => {
     (window as any).backgroundKeys = [];

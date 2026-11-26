@@ -469,7 +469,7 @@ test("Git deletion resolution opens the next pending file after removing the sel
   });
 });
 
-test("agent deletion resolution opens the next pending file after removing the selected file", async ({
+test("agent deletion resolution opens the next pending file after removing the selected file @core", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1600, height: 1000 });
