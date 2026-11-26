@@ -44,6 +44,7 @@ import { invoke } from "@/lib/desktop/core";
 import { getLatexProjectOptions, useDocumentStore } from "./document-store";
 import type { AgentQuestion, SavedAgentQuestion } from "./agent-question-store";
 import {
+  codexPermissionForThread,
   buildInitialCompilerChoice,
   type ChatProvider,
   type ClaudeEffortLevel,
@@ -1894,6 +1895,19 @@ const createAgentChatState: StateCreator<AgentChatState> = (set, get) => ({
           reasoningEffort: settings.selectedCodexReasoningEffort,
           effortLevel: settings.effortLevel,
           ...(requestedProvider === "pi"
+            ? {}
+            : {
+                permission:
+                  requestedProvider === "codex"
+                    ? codexPermissionForThread(
+                        useSettingsStore.getState(),
+                        requestedState.sessionId,
+                      )
+                    : useSettingsStore.getState().agentPermissions[
+                        requestedProvider
+                      ],
+              }),
+          ...(requestedProvider === "pi"
             ? {
                 piConfig: piConfigFromSettings(),
                 model: settings.selectedPiModel,
@@ -2643,6 +2657,8 @@ const createAgentChatState: StateCreator<AgentChatState> = (set, get) => ({
       set((current) =>
         applyTabUpdate(current, activeTabId, { turnPhase: "starting" }),
       );
+      const agentSettings = useSettingsStore.getState();
+      const permissions = agentSettings.agentPermissions;
       if (selectedProvider === "claude") {
         const claudeModel = selectedClaudeModel;
         if (sessionId) {
@@ -2655,6 +2671,7 @@ const createAgentChatState: StateCreator<AgentChatState> = (set, get) => ({
             runtimeSessionKey,
             model: claudeModel,
             effortLevel: claudeEffort,
+            permission: permissions.claude,
             compileContext: verificationContext,
           });
         } else {
@@ -2666,6 +2683,7 @@ const createAgentChatState: StateCreator<AgentChatState> = (set, get) => ({
             runtimeSessionKey,
             model: claudeModel,
             effortLevel: claudeEffort,
+            permission: permissions.claude,
             compileContext: verificationContext,
           });
         }
@@ -2702,6 +2720,7 @@ const createAgentChatState: StateCreator<AgentChatState> = (set, get) => ({
             tabId: activeTabId,
             model: settings.antigravityModel || null,
             thinkingEffort: settings.antigravityThinkingEffort || null,
+            permission: permissions.antigravity,
             compileContext: verificationContext,
           },
         );
@@ -2718,6 +2737,7 @@ const createAgentChatState: StateCreator<AgentChatState> = (set, get) => ({
             model: codexModel,
             reasoningEffort: selectedCodexReasoningEffort,
             fastMode: selectedCodexFastMode,
+            permission: codexPermissionForThread(agentSettings, codexThreadId),
             compileContext: verificationContext,
           });
         } else {
@@ -2730,6 +2750,7 @@ const createAgentChatState: StateCreator<AgentChatState> = (set, get) => ({
             model: codexModel,
             reasoningEffort: selectedCodexReasoningEffort,
             fastMode: selectedCodexFastMode,
+            permission: codexPermissionForThread(agentSettings, codexThreadId),
             compileContext: verificationContext,
           });
         }

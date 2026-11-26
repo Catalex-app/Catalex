@@ -1,3 +1,4 @@
+import { broadcastSettingsChanged } from "@/components/settings/solar-mode-effect";
 import { useLibraryPromptsExpanded } from "@/hooks/use-library-prompts-expanded";
 import { PromptSuggestions } from "./prompt-suggestions";
 import { PRODUCT_NAME } from "../../../branding";
@@ -38,7 +39,11 @@ import {
   type SubscriptionWindow,
 } from "@/lib/subscription-usage";
 import { ARTISAN_MODE_REQUEST_EVENT } from "@/lib/workspace-events";
-import { useSettingsStore } from "@/stores/settings-store";
+import {
+  AGENT_PERMISSION_OPTIONS,
+  codexPermissionForThread,
+  useSettingsStore,
+} from "@/stores/settings-store";
 import { ChatErrorPanel } from "./chat-error-panel";
 import { ChatErrorRecovery } from "./chat-error-recovery";
 import { CodexSessionRecovery } from "./codex-session-recovery";
@@ -1291,6 +1296,27 @@ export const ChatComposer: FC<{
     </Hint>
   );
 
+  const agentPermissions = useSettingsStore((s) => s.agentPermissions);
+  const setAgentPermission = useSettingsStore((s) => s.setAgentPermission);
+  const providerPermissionOptions =
+    selectedProvider === "pi" ? [] : AGENT_PERMISSION_OPTIONS[selectedProvider];
+  const codexThreadId =
+    selectedProvider === "codex"
+      ? (queueTab?.providerSessionIds.codex ?? queueTab?.sessionId)
+      : null;
+  const codexPermission = useSettingsStore((s) =>
+    codexPermissionForThread(s, codexThreadId),
+  );
+  const codexCliDisabled = useSettingsStore(
+    (s) => !!codexThreadId && !!s.codexExplicitPolicies[codexThreadId],
+  );
+  const activePermission =
+    selectedProvider === "codex"
+      ? codexPermission
+      : selectedProvider === "pi"
+        ? undefined
+        : (agentPermissions[selectedProvider] ?? "auto");
+
   const permissionButton = (
     <Popover
       open={openPicker === "permission"}
@@ -1304,21 +1330,30 @@ export const ChatComposer: FC<{
         content={
           openPicker === "permission"
             ? undefined
-            : `Writing permission · ${executionModeLabel}`
+            : isAntigravity
+              ? "Agent permission"
+              : `Writing permission · ${executionModeLabel}`
         }
       >
         <PopoverTrigger asChild>
           <button
             type="button"
-            aria-label="Writing permission"
-            aria-description={executionModeLabel}
+            aria-label={
+              isAntigravity ? "Agent permission" : "Writing permission"
+            }
+            aria-description={isAntigravity ? undefined : executionModeLabel}
             className={cn(
               "flex h-7 w-6 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-muted data-[state=open]:bg-muted",
-              executionModeColor ??
-                "text-muted-foreground hover:text-foreground",
+              !isAntigravity && executionModeColor
+                ? executionModeColor
+                : "text-muted-foreground hover:text-foreground",
             )}
           >
-            <ExecutionModeIcon className="size-3.5" aria-hidden="true" />
+            {isAntigravity ? (
+              <ShieldCheckIcon className="size-3.5" aria-hidden="true" />
+            ) : (
+              <ExecutionModeIcon className="size-3.5" aria-hidden="true" />
+            )}
           </button>
         </PopoverTrigger>
       </Hint>
@@ -1327,7 +1362,7 @@ export const ChatComposer: FC<{
         side="top"
         align="center"
         collisionPadding={8}
-        aria-label="Writing permission"
+        aria-label="Permission"
         tabIndex={-1}
         onOpenAutoFocus={(event) => {
           event.preventDefault();
@@ -1343,7 +1378,54 @@ export const ChatComposer: FC<{
           <h2>Permission</h2>
         </PopupHeader>
         <PopupSeparator />
-        <div className="shrink-0 px-2 py-1.5">
+        {selectedProvider !== "pi" && (
+          <div className="px-2 py-1.5">
+            <div className="mb-1.5 font-medium text-muted-foreground text-xs">
+              Agent permission
+            </div>
+            <div
+              role="group"
+              aria-label="Agent permission"
+              className="flex flex-col gap-0.5"
+            >
+              {[
+                ...providerPermissionOptions,
+                { value: "cli", label: "Same as CLI setting" },
+              ].map(({ value, label }) => {
+                const cliUnavailable = value === "cli" && codexCliDisabled;
+                const button = (
+                  <button
+                    key={value}
+                    type="button"
+                    aria-pressed={activePermission === value}
+                    disabled={isBusy && !cliUnavailable}
+                    aria-disabled={cliUnavailable || undefined}
+                    className="rounded-md px-2 py-1.5 text-left text-xs hover:bg-background/70 disabled:opacity-50 aria-disabled:cursor-not-allowed aria-disabled:opacity-50 aria-pressed:bg-background aria-pressed:font-medium aria-pressed:shadow-sm"
+                    onClick={() => {
+                      if (cliUnavailable) return;
+                      setAgentPermission(selectedProvider, value);
+                      broadcastSettingsChanged();
+                    }}
+                  >
+                    {label}
+                  </button>
+                );
+                return cliUnavailable ? (
+                  <Hint
+                    key={value}
+                    content="Available in a new chat. Codex keeps this chat’s approval setting."
+                  >
+                    {button}
+                  </Hint>
+                ) : (
+                  button
+                );
+              })}
+            </div>
+          </div>
+        )}
+        {selectedProvider !== "pi" && !isAntigravity && <PopupSeparator />}
+        <div hidden={isAntigravity} className="shrink-0 px-2 py-1.5">
           <div className="mb-1.5 font-medium text-muted-foreground text-xs">
             Writing permission
           </div>
@@ -1388,7 +1470,7 @@ export const ChatComposer: FC<{
   const agentControls = (
     <div data-chat-agent-controls className="flex min-w-0 items-center">
       {contextIndicator}
-      {!isAntigravity && permissionButton}
+      {permissionButton}
       {modelButton}
     </div>
   );
@@ -2297,6 +2379,9 @@ export const ChatComposer: FC<{
   }, [modelPickerOpen]);
 
   const showContinue = pauseState === "paused" && !hasMessageInput;
+  const pausedDraftMode = showContinue
+    ? queueTab?.agentWorkspace?.mode
+    : undefined;
   const isStopping = pauseState === "pausing" || !!queueTab?.cancelledByUser;
   const showStop = isStreaming && !hasMessageInput;
   const submitControl = (
@@ -2345,6 +2430,12 @@ export const ChatComposer: FC<{
         <ArrowUpIcon className="size-3.5" />
       )}
     </TooltipIconButton>
+  );
+
+  const draftModeLabel = pausedDraftMode && (
+    <span className="min-w-0 text-right text-muted-foreground text-xs">
+      This draft: {pausedDraftMode === "edit" ? "Auto-apply" : "Need approval"}
+    </span>
   );
 
   const answerContexts = useMemo(
@@ -3440,6 +3531,7 @@ export const ChatComposer: FC<{
                 <div className="col-start-2 row-span-2 row-start-1 flex items-center gap-1">
                   {agentControls}
 
+                  {draftModeLabel}
                   {submitControl}
                 </div>
               </div>
@@ -3584,6 +3676,7 @@ export const ChatComposer: FC<{
                       {agentControls}
                     </div>
 
+                    {draftModeLabel}
                     {submitControl}
                   </div>
                 </div>

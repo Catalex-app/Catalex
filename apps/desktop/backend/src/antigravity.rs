@@ -3,7 +3,7 @@ use crate::{
     agent_questions,
     host::WindowContext,
     verification::VerificationContext,
-    workspace_mcp::WorkspaceMcp,
+    workspace_mcp::{self, WorkspaceMcp},
 };
 use serde_json::{json, Value};
 use std::{
@@ -24,6 +24,7 @@ use tokio_util::sync::CancellationToken;
 #[derive(Default)]
 pub struct AntigravityProcessState {
     turns: Mutex<HashMap<(String, String), Arc<Turn>>>,
+    mode_notices: Mutex<HashSet<String>>,
 }
 
 struct Turn {
@@ -44,6 +45,8 @@ pub struct TurnRequest {
     prompt: String,
     model: Option<String>,
     thinking_effort: Option<String>,
+    #[serde(default)]
+    permission: Option<String>,
     compile_context: Option<VerificationContext>,
 }
 
@@ -347,8 +350,43 @@ fn reply(row: &Value, selection: Option<&Value>) -> Value {
     json!({"jsonrpc":"2.0","id":row["id"],"result":{"outcome":outcome}})
 }
 
-async fn permission(window: &WindowContext, turn: &Turn, args: &TurnRequest, row: &Value) -> Value {
+fn workspace_mcp_allow_once<'a>(params: &'a Value, server: Option<&str>) -> Option<&'a Value> {
+    let tool = &params["toolCall"];
+    if tool["kind"] != "other" || tool["toolCallId"].as_str()?.is_empty() {
+        return None;
+    }
+    let prefix = format!("mcp_{}_", server?);
+    let name = tool["name"].as_str()?.strip_prefix(&prefix)?;
+    if !workspace_mcp::tools().any(|tool| tool.name == name) {
+        return None;
+    }
+    let options = params["options"].as_array()?;
+    let mut allowed = options.iter().filter(|option| option["kind"] == "allow_once");
+    let id = allowed.next()?.get("optionId")?;
+    if id.as_str()?.is_empty()
+        || allowed.next().is_some()
+        || options
+            .iter()
+            .filter(|option| option.get("optionId") == Some(id))
+            .count() != 1
+    {
+        return None;
+    }
+    Some(id)
+}
+
+async fn permission(
+    window: &WindowContext,
+    turn: &Turn,
+    args: &TurnRequest,
+    row: &Value,
+    auto_approval_server: Option<&str>,
+) -> Value {
     let params = &row["params"];
+    let eligible_server = auto_approval_server.filter(|_| !turn.cancel.is_cancelled());
+    if let Some(id) = workspace_mcp_allow_once(params, eligible_server) {
+        return reply(row, Some(id));
+    }
     let tool = &params["toolCall"];
     let mut choices = Vec::new();
     for (kind, label) in [
@@ -447,10 +485,16 @@ async fn run_turn(
     session: &mut Option<String>,
 ) -> Result<bool, String> {
     acp.initialize().await?;
+    // A CLI-configured MCP can take precedence over an injected server of the same name.
+    let workspace_server = format!(
+        "{}-{}",
+        crate::branding::NAMESPACE,
+        uuid::Uuid::new_v4().simple()
+    );
     let mut params = json!({
         "cwd":args.project_path,
         "mcpServers":[{
-            "type":"http", "name":crate::branding::NAMESPACE, "url":connection.settings.url,
+            "type":"http", "name":workspace_server, "url":connection.settings.url,
             "headers":connection.settings.headers.iter().map(|(name, value)| json!({"name":name, "value":value})).collect::<Vec<_>>()
         }]
     });
@@ -483,6 +527,20 @@ async fn run_turn(
         &mut config,
     )
     .await?;
+    let mode = match args.permission.as_deref() {
+        Some("cli") => None,
+        Some(mode @ ("default" | "accept-edits" | "auto")) => Some(mode),
+        _ => Some("auto"),
+    };
+    let mode_rejected = if let Some(mode) = mode {
+        acp.request("session/set_mode", json!({"sessionId":session, "modeId":mode}))
+            .await
+            .is_err()
+    } else {
+        false
+    };
+    let auto_approval_server = (args.permission.as_deref() == Some("auto") && !mode_rejected)
+        .then_some(workspace_server.as_str());
     options(window, &args.tab_id, &config);
     let id = acp
         .start(
@@ -498,6 +556,12 @@ async fn run_turn(
         &args.tab_id,
         json!({"sessionId":session}),
     );
+    if mode_rejected && window.service.antigravity.mode_notices.lock().await.insert(session.into()) {
+        output(window, "antigravity-activity", &args.tab_id, json!({
+            "kind":"text_delta", "item_id":uuid::Uuid::new_v4().to_string(),
+            "text":"Antigravity rejected the selected permission. Using the CLI setting for this turn."
+        }));
+    }
     let mut chunk_id = uuid::Uuid::new_v4().to_string();
     let mut tools = HashSet::new();
     loop {
@@ -514,7 +578,8 @@ async fn run_turn(
             }
             Some("session/request_permission") if row["params"]["sessionId"] == session => {
                 acp.pending_permission = Some(row["id"].clone());
-                acp.send(permission(window, turn, args, &row).await).await?;
+                let answer = permission(window, turn, args, &row, auto_approval_server).await;
+                acp.send(answer).await?;
                 acp.pending_permission = None;
             }
             Some(_) if row.get("id").is_some() => acp.reject_request(&row).await?,
@@ -658,7 +723,15 @@ mod tests {
     use std::os::unix::fs::PermissionsExt;
 
     #[tokio::test]
-    async fn fake_acp_reuses_the_session_in_a_new_draft_and_answers_permissions() {
+    async fn fake_acp_continues_after_mode_rejection_and_resumes_with_cli_permissions() {
+        if std::env::var_os("CATALEX_TEST_AGY_NOTICE_CHILD").is_none() {
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", std::thread::current().name().unwrap(), "--nocapture"])
+                .env("CATALEX_TEST_AGY_NOTICE_CHILD", "1").output().unwrap();
+            assert!(output.status.success(), "ACP fixture subprocess failed");
+            assert_eq!(String::from_utf8_lossy(&output.stdout).matches("Antigravity rejected the selected permission.").count(), 1);
+            return;
+        }
         let temporary = tempfile::tempdir().unwrap();
         let root = temporary.path().canonicalize().unwrap();
         let fake = root.join("test agy");
@@ -668,6 +741,11 @@ mod tests {
 case " $* " in *' --dangerously-skip-permissions '*) exit 13;; esac
 while IFS= read -r line; do
   case "$line" in
+    *'"method":"session/new"'*|*'"method":"session/resume"'*)
+      server=$(printf '%s\n' "$line" | sed -n 's/.*"name":"\([a-z0-9_-]*-[0-9a-f]\{32\}\)".*/\1/p')
+      [ -n "$server" ] || exit 22 ;;
+  esac
+  case "$line" in
     *'"method":"initialize"'*)
       printf '%s\n' '{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":1,"agentInfo":{"version":"test"},"agentCapabilities":{"mcpCapabilities":{"http":true},"sessionCapabilities":{"resume":{}}}}}' ;;
     *'"method":"session/new"'*)
@@ -675,14 +753,44 @@ while IFS= read -r line; do
       case "$line" in *'"type":"http"'*'"Authorization"'*|*'"Authorization"'*'"type":"http"'*) ;; *) exit 15;; esac
       printf '%s\n' '{"jsonrpc":"2.0","id":2,"result":{"sessionId":"same-session","configOptions":[]}}' ;;
     *'"method":"session/resume"'*)
-      case "$PWD" in */second) ;; *) exit 16;; esac
+      case "$PWD" in */second|*/approved) ;; *) exit 16;; esac
       case "$line" in *'"sessionId":"same-session"'*) ;; *) exit 17;; esac
       printf '%s\n' '{"jsonrpc":"2.0","id":2,"result":{"configOptions":[]}}' ;;
+    *'"method":"session/set_mode"'*)
+      case "$line" in
+        *'"modeId":"auto"'*)
+          mode=auto
+          case "$PWD" in
+            */approved) printf '%s\n' '{"jsonrpc":"2.0","id":3,"result":{}}' ;;
+            *) printf '%s\n' '{"jsonrpc":"2.0","id":3,"error":{"code":-32602,"message":"Unsupported mode"}}' ;;
+          esac ;;
+        *'"modeId":"default"'*) mode=default; printf '%s\n' '{"jsonrpc":"2.0","id":3,"result":{}}' ;;
+        *'"modeId":"accept-edits"'*) mode=accept-edits; printf '%s\n' '{"jsonrpc":"2.0","id":3,"result":{}}' ;;
+        *) exit 20 ;;
+      esac ;;
     *'"method":"session/prompt"'*)
-      case "$line" in *'"text":"Fixture prompt"'*) ;; *) exit 19 ;; esac
-      printf '%s\n' '{"jsonrpc":"2.0","id":"tool-1","method":"session/request_permission","params":{"sessionId":"same-session","toolCall":{"title":"read fixture"},"options":[{"kind":"allow_once","optionId":"allow"},{"kind":"reject_once","optionId":"deny"}]}}' ;;
+      case "$line" in *"Fixture prompt ${mode:-cli}"*) ;; *) exit 19 ;; esac
+      case "$PWD:$line" in
+        */first:*'"id":4'*) prompt_id=4 ;;
+        */second:*'"id":3'*) prompt_id=3 ;;
+        */second:*'"id":4'*|*/approved:*'"id":4'*) prompt_id=4 ;;
+        *) exit 21 ;;
+      esac
+      tool_kind=other
+      case "$line" in
+        *' third-party"'*)
+          tool_kind=execute
+          tool_name='"name":"call_mcp_tool","rawInput":{"ServerName":"other","ToolName":"compile"},' ;;
+        *' collision"'*) tool_name='"name":"mcp_catalex_compile",' ;;
+        *' unknown"'*) tool_name='"name":"mcp_'"${server}"'_unknown",' ;;
+        *' missing"'*) tool_name="" ;;
+        *) tool_name='"name":"mcp_'"${server}"'_compile",' ;;
+      esac
+      denial_id=deny
+      case "$line" in *' ambiguous"'*) denial_id=allow ;; esac
+      printf '%s\n' '{"jsonrpc":"2.0","id":"tool-1","method":"session/request_permission","params":{"sessionId":"same-session","toolCall":{'"$tool_name"'"kind":"'"$tool_kind"'","toolCallId":"call-1","title":"read fixture"},"options":[{"kind":"allow_once","optionId":"allow"},{"kind":"reject_once","optionId":"'"$denial_id"'"}]}}' ;;
     *'"id":"tool-1"'*'"optionId":"allow"'*)
-      printf '%s\n' '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"same-session","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Fixture reply"}}}}' '{"jsonrpc":"2.0","id":3,"result":{"stopReason":"end_turn"}}' ;;
+      printf '%s\n' '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"same-session","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Fixture reply"}}}}' "{\"jsonrpc\":\"2.0\",\"id\":$prompt_id,\"result\":{\"stopReason\":\"end_turn\"}}" ;;
     *'"method":"session/cancel"'*) exit 0 ;;
     *) exit 18 ;;
   esac
@@ -733,19 +841,32 @@ done
                 .is_file());
         }
 
-        for (draft, previous) in [("first", None), ("second", Some("same-session"))] {
+        for (draft, mode, tool, expects_question) in [
+            ("first", "auto", "workspace", true),
+            ("second", "auto", "workspace", true),
+            ("second", "default", "workspace", true),
+            ("second", "accept-edits", "workspace", true),
+            ("second", "cli", "workspace", true),
+            ("approved", "auto", "workspace", false),
+            ("approved", "auto", "third-party", true),
+            ("approved", "auto", "collision", true),
+            ("approved", "auto", "unknown", true),
+            ("approved", "auto", "missing", true),
+            ("approved", "auto", "ambiguous", true),
+        ] {
             let path = root.join(draft);
-            std::fs::create_dir(&path).unwrap();
+            std::fs::create_dir_all(&path).unwrap();
             let args = TurnRequest {
                 binary_path: fake.to_string_lossy().into(),
                 project_path: path.to_string_lossy().into(),
                 source_project_path: root.to_string_lossy().into(),
                 runtime_session_key: "runtime".into(),
-                session_id: previous.map(str::to_string),
+                session_id: (draft != "first").then(|| "same-session".into()),
                 tab_id: "tab".into(),
-                prompt: "Fixture prompt".into(),
+                prompt: format!("Fixture prompt {mode} {tool}"),
                 model: None,
                 thinking_effort: None,
+                permission: Some(mode.into()),
                 compile_context: None,
             };
             let turn = Turn {
@@ -760,6 +881,9 @@ done
             let mut acp = Acp::spawn(&fake, &path, Some(customizations.path())).unwrap();
             let mut session = None;
             let answer = async {
+                if !expects_question {
+                    return;
+                }
                 loop {
                     let questions = agent_questions::list_agent_questions(window.clone());
                     if let Some(question) = questions.into_iter().next() {
@@ -785,7 +909,7 @@ done
                 )
             })
             .await
-            .expect("fake ACP answered the turn");
+            .unwrap_or_else(|_| panic!("fake ACP did not finish for {draft}/{mode}/{tool}"));
             assert!(result.unwrap());
             assert_eq!(session.as_deref(), Some("same-session"));
             acp.shutdown().await.unwrap();

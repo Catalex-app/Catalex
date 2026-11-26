@@ -117,6 +117,12 @@ pub(crate) fn tool_result(result: Result<Value, String>) -> VerificationToolResu
 #[derive(Clone)]
 struct AdmittedTurn(Option<Arc<TurnScope>>);
 
+impl TurnAccess {
+    pub(crate) fn cancellation(&self) -> &CancellationToken {
+        &self.0
+    }
+}
+
 impl Drop for TurnAccess {
     fn drop(&mut self) {
         self.0.cancel();

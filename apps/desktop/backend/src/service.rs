@@ -127,13 +127,13 @@ async fn dispatch(
             window, argument(&args, "projectPath")?, argument(&args, "sourceProjectPath")?,
             argument(&args, "sessionId")?, argument(&args, "tabId")?,
             argument(&args, "runtimeSessionKey")?, argument(&args, "model")?,
-            argument(&args, "effortLevel")?,
+            argument(&args, "effortLevel")?, argument(&args, "permission")?,
         ).await),
         "compact_codex_session" => result(codex::compact_codex_session(
             window, argument(&args, "projectPath")?, argument(&args, "sourceProjectPath")?,
             argument(&args, "runtimeSessionKey")?, argument(&args, "sessionId")?,
             argument(&args, "tabId")?, argument(&args, "model")?,
-            argument(&args, "reasoningEffort")?,
+            argument(&args, "reasoningEffort")?, argument(&args, "permission")?,
         ).await),
         "execute_claude_code" => result(
             claude::execute_claude_code(
@@ -144,7 +144,7 @@ async fn dispatch(
                 argument(&args, "tabId")?,
                 argument(&args, "runtimeSessionKey")?,
                 argument(&args, "model")?,
-                argument(&args, "effortLevel")?,
+                argument(&args, "effortLevel")?, argument(&args, "permission")?,
                 argument(&args, "compileContext")?,
             )
             .await,
@@ -158,7 +158,7 @@ async fn dispatch(
                 argument(&args, "tabId")?,
                 argument(&args, "runtimeSessionKey")?,
                 argument(&args, "model")?,
-                argument(&args, "effortLevel")?,
+                argument(&args, "effortLevel")?, argument(&args, "permission")?,
                 argument(&args, "compileContext")?,
             )
             .await,
@@ -173,7 +173,7 @@ async fn dispatch(
                 argument(&args, "tabId")?,
                 argument(&args, "runtimeSessionKey")?,
                 argument(&args, "model")?,
-                argument(&args, "effortLevel")?,
+                argument(&args, "effortLevel")?, argument(&args, "permission")?,
                 argument(&args, "compileContext")?,
             )
             .await,
@@ -276,6 +276,7 @@ async fn dispatch(
                 argument(&args, "model")?,
                 argument(&args, "reasoningEffort")?,
                 argument(&args, "fastMode")?,
+                argument(&args, "permission")?,
                 argument(&args, "compileContext")?,
             )
             .await,
@@ -292,6 +293,7 @@ async fn dispatch(
                 argument(&args, "model")?,
                 argument(&args, "reasoningEffort")?,
                 argument(&args, "fastMode")?,
+                argument(&args, "permission")?,
                 argument(&args, "compileContext")?,
             )
             .await,

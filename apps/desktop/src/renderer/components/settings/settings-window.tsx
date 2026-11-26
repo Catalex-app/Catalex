@@ -138,6 +138,7 @@ import {
   type CatDisplayTimezone,
   type CatStaticDisplay,
   type CompilerBackend,
+  AGENT_PERMISSION_OPTIONS,
   type CompilerEngine,
   type CodexModelId,
   type CodexReasoningEffort,
@@ -1011,6 +1012,8 @@ export function SettingsWindow() {
     }
     return options;
   }, [defaultCodexModelInfo, defaultCodexReasoningEffort]);
+  const agentPermissions = useSettingsStore((s) => s.agentPermissions);
+  const setAgentPermission = useSettingsStore((s) => s.setAgentPermission);
   const defaultAgentExecutionMode = useSettingsStore(
     (s) => s.defaultAgentExecutionMode,
   );
@@ -2884,6 +2887,32 @@ export function SettingsWindow() {
                                     provider={agentProvider}
                                   />
                                 </div>
+                              )}
+                              {agentProvider !== "pi" && (
+                                <SettingsRow title="Agent permission">
+                                  <SettingsDropdown
+                                    ariaLabel="Agent permission"
+                                    value={
+                                      agentPermissions[agentProvider] ??
+                                      (agentProvider === "codex"
+                                        ? "never"
+                                        : "auto")
+                                    }
+                                    options={[
+                                      ...AGENT_PERMISSION_OPTIONS[
+                                        agentProvider
+                                      ],
+                                      {
+                                        value: "cli",
+                                        label: "Same as CLI setting",
+                                      },
+                                    ]}
+                                    onChange={(value) => {
+                                      setAgentPermission(agentProvider, value);
+                                      broadcastSettingsChanged();
+                                    }}
+                                  />
+                                </SettingsRow>
                               )}
                             </div>
                           </div>

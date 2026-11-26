@@ -199,6 +199,14 @@ test("opts into installed Pi and chooses provider-qualified models with thinking
   await expect(
     page.getByRole("switch", { name: "Fast mode", exact: true }),
   ).toHaveCount(0);
+  await page.keyboard.press("Escape");
+  await page
+    .getByRole("button", { name: "Writing permission", exact: true })
+    .click();
+  await expect(
+    page.getByRole("group", { name: "Agent permission" }),
+  ).toHaveCount(0);
+  await page.keyboard.press("Escape");
   await page.getByRole("button", { name: "/ commands", exact: true }).click();
   await expect(page.getByText("/compact", { exact: true })).toBeVisible();
   await page

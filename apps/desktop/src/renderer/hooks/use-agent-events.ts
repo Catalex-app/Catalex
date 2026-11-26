@@ -1,3 +1,4 @@
+import { useSettingsStore } from "@/stores/settings-store";
 import { useAntigravitySetupStore } from "@/stores/antigravity-setup-store";
 import { readAgentPdf, type AgentPdfRequest } from "@/lib/agent-pdf";
 import { PRODUCT_NAME } from "../../branding";
@@ -1037,6 +1038,9 @@ export function useAgentEvents() {
           (msg.id === 2 && msg.result?.thread))
       ) {
         chatStore._setSessionId(tabId, codexThreadId);
+        useSettingsStore
+          .getState()
+          .recordCodexExplicitPolicy(codexThreadId, msg.permission);
       }
 
       if (msg.type === "error" && typeof msg.message === "string") {

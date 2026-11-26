@@ -46,7 +46,14 @@ try {
   await page.waitForFunction(() => !!window.catalex);
   await page.evaluate(() => {
     window.__codexProtocolEvents = [];
-    for (const event of ["codex-output", "codex-complete", "codex-error"])
+    for (const event of [
+      "codex-output",
+      "codex-complete",
+      "codex-error",
+      "codex-final",
+      "catalex-question",
+      "catalex-question-closed",
+    ])
       window.catalex.listen(event, (payload) =>
         window.__codexProtocolEvents.push({ event, payload }),
       );
@@ -200,6 +207,89 @@ try {
     );
     console.log(`Real Electron/native Codex protocol: ${scenario} passed`);
   }
+
+  const tabId = "permission";
+  const invoke = (command, args) =>
+    page.evaluate(
+      async ({ command, args }) => {
+        const reply = await window.catalex.invoke(command, args);
+        if ("error" in reply) throw new Error(JSON.stringify(reply.error));
+        return reply.result;
+      },
+      { command, args },
+    );
+  let sessionId;
+  for (const scenario of [
+    "permission-cli",
+    "permission-approve",
+    "permission-deny",
+    "permission-cancel",
+  ]) {
+    await page.evaluate(() => {
+      window.__codexProtocolEvents = [];
+    });
+    await invoke(sessionId ? "resume_codex_code" : "execute_codex_code", {
+      projectPath: project,
+      sourceProjectPath: project,
+      tabId,
+      runtimeSessionKey: tabId,
+      sessionId,
+      prompt: "Fixture",
+      model: scenario,
+      permission: scenario === "permission-cli" ? "cli" : "on-request",
+    });
+    const pending = () => invoke("list_agent_questions", {});
+    if (scenario !== "permission-cli") {
+      await expect.poll(pending).toHaveLength(1);
+      const [question] = await pending();
+      assert.equal(question.question, "Allow Codex to run this command?");
+      if (scenario === "permission-cancel") {
+        await invoke("cancel_codex_execution", { tabId });
+      } else {
+        await invoke("answer_agent_question", {
+          requestId: question.requestId,
+          tabId,
+          sessionId: question.sessionId,
+          answer: scenario === "permission-approve" ? "Approve once" : "Deny",
+        });
+      }
+    }
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () =>
+            window.__codexProtocolEvents.find(
+              ({ event }) => event === "codex-complete",
+            )?.payload.success,
+        ),
+      )
+      .toBe(scenario !== "permission-cancel");
+    await expect.poll(pending).toHaveLength(0);
+    const emitted = await page.evaluate(() => window.__codexProtocolEvents);
+    if (scenario === "permission-cli") {
+      assert.equal(
+        emitted.filter(({ event }) => event === "catalex-question").length,
+        0,
+      );
+      assert.match(
+        emitted.find(({ event }) => event === "codex-final").payload.data,
+        /declined.*sandbox/,
+      );
+    }
+    const thread = emitted
+      .filter(({ event }) => event === "codex-output")
+      .map(({ payload }) => JSON.parse(payload.data))
+      .find((message) => message.type === "thread.started");
+    assert.equal(
+      thread.permission,
+      scenario === "permission-cli" ? "cli" : "on-request",
+    );
+    sessionId ??= thread.thread_id;
+    assert.equal(thread.thread_id, sessionId);
+  }
+  console.log(
+    "Real Electron/native Codex approvals, CLI fallback, and cancellation passed",
+  );
 } finally {
   if (app) await app.close();
   if (vite) await vite.close();

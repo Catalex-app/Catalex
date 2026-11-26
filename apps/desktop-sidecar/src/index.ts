@@ -26,6 +26,8 @@ import { readClaudeSubscriptionUsage } from "./subscription-usage.js";
 // this launch flag to Claude or tools that may themselves open Electron apps.
 delete process.env.ELECTRON_RUN_AS_NODE;
 
+type ChatPermissionMode = "default" | "acceptEdits" | "auto";
+
 interface StartTurnCommand {
   type: "start_turn";
   requestId: string;
@@ -39,6 +41,7 @@ interface StartTurnCommand {
   mcp: CatalexMcpConnection;
   model?: string;
   effort?: EffortLevel;
+  permissionMode?: ChatPermissionMode;
   systemPrompt: string;
   tools: string[];
   resumeSessionId?: string;
@@ -66,6 +69,7 @@ interface QueryConfiguration {
   systemPrompt: string;
   model?: string;
   effort?: EffortLevel;
+  permissionMode?: ChatPermissionMode;
   resumeSessionId?: string;
   continueSession?: boolean;
 }
@@ -223,7 +227,8 @@ function restartRequired(
     current.sourceRoot !== next.sourceRoot ||
     current.pluginRoot !== next.pluginRoot ||
     current.claudeCliPath !== next.claudeCliPath ||
-    current.systemPrompt !== next.systemPrompt
+    current.systemPrompt !== next.systemPrompt ||
+    current.permissionMode !== next.permissionMode
   );
 }
 
@@ -253,7 +258,13 @@ function buildOptions(command: StartTurnCommand): Options {
     model: command.model,
     effort: command.effort,
     thinking: { type: "adaptive" },
-    permissionMode: "auto",
+    // Same as CLI setting omits the mode. Recheck the SDK's default on upgrade.
+    // https://github.com/anthropics/claude-agent-sdk-typescript/issues/519
+    ...(command.permissionMode === "default" ||
+    command.permissionMode === "acceptEdits" ||
+    command.permissionMode === "auto"
+      ? { permissionMode: command.permissionMode }
+      : {}),
     allowedTools: allowedClaudeTools(command.tools),
     canUseTool: createPermissionHandler({
       ask: mcpPermissionQuestion(command.mcp),
@@ -402,6 +413,7 @@ async function ensureQuery(command: StartTurnCommand): Promise<void> {
     systemPrompt: command.systemPrompt,
     model: command.model,
     effort: command.effort,
+    permissionMode: command.permissionMode,
     resumeSessionId: command.resumeSessionId,
     continueSession: command.continueSession,
   };

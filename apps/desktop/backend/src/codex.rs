@@ -39,6 +39,28 @@ const CATALEX_VERIFY_SKILL_MARKER: &str = "$catalex-verify-latex";
 
 static NEXT_OWNER_TOKEN: AtomicI64 = AtomicI64::new(1);
 
+#[derive(Clone, Copy, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum CodexPermission {
+    OnRequest,
+    #[default]
+    Never,
+    Cli,
+}
+
+impl CodexPermission {
+    fn apply(self, mut params: Value) -> Value {
+        let policy = match self {
+            Self::OnRequest => "on-request",
+            Self::Never => "never",
+            Self::Cli => return params,
+        };
+        params["approvalPolicy"] = json!(policy);
+        params["approvalsReviewer"] = json!("user");
+        params
+    }
+}
+
 struct CodexAppServerHandle {
     owner_token: i64,
     stdin: Mutex<Option<ChildStdin>>,
@@ -50,6 +72,7 @@ struct CodexAppServerHandle {
     active_turn_id: Mutex<Option<String>>,
     mcp: Mutex<Option<Arc<crate::workspace_mcp::WorkspaceMcp>>>,
     runtime_scope: Mutex<Option<(String, String)>>,
+    permission: Mutex<CodexPermission>,
     catalex_skills_root: PathBuf,
 }
 
@@ -67,6 +90,7 @@ impl CodexAppServerHandle {
             active_turn_id: Mutex::new(None),
             mcp: Mutex::new(None),
             runtime_scope: Mutex::new(None),
+            permission: Mutex::new(CodexPermission::default()),
             catalex_skills_root,
         }
     }
@@ -569,6 +593,7 @@ async fn ensure_codex_app_server(
     window: &WindowContext,
     runtime_root: &str,
     tab_id: &str,
+    permission: CodexPermission,
 ) -> Result<Arc<CodexAppServerHandle>, String> {
     let window_label = window.label().to_string();
     let process_key = format!("{}:{}", window_label, tab_id);
@@ -604,6 +629,7 @@ async fn ensure_codex_app_server(
         child,
         catalex_skills_root.clone(),
     ));
+    *handle.permission.lock().await = permission;
 
     {
         let mut app_servers = codex_state.app_servers.lock().await;
@@ -750,7 +776,9 @@ fn codex_thread_id_from_result(result: &Value) -> Option<String> {
         .map(str::to_string)
 }
 
-fn emit_codex_thread_started(window: &WindowContext, tab_id: &str, thread_id: &str) {
+fn emit_codex_thread_started(
+    window: &WindowContext, tab_id: &str, thread_id: &str, permission: CodexPermission,
+) {
     let _ = window.emit(
         "codex-output",
         CodexOutputEvent {
@@ -758,7 +786,8 @@ fn emit_codex_thread_started(window: &WindowContext, tab_id: &str, thread_id: &s
             data: json!({
                 "type": "thread.started",
                 "thread_id": thread_id,
-                "session_id": thread_id
+                "session_id": thread_id,
+                "permission": permission,
             })
             .to_string(),
         },
@@ -1051,14 +1080,13 @@ fn codex_thread_start_params(
     model: &str,
     reasoning_effort: &str,
     sandbox: &str,
+    permission: CodexPermission,
 ) -> Value {
-    json!({
+    permission.apply(json!({
         "model": model,
         "modelProvider": null,
         "serviceTier": null,
         "cwd": project_path,
-        "approvalPolicy": "never",
-        "approvalsReviewer": "user",
         "sandbox": sandbox,
         "config": { "model_reasoning_effort": reasoning_effort },
         "serviceName": null,
@@ -1069,7 +1097,7 @@ fn codex_thread_start_params(
         "sessionStartSource": null,
         "experimentalRawEvents": false,
         "persistExtendedHistory": false
-    })
+    }))
 }
 
 fn codex_thread_resume_params(
@@ -1078,8 +1106,9 @@ fn codex_thread_resume_params(
     model: &str,
     reasoning_effort: &str,
     sandbox: &str,
+    permission: CodexPermission,
 ) -> Value {
-    json!({
+    permission.apply(json!({
         "threadId": thread_id,
         "history": null,
         "path": null,
@@ -1087,8 +1116,6 @@ fn codex_thread_resume_params(
         "modelProvider": null,
         "serviceTier": null,
         "cwd": project_path,
-        "approvalPolicy": "never",
-        "approvalsReviewer": "user",
         "sandbox": sandbox,
         "config": { "model_reasoning_effort": reasoning_effort },
         "baseInstructions": null,
@@ -1096,7 +1123,7 @@ fn codex_thread_resume_params(
         "personality": null,
         "excludeTurns": true,
         "persistExtendedHistory": false
-    })
+    }))
 }
 
 fn prompt_invokes_skill(prompt: &str, name: &str) -> bool {
@@ -1156,14 +1183,13 @@ fn codex_turn_start_params(
     reasoning_effort: &str,
     fast_mode: bool,
     skills_root: Option<&Path>,
+    permission: CodexPermission,
 ) -> Value {
-    json!({
+    permission.apply(json!({
         "threadId": thread_id,
         "input": codex_turn_input(prompt, skills_root),
         "serviceTierForTurn": if fast_mode { "fast" } else { "default" },
         "cwd": project_path,
-        "approvalPolicy": "never",
-        "approvalsReviewer": "user",
         "sandboxPolicy": codex_workspace_write_sandbox_policy(project_path),
         "model": model,
         "serviceTier": null,
@@ -1172,7 +1198,7 @@ fn codex_turn_start_params(
         "personality": null,
         "outputSchema": null,
         "collaborationMode": null
-    })
+    }))
 }
 
 fn turn_id_from_result(result: &Value) -> Option<String> {
@@ -1189,6 +1215,7 @@ async fn ensure_codex_thread(
     session_id: Option<String>,
     model: &str,
     reasoning_effort: &str,
+    permission: CodexPermission,
 ) -> Result<String, String> {
     let requested_thread_id = session_id
         .as_deref()
@@ -1224,7 +1251,7 @@ async fn ensure_codex_thread(
                 project_path,
                 model,
                 reasoning_effort,
-                "workspace-write",
+                "workspace-write", permission,
             )),
             Duration::from_secs(30),
         )
@@ -1234,7 +1261,7 @@ async fn ensure_codex_thread(
             handle,
             "thread/start",
             configure(codex_thread_start_params(
-                project_path, model, reasoning_effort, "workspace-write",
+                project_path, model, reasoning_effort, "workspace-write", permission,
             )),
             Duration::from_secs(30),
         )
@@ -1257,6 +1284,7 @@ async fn prepare_codex_turn(
     model: &str,
     reasoning_effort: &str,
     compile_context: Option<VerificationContext>,
+    permission: CodexPermission,
 ) -> Result<(String, crate::workspace_mcp::TurnAccess), String> {
     if handle.active_turn_id.lock().await.is_some() {
         return Err("A Codex turn is already running".into());
@@ -1265,7 +1293,7 @@ async fn prepare_codex_turn(
     let access = handle.mcp.lock().await.as_ref()
         .ok_or(concat!(env!("APP_BRAND_NAME"), " MCP connection is unavailable"))?
         .begin_turn_with_model(project_path.to_string(), compile_context, Some(model.to_string()), Some(reasoning_effort.to_string()))?;
-    let id = ensure_codex_thread(handle, project_path, session_id, model, reasoning_effort).await?;
+    let id = ensure_codex_thread(handle, project_path, session_id, model, reasoning_effort, permission).await?;
     Ok((id, access))
 }
 
@@ -1277,13 +1305,14 @@ async fn start_loaded_codex_turn(
     model: &str,
     reasoning_effort: &str,
     fast_mode: bool,
+    permission: CodexPermission,
 ) -> Result<String, String> {
     let result = app_server_request(
         handle, "turn/start",
         codex_turn_start_params(
             thread_id, project_path, prompt, model, reasoning_effort,
             fast_mode,
-            Some(handle.catalex_skills_root.as_path()),
+            Some(handle.catalex_skills_root.as_path()), permission,
         ),
         Duration::from_secs(30),
     ).await?;
@@ -1327,6 +1356,7 @@ async fn start_codex_app_server_turn(
     model: Option<String>,
     reasoning_effort: Option<String>,
     fast_mode: Option<bool>,
+    permission: Option<CodexPermission>,
     compile_context: Option<VerificationContext>,
     compact: bool,
 ) -> Result<(), String> {
@@ -1334,16 +1364,18 @@ async fn start_codex_app_server_turn(
     let _admission = admission.lock().await;
     // The OS working directory must outlive settled-draft cleanup. Codex can
     // consult getcwd even when turn/start supplies a different absolute cwd.
-    let mut handle = ensure_codex_app_server(&window, &source_project_path, &tab_id).await?;
+    let permission = permission.unwrap_or_default();
+    let mut handle = ensure_codex_app_server(&window, &source_project_path, &tab_id, permission).await?;
     if handle.active_turn_id.lock().await.is_some() {
         return Err("A Codex turn is already running".into());
     }
     let runtime_scope = (source_project_path.clone(), runtime_session_key.clone());
     let new_runtime = handle.runtime_scope.lock().await.as_ref()
         .is_some_and(|current| current != &runtime_scope);
-    if new_runtime {
-        // A different source project/chat gets a fresh credential and process;
-        // ordinary draft changes are supplied to the existing MCP on each turn.
+    let current_permission = *handle.permission.lock().await;
+    if new_runtime || (current_permission == CodexPermission::Cli) != (permission == CodexPermission::Cli) {
+        // An omitted CLI policy should not inherit the old in-memory override.
+        // Resume using the same runtime replacement path as a chat switch.
         let key = format!("{}:{}", window.label(), tab_id);
         remove_app_server_handle_if_current(
             &mut *window.service.codex.app_servers.lock().await,
@@ -1351,9 +1383,10 @@ async fn start_codex_app_server_turn(
             &handle,
         );
         kill_app_server_handle(handle).await?;
-        handle = ensure_codex_app_server(&window, &source_project_path, &tab_id).await?;
+        handle = ensure_codex_app_server(&window, &source_project_path, &tab_id, permission).await?;
     }
     *handle.runtime_scope.lock().await = Some(runtime_scope);
+    *handle.permission.lock().await = permission;
     {
         let mut slot = handle.mcp.lock().await;
         if slot.is_none() {
@@ -1375,9 +1408,10 @@ async fn start_codex_app_server_turn(
         &model,
         &reasoning_effort,
         compile_context,
+        permission,
     )
     .await.map_err(|error| if is_resume { format!("Could not resume Codex session: {error}") } else { error })?;
-    emit_codex_thread_started(&window, &tab_id, &thread_id);
+    emit_codex_thread_started(&window, &tab_id, &thread_id, permission);
 
     let started_at = SystemTime::now()
         .checked_sub(Duration::from_secs(2))
@@ -1387,7 +1421,7 @@ async fn start_codex_app_server_turn(
     } else { start_loaded_codex_turn(
         &handle,
         &thread_id, &project_path, &prompt, &model, &reasoning_effort,
-        fast_mode.unwrap_or(false),
+        fast_mode.unwrap_or(false), permission,
     ).await };
     let turn_id = match started {
         Ok(id) => id,
@@ -1412,6 +1446,9 @@ async fn start_codex_app_server_turn(
         tab_id,
         thread_id,
         turn_id,
+        source_project_path,
+        runtime_session_key,
+        project_path,
         mcp_turn,
     );
 
@@ -1460,6 +1497,51 @@ fn emit_codex_provider_status(window: &WindowContext, tab_id: &str, status: Opti
     });
 }
 
+fn draft_file_change(changes: &Value, project_path: &str) -> bool {
+    let Ok(root) = Path::new(project_path).canonicalize() else { return false; };
+    let inside_draft = |path: &str| {
+        let path = Path::new(path);
+        if path.components().any(|part| part == std::path::Component::ParentDir) {
+            return false;
+        }
+        let path = root.join(path);
+        // New files do not exist yet. Resolve the nearest existing ancestor.
+        for ancestor in path.ancestors() {
+            match ancestor.symlink_metadata() {
+                Ok(_) => return ancestor.canonicalize().is_ok_and(|resolved| resolved.starts_with(&root)),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+                Err(_) => return false,
+            }
+        }
+        false
+    };
+    changes.as_array().is_some_and(|changes| !changes.is_empty() && changes.iter().all(|change| {
+        let destination = &change["kind"]["move_path"];
+        change["path"].as_str().is_some_and(inside_draft)
+            && (destination.is_null() || destination.as_str().is_some_and(inside_draft))
+    }))
+}
+
+fn codex_approval_response(method: &str, params: &Value, decision: &str) -> Value {
+    match method {
+        "item/permissions/requestApproval" => json!({"permissions": {}, "scope": "turn"}),
+        "execCommandApproval" | "applyPatchApproval" => json!({"decision": match decision {
+            "cancel" => "abort",
+            _ => "denied",
+        }}),
+        _ => {
+            let decision = if params["availableDecisions"].as_array().is_some_and(|choices| {
+                !choices.iter().any(|choice| choice == decision)
+            }) {
+                "cancel"
+            } else {
+                decision
+            };
+            json!({"decision": decision})
+        }
+    }
+}
+
 fn spawn_codex_turn_listener(
     window: WindowContext,
     handle: Arc<CodexAppServerHandle>,
@@ -1468,6 +1550,9 @@ fn spawn_codex_turn_listener(
     tab_id: String,
     thread_id: String,
     turn_id: String,
+    source_project_path: String,
+    runtime_session_key: String,
+    project_path: String,
     mcp_turn: crate::workspace_mcp::TurnAccess,
 ) {
     tokio::spawn(async move {
@@ -1475,6 +1560,8 @@ fn spawn_codex_turn_listener(
         let mut emitted_final_text = String::new();
         let mut failure = None;
         let mut provider_status = None;
+        let mut draft_patches = HashSet::new();
+        let mut announced_decline = false;
 
         loop {
             let message = match notifications.recv().await {
@@ -1536,15 +1623,66 @@ fn spawn_codex_turn_listener(
                     }
                     continue;
                 }
+                let within_sandbox = match method {
+                    "item/commandExecution/requestApproval" => Some(
+                        (params["kind"].is_null() || params["kind"] == "command")
+                            && params["additionalPermissions"].is_null()
+                            && params["networkApprovalContext"].is_null()
+                            // Codex sends this reason when retrying without its sandbox.
+                            && params["reason"] != "command failed; retry without sandbox?",
+                    ),
+                    "item/fileChange/requestApproval" => Some(
+                        params["grantRoot"].is_null() && params["reason"].is_null()
+                            && params["itemId"].as_str().is_some_and(|id| draft_patches.contains(id)),
+                    ),
+                    "item/permissions/requestApproval" | "applyPatchApproval" | "execCommandApproval" => Some(false),
+                    _ => None,
+                };
+                if let Some(within_sandbox) = within_sandbox {
+                    let decision = if mcp_turn.cancellation().is_cancelled() {
+                        "cancel"
+                    } else if within_sandbox {
+                        let (question, details) = if method == "item/fileChange/requestApproval" {
+                            ("Allow Codex to edit this draft?", "")
+                        } else {
+                            ("Allow Codex to run this command?", params["command"].as_str().unwrap_or_default())
+                        };
+                        let answer = crate::agent_questions::ask(
+                            &window, &tab_id, &runtime_session_key, &source_project_path,
+                            json!({
+                                "permission": true, "question": question,
+                                "details": details.chars().take(8_000).collect::<String>(),
+                                "options": [{"label": "Deny"}, {"label": "Approve once"}],
+                            }),
+                            mcp_turn.cancellation(),
+                        ).await;
+                        match answer.as_ref().map(|answer| &answer["answer"]) {
+                            Ok(label) if label == "Approve once" => "accept",
+                            Ok(_) => "decline",
+                            Err(_) => "cancel",
+                        }
+                    } else {
+                        if !announced_decline {
+                            let _ = window.emit("codex-final", CodexFinalEvent {
+                                tab_id: tab_id.clone(),
+                                data: "Catalex declined a Codex request that could exceed the draft sandbox.".into(),
+                                item_id: None,
+                            });
+                            announced_decline = true;
+                        }
+                        "decline"
+                    };
+                    let reply = codex_approval_response(method, params, decision);
+                    if send_app_server_result_response(&handle, request_id, reply).await.is_err() {
+                        failure = Some("Could not send the Codex approval response.".into());
+                        break;
+                    }
+                    continue;
+                }
                 match method {
                     "item/tool/requestUserInput"
-                    | "item/commandExecution/requestApproval"
-                    | "item/fileChange/requestApproval"
-                    | "item/permissions/requestApproval"
                     | "mcpServer/elicitation/request"
-                    | "account/chatgptAuthTokens/refresh"
-                    | "applyPatchApproval"
-                    | "execCommandApproval" => {
+                    | "account/chatgptAuthTokens/refresh" => {
                         let _ = window.emit(
                             "codex-final",
                             CodexFinalEvent {
@@ -1627,11 +1765,21 @@ fn spawn_codex_turn_listener(
                 }
                 "item/started" => {
                     if let Some(item) = params.get("item") {
+                        if item["type"] == "fileChange" && draft_file_change(&item["changes"], &project_path) {
+                            if let Some(id) = item["id"].as_str() {
+                                draft_patches.insert(id.to_string());
+                            }
+                        }
                         emit_codex_tool_activity(&window, &tab_id, item, false);
                     }
                 }
                 "item/fileChange/patchUpdated" => {
                     if let Some(item_id) = params.get("itemId").and_then(Value::as_str) {
+                        if draft_file_change(&params["changes"], &project_path) {
+                            draft_patches.insert(item_id.to_string());
+                        } else {
+                            draft_patches.remove(item_id);
+                        }
                         emit_codex_tool_activity(
                             &window,
                             &tab_id,
@@ -1883,7 +2031,7 @@ pub async fn read_codex_subscription_usage(window: WindowContext) -> Result<Valu
     let project_path = std::env::current_dir()
         .map_err(|error| format!("Could not resolve the current directory: {error}"))?;
     let project_path = project_path.to_string_lossy().to_string();
-    let handle = ensure_codex_app_server(&window, &project_path, "__model-discovery").await?;
+    let handle = ensure_codex_app_server(&window, &project_path, "__model-discovery", CodexPermission::default()).await?;
     app_server_request(&handle, "account/rateLimits/read", json!({}), Duration::from_secs(30)).await
 }
 
@@ -1891,7 +2039,7 @@ pub async fn list_codex_models(window: WindowContext) -> Result<Vec<CodexModelIn
     let project_path = std::env::current_dir()
         .map_err(|error| format!("Could not resolve the current directory: {error}"))?;
     let project_path = project_path.to_string_lossy().to_string();
-    let handle = ensure_codex_app_server(&window, &project_path, "__model-discovery").await?;
+    let handle = ensure_codex_app_server(&window, &project_path, "__model-discovery", CodexPermission::default()).await?;
 
     let mut models = Vec::new();
     let mut cursor: Option<String> = None;
@@ -2003,6 +2151,7 @@ pub async fn execute_codex_code(
     model: Option<String>,
     reasoning_effort: Option<String>,
     fast_mode: Option<bool>,
+    permission: Option<CodexPermission>,
     compile_context: Option<VerificationContext>,
 ) -> Result<(), String> {
     start_codex_app_server_turn(
@@ -2016,6 +2165,7 @@ pub async fn execute_codex_code(
         model,
         reasoning_effort,
         fast_mode,
+        permission,
         compile_context,
         false,
     )
@@ -2033,6 +2183,7 @@ pub async fn resume_codex_code(
     model: Option<String>,
     reasoning_effort: Option<String>,
     fast_mode: Option<bool>,
+    permission: Option<CodexPermission>,
     compile_context: Option<VerificationContext>,
 ) -> Result<(), String> {
     start_codex_app_server_turn(
@@ -2046,6 +2197,7 @@ pub async fn resume_codex_code(
         model,
         reasoning_effort,
         fast_mode,
+        permission,
         compile_context,
         false,
     )
@@ -2061,10 +2213,11 @@ pub async fn compact_codex_session(
     tab_id: String,
     model: Option<String>,
     reasoning_effort: Option<String>,
+    permission: Option<CodexPermission>,
 ) -> Result<(), String> {
     start_codex_app_server_turn(window, project_path, source_project_path,
         runtime_session_key, Some(session_id), String::new(), tab_id,
-        model, reasoning_effort, None, None, true).await
+        model, reasoning_effort, None, permission, None, true).await
 }
 
 async fn start_codex_compaction(handle: &CodexAppServerHandle, thread_id: &str) -> Result<String, String> {
@@ -2147,7 +2300,8 @@ pub async fn reconnect_codex_session(
     let handle = window.service.codex.app_servers.lock().await.get(&key).cloned().ok_or("Codex runtime is no longer available")?;
     if handle.active_turn_id.lock().await.is_some() { return Err("This agent is already working".into()); }
     let scope = handle.runtime_scope.lock().await.clone().ok_or("Codex runtime scope is unavailable")?;
-    ensure_codex_thread(&handle, &scope.0, Some(session_id), &model, &reasoning_effort).await?;
+    let permission = *handle.permission.lock().await;
+    ensure_codex_thread(&handle, &scope.0, Some(session_id), &model, &reasoning_effort, permission).await?;
     Ok(())
 }
 
@@ -2511,17 +2665,17 @@ mod tests {
         let requests_before = handle.next_request_id.load(Ordering::SeqCst);
         for draft in ["/draft-a", "/draft-b"] {
             let (id, access) = prepare_codex_turn(
-                &handle, draft, Some("loaded-thread".into()), "model", "low", None,
+                &handle, draft, Some("loaded-thread".into()), "model", "low", None, CodexPermission::Never,
             ).await.unwrap();
             assert_eq!(id, "loaded-thread");
             assert!(connection.matches(draft, None));
-            assert!(prepare_codex_turn(&handle, "/overlap", None, "model", "low", None).await.is_err());
+            assert!(prepare_codex_turn(&handle, "/overlap", None, "model", "low", None, CodexPermission::Never).await.is_err());
             *handle.active_turn_id.lock().await = Some(draft.into());
             finish_codex_turn(&handle, draft, access).await;
             assert!(handle.active_turn_id.lock().await.is_none());
         }
-        assert!(prepare_codex_turn(&handle, "/wrong", Some("other-thread".into()), "model", "low", None).await.is_err());
-        let (_, access) = prepare_codex_turn(&handle, "/valid", None, "model", "low", None).await.unwrap();
+        assert!(prepare_codex_turn(&handle, "/wrong", Some("other-thread".into()), "model", "low", None, CodexPermission::Never).await.is_err());
+        let (_, access) = prepare_codex_turn(&handle, "/valid", None, "model", "low", None, CodexPermission::Never).await.unwrap();
         drop(access);
         assert_eq!(handle.next_request_id.load(Ordering::SeqCst), requests_before);
         kill_app_server_handle(handle).await.unwrap();
@@ -2624,7 +2778,7 @@ mod tests {
                 let mut events = handle.notifications.subscribe();
                 let requests_before = handle.next_request_id.load(Ordering::SeqCst);
                 let (thread_id, access) = prepare_codex_turn(
-                    &handle, path, session.clone(), "gpt-5.6-luna", "low", Some(context),
+                    &handle, path, session.clone(), "gpt-5.6-luna", "low", Some(context), CodexPermission::Never,
                 ).await.unwrap();
                 if let Some(previous) = &session {
                     assert_eq!(&thread_id, previous);
@@ -2636,9 +2790,9 @@ mod tests {
                 let turn_id = start_loaded_codex_turn(
                     &handle, &thread_id, path,
                     "Call the Catalex MCP workspace_state tool exactly once with {}. Also run `cat marker.txt` once using the shell tool in the CURRENT working directory (no explicit cwd override). Do not read other files, edit anything, or invoke skills. Briefly report the two results.",
-                    "gpt-5.6-luna", "low", false,
+                    "gpt-5.6-luna", "low", false, CodexPermission::Never,
                 ).await.unwrap();
-                assert!(prepare_codex_turn(&handle, "/other", session.clone(), "gpt-5.6-luna", "low", None).await.is_err());
+                assert!(prepare_codex_turn(&handle, "/other", session.clone(), "gpt-5.6-luna", "low", None, CodexPermission::Never).await.is_err());
                 let mut items = Vec::new();
                 let completed = tokio::time::timeout(Duration::from_secs(90), async {
                     loop {
@@ -2692,6 +2846,7 @@ mod tests {
             "xhigh",
             false,
             None,
+            CodexPermission::Never,
         );
 
         assert_eq!(params["threadId"], json!("thread-1"));
@@ -2709,8 +2864,40 @@ mod tests {
     }
 
     #[test]
+    fn cli_policy_omits_overrides_and_keeps_workspace_write() {
+        let start = codex_thread_start_params("/draft", "model", "low", "workspace-write", CodexPermission::Cli);
+        let resume = codex_thread_resume_params("thread", "/draft", "model", "low", "workspace-write", CodexPermission::Cli);
+        let turn = codex_turn_start_params("thread", "/draft", "hello", "model", "low", false, None, CodexPermission::Cli);
+        for params in [&start, &resume, &turn] {
+            assert!(params.get("approvalPolicy").is_none());
+            assert!(params.get("approvalsReviewer").is_none());
+        }
+        assert_eq!(start["sandbox"], "workspace-write");
+        assert_eq!(resume["sandbox"], "workspace-write");
+        assert_eq!(turn["sandboxPolicy"]["type"], "workspaceWrite");
+        assert!(serde_json::from_value::<CodexPermission>(json!("danger-full-access")).is_err());
+    }
+
+    #[test]
+    fn file_approval_checks_the_destination_of_a_move() {
+        let root = tempfile::tempdir().unwrap();
+        let project = root.path().join("draft");
+        std::fs::create_dir(&project).unwrap();
+        let project_path = project.to_str().unwrap();
+        assert!(draft_file_change(&json!([{"path":"chapter.txt"}]), project_path));
+        assert!(!draft_file_change(&json!([{"path":"../outside.txt"}]), project_path));
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(root.path(), project.join("outside")).unwrap();
+            assert!(!draft_file_change(&json!([{"path":"outside/new.txt"}]), project_path));
+        }
+        assert!(!draft_file_change(&json!([{"path":"chapter.txt",
+            "kind":{"type":"update","move_path": root.path().join("outside.txt")}}]), project_path));
+    }
+
+    #[test]
     fn fast_mode_overrides_only_the_new_turn() {
-        let params = codex_turn_start_params("thread-1", "/tmp/project", "hello", "gpt-test", "medium", true, None);
+        let params = codex_turn_start_params("thread-1", "/tmp/project", "hello", "gpt-test", "medium", true, None, CodexPermission::Never);
         assert_eq!(params["serviceTierForTurn"], json!("fast"));
         assert_eq!(params["effort"], json!("medium"));
     }
@@ -2727,6 +2914,7 @@ mod tests {
                 "medium",
                 false,
                 Some(root),
+                CodexPermission::Never,
             );
             assert_eq!(params["input"].as_array().unwrap().len(), 2);
             assert_eq!(params["input"][1]["type"], json!("skill"));
@@ -2840,7 +3028,7 @@ mod tests {
             assert_eq!(config["catalex"]["tools"][tool]["approval_mode"], "approve");
         }
         assert!(config["catalex"].get("default_tools_approval_mode").is_none());
-        let start = codex_thread_start_params("/draft", "gpt-5.5", "medium", "workspace-write");
+        let start = codex_thread_start_params("/draft", "gpt-5.5", "medium", "workspace-write", CodexPermission::Never);
         assert!(start.get("dynamicTools").is_none());
         assert_eq!(start["approvalPolicy"], "never");
     }

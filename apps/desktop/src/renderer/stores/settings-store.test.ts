@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
   INITIAL_CLAUDE_MODEL,
   INITIAL_CODEX_MODEL,
+  codexPermissionForThread,
   migrateSettingsState,
   normalizeCatCustomText,
   useSettingsStore,
@@ -42,6 +43,20 @@ beforeEach(() => {
     markdownPreviewDarkTheme: GITHUB_DARK_MARKDOWN_THEME_ID,
     keyboardShortcutOverrides: {},
   });
+});
+
+it("uses the Settings default for Codex threads without a saved permission", () => {
+  const settings = {
+    agentPermissions: { codex: "on-request" },
+    codexExplicitPolicies: { "explicit-thread": "never" as const },
+  };
+  expect(codexPermissionForThread(settings, "older-thread")).toBe("on-request");
+  expect(codexPermissionForThread(settings, "explicit-thread")).toBe(
+    "on-request",
+  );
+  settings.agentPermissions.codex = "cli";
+  expect(codexPermissionForThread(settings, "older-thread")).toBe("cli");
+  expect(codexPermissionForThread(settings, "explicit-thread")).toBe("never");
 });
 
 describe("project workspace preferences", () => {

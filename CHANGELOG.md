@@ -2,6 +2,7 @@
 
 ## [Unreleased]
 
+- Set the agent's tool permissions in the chat composer. Paused chats show the writing permission for the draft you are continuing.
 - Use Google Antigravity CLI for interactive document chat and draft review. Enable Antigravity in Agent Settings after installing and signing in to `agy`.
 - Choose from six colors, including Graphite, for highlights and comments in the source editor, Markdown preview, and PDF preview. Pick a color before choosing Highlight or Comment. Recolor or remove an existing highlight from its toolbar. Add a note to a highlight or clear a comment's text to turn it back into a highlight.
 - Use the same layout for agent review and Git conflict bars. In narrow panels, the navigator stays beside the title, the buttons move to a second row, and shortcut badges hide when space runs out.

@@ -12,7 +12,7 @@ if (process.argv.includes("login")) {
   process.exit(0);
 }
 const send = (message) => process.stdout.write(`${JSON.stringify(message)}\n`);
-const threadId = `fixture-thread-${process.pid}`;
+let threadId = `fixture-thread-${process.pid}`;
 let skillsRoot;
 let turnId;
 let turns = 0;
@@ -20,6 +20,23 @@ let scenario;
 const lines = createInterface({ input: process.stdin });
 lines.on("line", (line) => {
   const message = JSON.parse(line);
+  if (message.id === "fixture-approval" && !message.method) {
+    assert.equal(
+      message.result?.decision,
+      scenario === "permission-approve"
+        ? "accept"
+        : scenario === "permission-cancel"
+          ? "cancel"
+          : "decline",
+    );
+    if (scenario !== "permission-cancel") {
+      send({
+        method: "turn/completed",
+        params: { threadId, turn: { id: turnId, status: "completed" } },
+      });
+    }
+    return;
+  }
   if (!message.method) return;
   const { id, method, params } = message;
   if (id === undefined) return;
@@ -58,6 +75,17 @@ lines.on("line", (line) => {
       },
     });
   } else if (method === "thread/start" || method === "thread/resume") {
+    if (params.model.startsWith("permission-")) {
+      assert.equal(params.sandbox, "workspace-write");
+      if (params.model === "permission-cli") {
+        assert.equal(method, "thread/start");
+        assert.equal("approvalPolicy" in params, false);
+        assert.equal("approvalsReviewer" in params, false);
+      } else {
+        assert.equal(params.approvalPolicy, "on-request");
+      }
+      if (method === "thread/resume") threadId = params.threadId;
+    }
     send({ id, result: { thread: { id: threadId } } });
   } else if (method === "thread/compact/start") {
     assert.deepEqual(params, { threadId });
@@ -97,7 +125,30 @@ lines.on("line", (line) => {
       scenario === "compaction-retry" ? "fast" : "default",
     );
     send({ id, result: { turn: { id: turnId, status: "inProgress" } } });
-    if (scenario === "terminal-error" || scenario === "retry-terminal-error") {
+    if (scenario.startsWith("permission-")) {
+      assert.equal(params.sandboxPolicy.type, "workspaceWrite");
+      assert.equal(
+        params.approvalPolicy,
+        scenario === "permission-cli" ? undefined : "on-request",
+      );
+      send({
+        id: "fixture-approval",
+        method: "item/commandExecution/requestApproval",
+        params: {
+          threadId,
+          turnId,
+          command: "echo fixture",
+          kind: "command",
+          reason:
+            scenario === "permission-cli"
+              ? "command failed; retry without sandbox?"
+              : null,
+        },
+      });
+    } else if (
+      scenario === "terminal-error" ||
+      scenario === "retry-terminal-error"
+    ) {
       if (scenario === "retry-terminal-error")
         send({
           method: "error",

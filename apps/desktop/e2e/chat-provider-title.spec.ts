@@ -757,6 +757,28 @@ test("Antigravity is opt-in and labels the selected model in Full chat", async (
   });
   await model.click();
   await expect(model).toHaveClass(/bg-accent/);
+  await page.keyboard.press("Escape");
+  await pane
+    .getByRole("button", { name: "Agent permission", exact: true })
+    .click();
+  const menu = page.getByRole("group", { name: "Agent permission" });
+  await expect(menu.getByRole("button")).toHaveText([
+    "Ask for approval",
+    "Allow edits",
+    "Approve for me",
+    "Same as CLI setting",
+  ]);
+  await expect(
+    menu.getByRole("button", { name: "Approve for me" }),
+  ).toHaveAttribute("aria-pressed", "true");
+  await expect(
+    page.getByRole("group", { name: "Writing permission" }),
+  ).toHaveCount(0);
+  await menu.getByRole("button", { name: "Same as CLI setting" }).click();
+  await expect(
+    menu.getByRole("button", { name: "Same as CLI setting" }),
+  ).toHaveAttribute("aria-pressed", "true");
+  await page.keyboard.press("Escape");
   await page.evaluate(async () => {
     const url = (name: string) =>
       performance
@@ -788,4 +810,160 @@ test("Antigravity is opt-in and labels the selected model in Full chat", async (
   await expect(pane.locator("[data-chat-model-divider]").last()).toHaveText(
     "Antigravity · gemini-fixture",
   );
+});
+
+test("provider and writing permissions share one menu and a paused draft shows its saved mode", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/?debug=claude-models&section=agent&provider=codex");
+  await page.getByRole("combobox", { name: "Agent permission" }).click();
+  await page.getByRole("option", { name: "Ask for approval" }).click();
+  await page.goto("/?debug=comment-workspace");
+  await expect(page.locator(".cm-editor").first()).toBeVisible();
+  await page
+    .getByRole("button", { name: "Toggle drawer" })
+    .locator("..")
+    .hover();
+  await page.getByRole("button", { name: "Full", exact: true }).click();
+  const pane = page.locator("[data-workspace-chat-pane]");
+  await expect(pane.locator("[data-chat-composer-shell]")).toHaveAttribute(
+    "data-composer-transfer-phase",
+    "idle",
+  );
+  await page.evaluate(async () => {
+    const url = performance
+      .getEntriesByType("resource")
+      .find(
+        ({ name }) =>
+          new URL(name).pathname === "/src/renderer/stores/agent-chat-store.ts",
+      )!.name;
+    const { useAgentChatStore } = await import(/* @vite-ignore */ url);
+    useAgentChatStore.setState((state: any) => ({
+      selectedProvider: "codex",
+      selectedCodexExecutionMode: "edit",
+      tabs: state.tabs.map((tab: any) =>
+        tab.id === state.activeTabId
+          ? {
+              ...tab,
+              provider: "codex",
+              sessionId: null,
+              providerSessionIds: {},
+              pauseState: "paused",
+              draft: { input: "", pinnedContexts: [] },
+              selectedCodexExecutionMode: "edit",
+              agentWorkspace: {
+                version: 2,
+                sessionId: "paused-demo",
+                tabId: tab.id,
+                projectRoot: "/browser-demo/Comment Review",
+                candidateRoot: "/demo/draft",
+                mode: "edit",
+                status: "active",
+                warnings: [],
+              },
+            }
+          : tab,
+      ),
+    }));
+  });
+  const button = pane
+    .getByRole("button", { name: "Writing permission", exact: true })
+    .first();
+  await expect(
+    pane.getByText("This draft: Auto-apply", { exact: true }),
+  ).toBeVisible();
+  await button.click();
+  const agent = page.getByRole("group", {
+    name: "Agent permission",
+    exact: true,
+  });
+  const writing = page.getByRole("group", {
+    name: "Writing permission",
+    exact: true,
+  });
+  await expect(agent.getByRole("button")).toHaveText([
+    "Ask for approval",
+    "Approve for me",
+    "Same as CLI setting",
+  ]);
+  await expect(
+    agent.getByRole("button", { name: "Ask for approval" }),
+  ).toHaveAttribute("aria-pressed", "true");
+  await agent.getByRole("button", { name: "Approve for me" }).click();
+  await expect(
+    agent.getByRole("button", { name: "Approve for me" }),
+  ).toHaveAttribute("aria-pressed", "true");
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          JSON.parse(localStorage.getItem("catalex-settings") ?? "{}").state
+            ?.agentPermissions?.codex,
+      ),
+    )
+    .toBe("never");
+  await writing.getByRole("button", { name: "Need approval" }).click();
+  await expect(
+    pane.getByText("This draft: Auto-apply", { exact: true }),
+  ).toBeVisible();
+  const cli = agent.getByRole("button", { name: "Same as CLI setting" });
+  await expect(cli).toBeEnabled();
+  await cli.click();
+  await page.evaluate(async () => {
+    const load = (module: string) =>
+      import(
+        performance
+          .getEntriesByType("resource")
+          .find(({ name }) => new URL(name).pathname.endsWith(`/${module}.ts`))!
+          .name
+      );
+    const { useAgentChatStore } = await load("agent-chat-store");
+    const { useSettingsStore } = await load("settings-store");
+    const settings = useSettingsStore.getState();
+    settings.setAgentPermission("codex", "cli");
+    useAgentChatStore.setState((state: any) => ({
+      tabs: state.tabs.map((tab: any) =>
+        tab.id === state.activeTabId
+          ? {
+              ...tab,
+              sessionId: "fixture-thread",
+              providerSessionIds: { codex: "fixture-thread" },
+            }
+          : tab,
+      ),
+    }));
+  });
+  await expect(cli).toBeEnabled();
+  await expect(cli).toHaveAttribute("aria-pressed", "true");
+  const ask = agent.getByRole("button", { name: "Ask for approval" });
+  await ask.click();
+  await expect(ask).toHaveAttribute("aria-pressed", "true");
+  expect(
+    await page.evaluate(
+      () =>
+        JSON.parse(localStorage.getItem("catalex-settings") ?? "{}").state
+          ?.agentPermissions.codex,
+    ),
+  ).toBe("on-request");
+  await page.evaluate(async () => {
+    const { useSettingsStore } = await import(
+      performance
+        .getEntriesByType("resource")
+        .find(({ name }) =>
+          new URL(name).pathname.endsWith("/settings-store.ts"),
+        )!.name
+    );
+    useSettingsStore
+      .getState()
+      .recordCodexExplicitPolicy("fixture-thread", "on-request");
+  });
+  await expect(cli).toBeDisabled();
+  await cli.hover();
+  await expect(page.getByRole("tooltip")).toHaveText(
+    "Available in a new chat. Codex keeps this chat’s approval setting.",
+  );
+  await page.screenshot({
+    path: test.info().outputPath("permission-menu.png"),
+  });
 });

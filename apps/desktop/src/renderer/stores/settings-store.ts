@@ -62,6 +62,59 @@ export type ClaudeModelId = string;
 export type CodexModelId = string;
 export type CodexReasoningEffort = string;
 export type AgentExecutionMode = "default" | "edit";
+
+export const AGENT_PERMISSION_OPTIONS = {
+  codex: [
+    { value: "on-request", label: "Ask for approval" },
+    { value: "never", label: "Approve for me" },
+  ],
+  claude: [
+    { value: "default", label: "Ask for approval" },
+    { value: "acceptEdits", label: "Allow edits" },
+    { value: "auto", label: "Approve for me" },
+  ],
+  antigravity: [
+    { value: "default", label: "Ask for approval" },
+    { value: "accept-edits", label: "Allow edits" },
+    { value: "auto", label: "Approve for me" },
+  ],
+} as const;
+
+type PermissionProvider = keyof typeof AGENT_PERMISSION_OPTIONS;
+type AgentPermissions = Partial<Record<PermissionProvider, string>>;
+type CodexExplicitPolicy = "on-request" | "never";
+
+function isCodexExplicitPolicy(value: unknown): value is CodexExplicitPolicy {
+  return value === "never" || value === "on-request";
+}
+
+export function codexPermissionForThread(
+  settings: Pick<SettingsState, "agentPermissions" | "codexExplicitPolicies">,
+  threadId: string | null | undefined,
+): string {
+  const permission = settings.agentPermissions.codex ?? "never";
+  return permission === "cli" && threadId
+    ? (settings.codexExplicitPolicies[threadId] ?? permission)
+    : permission;
+}
+
+function agentPermissions(
+  value: AgentPermissions | undefined,
+): AgentPermissions {
+  return Object.fromEntries(
+    (Object.keys(AGENT_PERMISSION_OPTIONS) as PermissionProvider[]).flatMap(
+      (provider) => {
+        const mode = value?.[provider];
+        return mode === "cli" ||
+          AGENT_PERMISSION_OPTIONS[provider].some(
+            (option) => option.value === mode,
+          )
+          ? [[provider, mode]]
+          : [];
+      },
+    ),
+  );
+}
 export const INITIAL_CLAUDE_MODEL: ClaudeModelId = "default";
 export const INITIAL_CODEX_MODEL: CodexModelId = "default";
 export type EditorColorScheme =
@@ -131,6 +184,10 @@ export interface SettingsState {
   antigravityBinaryPath: string;
   antigravityModel: string;
   antigravityThinkingEffort: string;
+  agentPermissions: AgentPermissions;
+  codexExplicitPolicies: Record<string, CodexExplicitPolicy>;
+  setAgentPermission: (provider: PermissionProvider, mode: string) => void;
+  recordCodexExplicitPolicy: (threadId: string, permission: unknown) => void;
   setProviderEnabled: (provider: ChatProvider, enabled: boolean) => void;
   defaultAgent: DefaultAgent;
   defaultClaudeModel: ClaudeModelId;
@@ -887,6 +944,28 @@ export const useSettingsStore = create<SettingsState>()(
       antigravityBinaryPath: "",
       antigravityModel: "",
       antigravityThinkingEffort: "",
+      agentPermissions: {},
+      codexExplicitPolicies: {},
+      setAgentPermission: (provider, mode) =>
+        set((state) => ({
+          agentPermissions: agentPermissions({
+            ...state.agentPermissions,
+            [provider]: mode,
+          }),
+        })),
+      recordCodexExplicitPolicy: (threadId, permission) => {
+        if (!isCodexExplicitPolicy(permission)) return;
+        set((state) =>
+          state.codexExplicitPolicies[threadId] === permission
+            ? state
+            : {
+                codexExplicitPolicies: {
+                  ...state.codexExplicitPolicies,
+                  [threadId]: permission,
+                },
+              },
+        );
+      },
       setProviderEnabled: (provider, enabled) =>
         set((state) => ({
           enabledProviders: { ...state.enabledProviders, [provider]: enabled },
@@ -1255,9 +1334,9 @@ export const useSettingsStore = create<SettingsState>()(
         return saved as typeof state;
       },
       merge: (persisted, current) => {
-        const saved = persisted as
-          | (Partial<SettingsState> & { skippedUpdateVersion?: unknown })
-          | undefined;
+        const saved = (persisted ?? {}) as Partial<SettingsState> & {
+          skippedUpdateVersion?: unknown;
+        };
         const skippedVersions = Array.isArray(saved?.skippedUpdateVersions)
           ? saved.skippedUpdateVersions
           : [saved?.skippedUpdateVersion];
@@ -1339,6 +1418,12 @@ export const useSettingsStore = create<SettingsState>()(
           modeThemes: normalizeModeThemes(saved?.modeThemes),
           defaultAgentExecutionMode: normalizeAgentExecutionMode(
             saved?.defaultAgentExecutionMode,
+          ),
+          agentPermissions: agentPermissions(saved?.agentPermissions),
+          codexExplicitPolicies: Object.fromEntries(
+            Object.entries(saved.codexExplicitPolicies ?? {}).filter(
+              ([, policy]) => isCodexExplicitPolicy(policy),
+            ),
           ),
           showTooltips: normalizeBoolean(saved?.showTooltips, true),
           tooltipHoverDelay: normalizeBoolean(saved?.tooltipHoverDelay, true),

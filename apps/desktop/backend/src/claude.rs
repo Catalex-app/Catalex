@@ -796,6 +796,27 @@ struct ClaudeErrorEvent {
     data: String,
 }
 
+#[derive(Clone, Copy, Default, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ClaudePermission {
+    Default,
+    AcceptEdits,
+    #[default]
+    Auto,
+    Cli,
+}
+
+impl ClaudePermission {
+    fn sdk_mode(self) -> Option<&'static str> {
+        match self {
+            Self::Default => Some("default"),
+            Self::AcceptEdits => Some("acceptEdits"),
+            Self::Auto => Some("auto"),
+            Self::Cli => None,
+        }
+    }
+}
+
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 struct ClaudeAgentTurnRequest {
@@ -812,6 +833,8 @@ struct ClaudeAgentTurnRequest {
     mcp: crate::workspace_mcp::ConnectionSettings,
     model: Option<String>,
     effort: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    permission_mode: Option<&'static str>,
     system_prompt: &'static str,
     /// The app's MCP tools, which the bridge allows without a permission prompt.
     tools: Vec<&'static str>,
@@ -994,6 +1017,7 @@ async fn send_claude_agent_turn(
     prompt: String,
     model: Option<String>,
     effort: Option<String>,
+    permission: Option<ClaudePermission>,
     verification_context: Option<crate::verification::VerificationContext>,
     resume_session_id: Option<String>,
     continue_session: bool,
@@ -1035,6 +1059,7 @@ async fn send_claude_agent_turn(
         mcp: mcp.settings.clone(),
         model,
         effort,
+        permission_mode: permission.unwrap_or_default().sdk_mode(),
         system_prompt: claude_system_prompt(),
         tools: crate::workspace_mcp::tool_names(),
         resume_session_id,
@@ -1666,6 +1691,7 @@ pub async fn execute_claude_code(
     runtime_session_key: String,
     model: Option<String>,
     effort_level: Option<String>,
+    permission: Option<ClaudePermission>,
     compile_context: Option<crate::verification::VerificationContext>,
 ) -> Result<(), String> {
     send_claude_agent_turn(
@@ -1677,6 +1703,7 @@ pub async fn execute_claude_code(
         prompt,
         model,
         effort_level,
+        permission,
         compile_context,
         None,
         false,
@@ -1694,6 +1721,7 @@ pub async fn continue_claude_code(
     runtime_session_key: String,
     model: Option<String>,
     effort_level: Option<String>,
+    permission: Option<ClaudePermission>,
     compile_context: Option<crate::verification::VerificationContext>,
 ) -> Result<(), String> {
     send_claude_agent_turn(
@@ -1705,6 +1733,7 @@ pub async fn continue_claude_code(
         prompt,
         model,
         effort_level,
+        permission,
         compile_context,
         None,
         true,
@@ -1723,6 +1752,7 @@ pub async fn resume_claude_code(
     runtime_session_key: String,
     model: Option<String>,
     effort_level: Option<String>,
+    permission: Option<ClaudePermission>,
     compile_context: Option<crate::verification::VerificationContext>,
 ) -> Result<(), String> {
     send_claude_agent_turn(
@@ -1734,6 +1764,7 @@ pub async fn resume_claude_code(
         prompt,
         model,
         effort_level,
+        permission,
         compile_context,
         Some(session_id),
         false,
@@ -1751,9 +1782,10 @@ pub async fn compact_claude_session(
     runtime_session_key: String,
     model: Option<String>,
     effort_level: Option<String>,
+    permission: Option<ClaudePermission>,
 ) -> Result<(), String> {
     send_claude_agent_turn(window, tab_id, runtime_session_key, project_path,
-        source_project_path, String::new(), model, effort_level, None,
+        source_project_path, String::new(), model, effort_level, permission, None,
         Some(session_id), false, true).await
 }
 
@@ -2292,12 +2324,13 @@ mod tests {
             },
             model: Some("opus".to_string()),
             effort: Some("medium".to_string()),
+            permission_mode: ClaudePermission::Cli.sdk_mode(),
             system_prompt: claude_system_prompt(),
             tools: crate::workspace_mcp::tool_names(),
             resume_session_id: Some("session-1".to_string()),
             continue_session: false,
         };
-        let value = serde_json::to_value(request).unwrap();
+        let value = serde_json::to_value(&request).unwrap();
 
         assert_eq!(value["type"], "start_turn");
         assert_eq!(value["conversationKey"], "conversation-1");
@@ -2306,6 +2339,16 @@ mod tests {
         assert_eq!(value["pluginRoot"], "/Applications/Catalex.app/Contents/Resources/catalex");
         assert!(value.get("permissionMode").is_none());
         assert_eq!(value["resumeSessionId"], "session-1");
+        let mut request = request;
+        for (mode, expected) in [
+            (ClaudePermission::default(), "auto"),
+            (ClaudePermission::Default, "default"),
+            (ClaudePermission::AcceptEdits, "acceptEdits"),
+        ] {
+            request.permission_mode = mode.sdk_mode();
+            assert_eq!(serde_json::to_value(&request).unwrap()["permissionMode"], expected);
+        }
+        assert!(serde_json::from_value::<ClaudePermission>(serde_json::json!("bypassPermissions")).is_err());
     }
 
     #[test]
