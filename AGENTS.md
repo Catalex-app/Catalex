@@ -27,7 +27,7 @@ Catalex is a desktop app with related workspace packages, using pnpm workspaces,
 - `pnpm dev:desktop` prepares the native service and Claude bridge, then starts Electron with Vite.
 - `pnpm build:desktop` builds the production application directory; `pnpm package:desktop` also creates a platform distributable.
 - `apps/desktop/backend/` contains the headless Rust service and bundled resources. Electron main, preload, and renderer code live in their respective directories under `apps/desktop/src/`. Packaging icons live in `apps/desktop/build/icons/`.
-- Develop on the configured target branch. Approved completions push only the target branch (`dev`). Pushing to or merging into `main`, creating or pushing tags, bumping versions, and releasing require explicit user approval. Never force-push.
+- Develop on the configured target branch. Push `dev` only at approved completion of a parent issue or an issue with no subissues. Keep subissue completion commits local until the parent is complete. Pushing to or merging into `main`, creating or pushing tags, bumping versions, and releasing require explicit user approval. Never force-push.
 
 ## Verification
 
