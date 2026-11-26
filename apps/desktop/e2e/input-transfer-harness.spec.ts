@@ -185,7 +185,7 @@ test("layout switches and new chats share one default permission", async ({
   ) => {
     const trigger = page
       .locator(panel)
-      .getByRole("button", { name: "Writing permission", exact: true });
+      .getByRole("button", { name: "Permission", exact: true });
     await trigger.click();
     const popup = page.getByRole("dialog", { name: "Permission", exact: true });
     const writing = popup.getByRole("group", { name: "Writing permission" });

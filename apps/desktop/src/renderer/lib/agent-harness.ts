@@ -9,6 +9,13 @@ export const HARNESSES = {
   antigravity: { label: "Antigravity", compact: false },
 } as const satisfies Record<ChatProvider, { label: string; compact: boolean }>;
 
+export const PROVIDER_ORDER = [
+  ...(Object.keys(HARNESSES) as ChatProvider[]).filter(
+    (provider) => provider !== "pi",
+  ),
+  "pi",
+] as const;
+
 export function normalizeProvider(value: unknown): ChatProvider {
   return value === "codex" || value === "pi" || value === "antigravity"
     ? value

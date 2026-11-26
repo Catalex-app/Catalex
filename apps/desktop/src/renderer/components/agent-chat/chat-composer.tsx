@@ -1,5 +1,5 @@
 import { broadcastSettingsChanged } from "@/components/settings/solar-mode-effect";
-import { HARNESSES } from "@/lib/agent-harness";
+import { HARNESSES, PROVIDER_ORDER } from "@/lib/agent-harness";
 import { useLibraryPromptsExpanded } from "@/hooks/use-library-prompts-expanded";
 import { PromptSuggestions } from "./prompt-suggestions";
 import { PRODUCT_NAME } from "../../../branding";
@@ -41,6 +41,7 @@ import {
 } from "@/lib/subscription-usage";
 import { ARTISAN_MODE_REQUEST_EVENT } from "@/lib/workspace-events";
 import {
+  AGENT_CLI_PERMISSION_OPTION,
   AGENT_PERMISSION_OPTIONS,
   codexPermissionForThread,
   useSettingsStore,
@@ -75,6 +76,7 @@ import {
   PopupSeparator,
 } from "@/components/ui/popup-surface";
 import { ButtonGroup } from "@/components/ui/button-group";
+import { OverlappingIcon } from "@/components/ui/overlapping-icon";
 import {
   Popover,
   PopoverContent,
@@ -635,6 +637,12 @@ export const ChatComposer: FC<{
   const noProvidersEnabled = !Object.values(enabledProviders).some(Boolean);
   const multipleProvidersEnabled =
     Object.values(enabledProviders).filter(Boolean).length > 1;
+  const providerReady = {
+    codex: codexReady,
+    claude: claudeReady,
+    antigravity: antigravity.status === "ready",
+    pi: piReady,
+  };
   const alternativeProvider = (Object.keys(HARNESSES) as ChatProvider[]).find(
     (provider) => provider !== selectedProvider && enabledProviders[provider],
   );
@@ -1270,7 +1278,12 @@ export const ChatComposer: FC<{
   const agentPermissions = useSettingsStore((s) => s.agentPermissions);
   const setAgentPermission = useSettingsStore((s) => s.setAgentPermission);
   const providerPermissionOptions =
-    selectedProvider === "pi" ? [] : AGENT_PERMISSION_OPTIONS[selectedProvider];
+    selectedProvider === "pi"
+      ? []
+      : [
+          ...AGENT_PERMISSION_OPTIONS[selectedProvider],
+          AGENT_CLI_PERMISSION_OPTION,
+        ];
   const codexThreadId =
     selectedProvider === "codex"
       ? (queueTab?.providerSessionIds.codex ?? queueTab?.sessionId)
@@ -1288,6 +1301,16 @@ export const ChatComposer: FC<{
         ? undefined
         : (agentPermissions[selectedProvider] ?? "auto");
 
+  const agentPermissionOption = providerPermissionOptions.find(
+    (option) => option.value === activePermission,
+  );
+  const permissionDescription = [
+    agentPermissionOption &&
+      `Agent permission · ${agentPermissionOption.label}`,
+    `Writing permission · ${executionModeLabel}`,
+  ]
+    .filter(Boolean)
+    .join(" / ");
   const permissionButton = (
     <Popover
       open={openPicker === "permission"}
@@ -1299,23 +1322,41 @@ export const ChatComposer: FC<{
     >
       <Hint
         content={
-          openPicker === "permission"
-            ? undefined
-            : `Writing permission · ${executionModeLabel}`
+          openPicker === "permission" ? undefined : permissionDescription
         }
       >
         <PopoverTrigger asChild>
           <button
             type="button"
-            aria-label="Writing permission"
-            aria-description={executionModeLabel}
+            aria-label={
+              agentPermissionOption ? "Permission" : "Writing permission"
+            }
+            aria-description={permissionDescription}
             className={cn(
-              "flex h-7 w-6 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-muted data-[state=open]:bg-muted",
-              executionModeColor ||
-                "text-muted-foreground hover:text-foreground",
+              "flex h-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground data-[state=open]:bg-muted",
+              agentPermissionOption
+                ? "@min-[360px]/mini-composer:w-9 w-8"
+                : "w-6",
             )}
           >
-            <ExecutionModeIcon className="size-3.5" aria-hidden="true" />
+            {agentPermissionOption && (
+              <span className="text-muted-foreground">
+                <OverlappingIcon
+                  icon={agentPermissionOption.icon}
+                  nextIcon={ExecutionModeIcon}
+                  maskClassName="@min-[360px]/mini-composer:[mask:none]"
+                />
+              </span>
+            )}
+            <ExecutionModeIcon
+              className={cn(
+                "size-3.5 shrink-0",
+                agentPermissionOption &&
+                  "-ml-1.5 @min-[360px]/mini-composer:ml-0.5",
+                executionModeColor,
+              )}
+              aria-hidden="true"
+            />
           </button>
         </PopoverTrigger>
       </Hint>
@@ -1345,15 +1386,11 @@ export const ChatComposer: FC<{
             <div className="mb-1.5 font-medium text-muted-foreground text-xs">
               Agent permission
             </div>
-            <div
-              role="group"
+            <ButtonGroup
               aria-label="Agent permission"
               className="flex flex-col gap-0.5"
             >
-              {[
-                ...providerPermissionOptions,
-                { value: "cli", label: "Same as CLI setting" },
-              ].map(({ value, label }) => {
+              {providerPermissionOptions.map(({ value, label, icon: Icon }) => {
                 const cliUnavailable = value === "cli" && codexCliDisabled;
                 const button = (
                   <button
@@ -1362,13 +1399,19 @@ export const ChatComposer: FC<{
                     aria-pressed={activePermission === value}
                     disabled={isBusy && !cliUnavailable}
                     aria-disabled={cliUnavailable || undefined}
-                    className="rounded-md px-2 py-1.5 text-left text-xs hover:bg-background/70 disabled:opacity-50 aria-disabled:cursor-not-allowed aria-disabled:opacity-50 aria-pressed:bg-background aria-pressed:font-medium aria-pressed:shadow-sm"
+                    className={cn(
+                      "flex items-center gap-1.5 rounded-md px-1.5 py-1.5 text-left font-medium text-xs transition-colors disabled:opacity-50 aria-disabled:cursor-not-allowed aria-disabled:opacity-50 motion-reduce:transition-none",
+                      activePermission === value
+                        ? "bg-background text-foreground shadow-sm"
+                        : "text-muted-foreground hover:bg-background/70 hover:text-foreground",
+                    )}
                     onClick={() => {
                       if (cliUnavailable) return;
                       setAgentPermission(selectedProvider, value);
                       broadcastSettingsChanged();
                     }}
                   >
+                    <Icon className="size-3 shrink-0" aria-hidden="true" />
                     {label}
                   </button>
                 );
@@ -1383,7 +1426,7 @@ export const ChatComposer: FC<{
                   button
                 );
               })}
-            </div>
+            </ButtonGroup>
           </div>
         )}
         {selectedProvider !== "pi" && <PopupSeparator />}
@@ -2714,42 +2757,28 @@ export const ChatComposer: FC<{
                   Provider
                 </div>
                 <ButtonGroup aria-label="Provider" className="flex gap-1">
-                  {[
-                    {
-                      id: "codex" as const,
-                      label: "Codex",
-                      ready: codexReady,
-                    },
-                    {
-                      id: "claude" as const,
-                      label: "Claude",
-                      ready: claudeReady,
-                    },
-                    { id: "pi" as const, label: "Pi", ready: piReady },
-                    {
-                      id: "antigravity" as const,
-                      label: "Antigravity",
-                      ready: antigravity.status === "ready",
-                    },
-                  ]
-                    .filter((provider) => enabledProviders[provider.id])
-                    .map((provider) => (
-                      <button
-                        key={provider.id}
-                        aria-pressed={selectedProvider === provider.id}
-                        className={cn(
-                          "flex-1 rounded-md px-2 py-1.5 font-medium text-xs transition-colors motion-reduce:transition-none",
-                          !provider.ready && "cursor-not-allowed opacity-50",
-                          selectedProvider === provider.id
-                            ? "bg-background text-foreground shadow-sm"
-                            : "text-muted-foreground hover:bg-background/70 hover:text-foreground",
-                        )}
-                        disabled={!provider.ready}
-                        onClick={() => setProvider(provider.id)}
-                      >
-                        {provider.label}
-                      </button>
-                    ))}
+                  {PROVIDER_ORDER.filter(
+                    (provider) => enabledProviders[provider],
+                  ).map((provider) => (
+                    <button
+                      key={provider}
+                      aria-pressed={selectedProvider === provider}
+                      className={cn(
+                        "flex-1 rounded-md px-2 py-1.5 font-medium text-xs transition-colors motion-reduce:transition-none",
+                        !providerReady[provider] &&
+                          "cursor-not-allowed opacity-50",
+                        selectedProvider === provider
+                          ? "bg-background text-foreground shadow-sm"
+                          : "text-muted-foreground hover:bg-background/70 hover:text-foreground",
+                      )}
+                      disabled={!providerReady[provider]}
+                      onClick={() => setProvider(provider)}
+                    >
+                      {provider === "claude"
+                        ? "Claude"
+                        : HARNESSES[provider].label}
+                    </button>
+                  ))}
                 </ButtonGroup>
               </div>
             ) : null}
@@ -3509,7 +3538,7 @@ export const ChatComposer: FC<{
                 <div
                   ref={setToolbarElement}
                   data-chat-composer-toolbar
-                  className="relative flex shrink-0 items-center justify-end px-2 pb-2 [--composer-collapse-ease:cubic-bezier(0.8,0,0.6,1)]"
+                  className="@container/mini-composer relative flex shrink-0 items-center justify-end px-2 pb-2 [--composer-collapse-ease:cubic-bezier(0.8,0,0.6,1)]"
                   onBlur={(event) => {
                     if (
                       toolbarShortcutsOpen &&

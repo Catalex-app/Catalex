@@ -176,6 +176,12 @@ test("Antigravity works in onboarding when the other CLIs are missing", async ({
   });
   await page.goto(`${demo}&scenario=missing-providers`);
   const tabs = page.getByRole("tablist", { name: "Agent provider" });
+  await expect(tabs.getByRole("tab")).toHaveText([
+    "Codex",
+    "Claude Code",
+    "Antigravity",
+    "Pi",
+  ]);
   const tab = tabs.getByRole("tab", { name: /Antigravity/ });
   await tab.click();
   await page.evaluate(() => {

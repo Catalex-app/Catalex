@@ -14,6 +14,7 @@ import { toast } from "sonner";
 import { SidebarFileContextActions } from "./sidebar-file-context-actions";
 import { fileTreeCollisionDetection } from "./sidebar-file-drop";
 import { Hint } from "@/components/ui/tooltip";
+import { OverlappingIcon } from "@/components/ui/overlapping-icon";
 import { SettingsSwitch } from "@/components/settings/settings-switch";
 import { useCollapsedSidebarBody } from "@/hooks/use-collapsed-sidebar-body";
 import {
@@ -48,7 +49,6 @@ import {
   useRef,
   useEffect,
   useLayoutEffect,
-  useId,
 } from "react";
 import {
   FileTextIcon,
@@ -505,7 +505,6 @@ function FileStatus({
   commentCounts?: FileCommentCounts;
 }) {
   const diagnostics = useFileCompileDiagnostics(fileId);
-  const maskId = useId();
   const indicators = [
     ...(["human", "agent"] as const).flatMap((author) => {
       const count = commentCounts?.[author] ?? 0;
@@ -589,7 +588,6 @@ function FileStatus({
         const { key, label, className, Icon } =
           indicators.find((item) => item.key === indicator.key) ?? indicator;
         const NextIcon = presence.items[index + 1]?.indicator.Icon;
-        const id = `${maskId}-${key}`;
         return (
           <span
             key={key}
@@ -608,39 +606,11 @@ function FileStatus({
           >
             <span className="file-status-glyph">
               {NextIcon ? (
-                <svg
-                  className="size-3.5 overflow-visible"
-                  viewBox="0 0 24 24"
-                  aria-hidden="true"
-                >
-                  <defs>
-                    <mask
-                      id={id}
-                      maskUnits="userSpaceOnUse"
-                      x="-4"
-                      y="-4"
-                      width="32"
-                      height="32"
-                      style={{ maskType: "luminance" }}
-                    >
-                      <rect x="-4" y="-4" width="32" height="32" fill="white" />
-                      {/* Six-pixel overlap, with a transparent halo following the next icon's silhouette. */}
-                      <NextIcon
-                        className="size-6"
-                        x={(8 * 24) / 14}
-                        y={0}
-                        width={24}
-                        height={24}
-                        fill="black"
-                        stroke="black"
-                        strokeWidth={5}
-                      />
-                    </mask>
-                  </defs>
-                  <g className="file-status-masked-icon" mask={`url(#${id})`}>
-                    <Icon className="size-6" width={24} height={24} />
-                  </g>
-                </svg>
+                <OverlappingIcon
+                  icon={Icon}
+                  nextIcon={NextIcon}
+                  maskClassName="file-status-masked-icon"
+                />
               ) : (
                 <Icon className="size-3.5" aria-hidden="true" />
               )}

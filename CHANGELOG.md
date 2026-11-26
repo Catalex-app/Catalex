@@ -2,6 +2,7 @@
 
 ## [Unreleased]
 
+- See both permission choices on the chat composer button and identify agent permission options by their icons. Pi appears last in agent provider pickers.
 - Set the agent's tool permissions in the chat composer. Paused chats show the writing permission for the draft you are continuing.
 - Use Google Antigravity CLI for interactive document chat and draft review. Enable Antigravity in Agent Settings after installing and signing in to `agy`. Pick an automatically detected model in onboarding or Agent Settings.
 - Choose from six colors, including Graphite, for highlights and comments in the source editor, Markdown preview, and PDF preview. Pick a color before choosing Highlight or Comment. Recolor or remove an existing highlight from its toolbar. Add a note to a highlight or clear a comment's text to turn it back into a highlight.

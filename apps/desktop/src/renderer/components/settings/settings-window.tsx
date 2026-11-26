@@ -19,7 +19,7 @@ import {
   ProviderSetupStatus,
   ProviderToggle,
 } from "@/components/provider-toggle";
-import { HARNESSES } from "@/lib/agent-harness";
+import { HARNESSES, PROVIDER_ORDER } from "@/lib/agent-harness";
 import { SettingsSwitch } from "./settings-switch";
 export { SettingsSwitch } from "./settings-switch";
 import { useOnboardingStore } from "@/stores/onboarding-store";
@@ -142,6 +142,7 @@ import {
   type CatDisplayTimezone,
   type CatStaticDisplay,
   type CompilerBackend,
+  AGENT_CLI_PERMISSION_OPTION,
   AGENT_PERMISSION_OPTIONS,
   type CompilerEngine,
   type CodexModelId,
@@ -259,9 +260,10 @@ export const COMPILER_ENGINE_OPTIONS: Array<{
   { value: "lualatex", label: "LuaLaTeX" },
 ];
 
-export const AGENT_OPTIONS = (
-  ["codex", "claude", "pi", "antigravity"] as const
-).map((value) => ({ value, label: HARNESSES[value].label }));
+export const AGENT_OPTIONS = PROVIDER_ORDER.map((value) => ({
+  value,
+  label: HARNESSES[value].label,
+}));
 
 const FALLBACK_CODEX_MODEL_OPTIONS: Array<{
   value: CodexModelId;
@@ -2488,14 +2490,7 @@ export function SettingsWindow() {
                               aria-label="Agent provider"
                               className="flex h-8 w-fit min-w-64 items-center"
                             >
-                              {(
-                                [
-                                  "codex",
-                                  "claude",
-                                  "pi",
-                                  "antigravity",
-                                ] as const
-                              ).map((provider) => (
+                              {PROVIDER_ORDER.map((provider) => (
                                 <button
                                   key={provider}
                                   type="button"
@@ -2522,12 +2517,7 @@ export function SettingsWindow() {
                                     )
                                       return;
                                     event.preventDefault();
-                                    const providers = [
-                                      "codex",
-                                      "claude",
-                                      "pi",
-                                      "antigravity",
-                                    ] as const;
+                                    const providers = PROVIDER_ORDER;
                                     const next =
                                       event.key === "Home"
                                         ? providers[0]
@@ -2785,10 +2775,7 @@ export function SettingsWindow() {
                                       ...AGENT_PERMISSION_OPTIONS[
                                         agentProvider
                                       ],
-                                      {
-                                        value: "cli",
-                                        label: "Same as CLI setting",
-                                      },
+                                      AGENT_CLI_PERMISSION_OPTION,
                                     ]}
                                     onChange={(value) => {
                                       setAgentPermission(agentProvider, value);

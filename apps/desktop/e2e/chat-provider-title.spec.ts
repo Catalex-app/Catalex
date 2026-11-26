@@ -704,6 +704,17 @@ test("Antigravity is opt-in and labels the selected model in Full chat", async (
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("/?debug=claude-models&section=agent&provider=antigravity");
+  const tabs = page.getByRole("tablist", { name: "Agent provider" });
+  await expect(tabs.getByRole("tab")).toHaveText([
+    /^Codex/,
+    /^Claude Code/,
+    /^Antigravity/,
+    /^Pi/,
+  ]);
+  await tabs.getByRole("tab", { name: /^Antigravity/ }).press("End");
+  await expect(tabs.getByRole("tab", { name: /^Pi/ })).toBeFocused();
+  await tabs.getByRole("tab", { name: /^Pi/ }).press("ArrowLeft");
+  await expect(tabs.getByRole("tab", { name: /^Antigravity/ })).toBeFocused();
   const enable = page.getByRole("switch", { name: "Enable Antigravity" });
   await expect(enable).toHaveAttribute("aria-checked", "false");
   await page.evaluate(() => {
@@ -790,9 +801,7 @@ test("Antigravity is opt-in and labels the selected model in Full chat", async (
   await expect(model).toHaveClass(/bg-accent/);
   await expect(page.getByRole("group", { name: "Effort" })).toHaveCount(0);
   await page.keyboard.press("Escape");
-  await pane
-    .getByRole("button", { name: "Writing permission", exact: true })
-    .click();
+  await pane.getByRole("button", { name: "Permission", exact: true }).click();
   const menu = page.getByRole("group", { name: "Agent permission" });
   await expect(menu.getByRole("button")).toHaveText([
     "Ask for approval",
@@ -800,6 +809,7 @@ test("Antigravity is opt-in and labels the selected model in Full chat", async (
     "Approve for me",
     "Same as CLI setting",
   ]);
+  await expect(menu.locator("button > svg.lucide-shield-half")).toHaveCount(1);
   await expect(
     menu.getByRole("button", { name: "Approve for me" }),
   ).toHaveAttribute("aria-pressed", "true");
@@ -882,6 +892,11 @@ test("provider and writing permissions share one menu and a paused draft shows i
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("/?debug=claude-models&section=agent&provider=codex");
   await page.getByRole("combobox", { name: "Agent permission" }).click();
+  await expect(
+    page
+      .getByRole("option", { name: "Ask for approval" })
+      .locator("svg.lucide-shield-question-mark"),
+  ).toBeVisible();
   await page.getByRole("option", { name: "Ask for approval" }).click();
   await page.goto("/?debug=comment-workspace");
   await expect(page.locator(".cm-editor").first()).toBeVisible();
@@ -930,8 +945,15 @@ test("provider and writing permissions share one menu and a paused draft shows i
     }));
   });
   const button = pane
-    .getByRole("button", { name: "Writing permission", exact: true })
+    .getByRole("button", { name: "Permission", exact: true })
     .first();
+  await expect(button).toHaveAccessibleDescription(
+    "Agent permission · Ask for approval / Writing permission · Need approval",
+  );
+  await expect(button.locator(":scope > svg.lucide-thumbs-up")).toBeVisible();
+  await expect(
+    button.locator("g > svg.lucide-shield-question-mark"),
+  ).toHaveCount(1);
   await expect(
     pane.getByText("This draft: Auto-apply", { exact: true }),
   ).toBeVisible();
@@ -949,6 +971,15 @@ test("provider and writing permissions share one menu and a paused draft shows i
     "Approve for me",
     "Same as CLI setting",
   ]);
+  await expect(
+    agent.locator("button > svg.lucide-shield-question-mark"),
+  ).toHaveCount(1);
+  await expect(
+    agent.locator("button > svg.lucide-shield-ellipsis"),
+  ).toHaveCount(1);
+  await expect(
+    agent.locator("button > svg.lucide-square-terminal"),
+  ).toHaveCount(1);
   await expect(
     agent.getByRole("button", { name: "Ask for approval" }),
   ).toHaveAttribute("aria-pressed", "true");
@@ -1029,4 +1060,58 @@ test("provider and writing permissions share one menu and a paused draft shows i
   await page.screenshot({
     path: test.info().outputPath("permission-menu.png"),
   });
+});
+
+test("the composer overlaps permission icons only when space is tight and lists Pi last", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/?debug=comment-workspace");
+  await expect(page.locator(".cm-editor").first()).toBeVisible();
+  await page
+    .getByRole("button", { name: "Toggle drawer" })
+    .locator("..")
+    .hover();
+  await page.getByRole("button", { name: "Full", exact: true }).click();
+  const pane = page.locator("[data-workspace-chat-pane]");
+  const button = pane.getByRole("button", { name: "Permission", exact: true });
+  const writing = button.locator(":scope > svg");
+  const mask = button.locator("g[mask]");
+  const gap = () =>
+    button.evaluate((trigger) => {
+      const [agent, writing] = Array.from(trigger.children, (icon) =>
+        icon.getBoundingClientRect(),
+      );
+      return Math.round(writing.left - agent.right);
+    });
+  await expect.poll(gap).toBe(2);
+  await expect(mask).toHaveCSS("mask-image", "none");
+  await page.setViewportSize({ width: 345, height: 900 });
+  await expect.poll(gap).toBe(-6);
+  await expect(mask).toHaveCSS("mask-image", /^url\(/);
+  await expect(writing).toBeVisible();
+
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.evaluate(async () => {
+    const url = performance
+      .getEntriesByType("resource")
+      .find(({ name }) =>
+        new URL(name).pathname.endsWith("/settings-store.ts"),
+      )!.name;
+    const { useSettingsStore } = await import(/* @vite-ignore */ url);
+    useSettingsStore.setState({
+      enabledProviders: {
+        codex: true,
+        claude: true,
+        antigravity: true,
+        pi: true,
+      },
+    });
+  });
+  await pane.getByRole("button", { name: /Model settings/ }).click();
+  await expect(
+    page
+      .getByRole("group", { name: "Provider", exact: true })
+      .getByRole("button"),
+  ).toHaveText(["Codex", "Claude", "Antigravity", "Pi"]);
 });

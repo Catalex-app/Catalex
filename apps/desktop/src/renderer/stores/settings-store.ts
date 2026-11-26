@@ -1,5 +1,11 @@
 import { createPanelStore } from "@/lib/panel-window-runtime";
 import {
+  ShieldEllipsisIcon,
+  ShieldHalfIcon,
+  ShieldQuestionMarkIcon,
+  SquareTerminalIcon,
+} from "lucide-react";
+import {
   normalizeSpellingLanguage,
   normalizeSpellingWords,
   type SpellingLanguage,
@@ -63,20 +69,33 @@ export type CodexModelId = string;
 export type CodexReasoningEffort = string;
 export type AgentExecutionMode = "default" | "edit";
 
+const ASK_FOR_APPROVAL = {
+  label: "Ask for approval",
+  icon: ShieldQuestionMarkIcon,
+};
+const ALLOW_EDITS = { label: "Allow edits", icon: ShieldHalfIcon };
+const APPROVE_FOR_ME = { label: "Approve for me", icon: ShieldEllipsisIcon };
+
+export const AGENT_CLI_PERMISSION_OPTION = {
+  value: "cli",
+  label: "Same as CLI setting",
+  icon: SquareTerminalIcon,
+} as const;
+
 export const AGENT_PERMISSION_OPTIONS = {
   codex: [
-    { value: "on-request", label: "Ask for approval" },
-    { value: "never", label: "Approve for me" },
+    { value: "on-request", ...ASK_FOR_APPROVAL },
+    { value: "never", ...APPROVE_FOR_ME },
   ],
   claude: [
-    { value: "default", label: "Ask for approval" },
-    { value: "acceptEdits", label: "Allow edits" },
-    { value: "auto", label: "Approve for me" },
+    { value: "default", ...ASK_FOR_APPROVAL },
+    { value: "acceptEdits", ...ALLOW_EDITS },
+    { value: "auto", ...APPROVE_FOR_ME },
   ],
   antigravity: [
-    { value: "default", label: "Ask for approval" },
-    { value: "accept-edits", label: "Allow edits" },
-    { value: "auto", label: "Approve for me" },
+    { value: "default", ...ASK_FOR_APPROVAL },
+    { value: "accept-edits", ...ALLOW_EDITS },
+    { value: "auto", ...APPROVE_FOR_ME },
   ],
 } as const;
 

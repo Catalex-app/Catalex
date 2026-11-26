@@ -200,9 +200,12 @@ test("opts into installed Pi and chooses provider-qualified models with thinking
     page.getByRole("switch", { name: "Fast mode", exact: true }),
   ).toHaveCount(0);
   await page.keyboard.press("Escape");
-  await page
-    .getByRole("button", { name: "Writing permission", exact: true })
-    .click();
+  const permission = page.getByRole("button", {
+    name: "Writing permission",
+    exact: true,
+  });
+  await expect(permission.locator("svg")).toHaveCount(1);
+  await permission.click();
   await expect(
     page.getByRole("group", { name: "Agent permission" }),
   ).toHaveCount(0);
