@@ -2,6 +2,8 @@
    keeps its compact toolbar sizing. The root scope also reaches portalled UI. */
 :root {
   --workspace-accent: #fb923c;
+  --workspace-separator-inset: 0px;
+  --workspace-full-width-separator: none;
 }
 
 :root[data-workspace-mode="duet"] {
@@ -32,54 +34,88 @@
   background-color: transparent;
 }
 
-/* Share the content surface with its bars. Paint the fill once behind each. */
-:is(
-  :root[data-ui-theme="modern"][data-workspace-vibrancy] [data-workspace-content-panel],
-  :root[data-ui-theme="classic"] [data-workspace-content-panel],
-  :root[data-ui-theme="classic"] :where(
-    [data-workspace-editor-shell] > [data-workspace-panel-screen],
+/* Paint the shared fill once on the frame so the body and bars match. */
+:root:is([data-ui-theme="modern"][data-workspace-vibrancy], [data-ui-theme="classic"]) {
+  & [data-workspace-panel-screen] {
+    --workspace-panel-bar-fill: transparent;
+    --workspace-panel-region-fill: transparent;
+    background-color: var(--workspace-panel-backing, var(--workspace-content-panel-backing));
+    background-clip: var(--workspace-panel-background-clip, border-box);
+  }
+
+  & [data-workspace-panel-screen] :is(
+    [data-workspace-panel-header],
+    .workspace-document-bar
+  ) {
+    background-color: var(--workspace-panel-bar-fill, var(--background));
+  }
+
+  & [data-workspace-panel-screen] :is(
+    [data-workspace-content-surface],
     [data-workspace-review-surface]
-  )
-) {
-  background-color: var(--workspace-content-panel-backing, transparent);
-
-  [data-workspace-content-surface],
-  > [data-workspace-panel-header],
-  [data-workspace-panel-header]:has(+ [data-workspace-content-surface]),
-  .workspace-document-bar,
-  > [data-external-file-review] {
-    background-color: var(--workspace-content-fill);
+  ),
+  & [data-workspace-panel-screen] > [data-external-file-review] {
+    background-color: var(--workspace-panel-region-fill, revert-layer);
   }
 
-  /* The PDF surface already paints the fill behind its bars. */
-  .pdf-panel-surface :is([data-workspace-panel-header], .workspace-document-bar) {
-    background-color: transparent;
+  & [data-workspace-panel-screen] > [data-editor-history-bar] {
+    background-color: color-mix(in srgb, var(--color-amber-500) 10%, transparent);
   }
 
-  > [data-editor-history-bar] {
-    background-color: color-mix(in srgb, var(--color-amber-500) 10%, var(--workspace-content-fill));
+  & [data-workspace-panel-screen]:has([data-workspace-panel-own-surface]) {
+    --workspace-panel-backing: var(--card);
+    --workspace-panel-background-clip: border-box;
   }
 }
 
-/* Keep the comment counts legible over the frosted head bars. */
-:root:not(.dark)[data-ui-theme="modern"][data-workspace-vibrancy]
-  [data-workspace-content-panel] [data-workspace-panel-header] [data-comment-author="human"] {
-  color: #b88600;
+[data-workspace-panel-own-surface] {
+  --workspace-panel-bar-fill: initial;
+  --workspace-frosted-human-comment: initial;
+  --workspace-frosted-agent-comment: initial;
 }
 
-:root.dark[data-ui-theme="modern"][data-workspace-vibrancy]
-  [data-workspace-content-panel] [data-workspace-panel-header] [data-comment-author="agent"] {
-  color: #7756b7;
+/* Review and large-file states retain their own editor background. */
+:root[data-ui-theme="modern"][data-workspace-vibrancy] [data-workspace-panel-screen][data-workspace-editor-state] {
+  --workspace-panel-backing: var(--card);
+  --workspace-panel-background-clip: border-box;
+  --workspace-panel-bar-fill: initial;
+  --workspace-panel-region-fill: initial;
+  --workspace-editor-surface-fill: initial;
+  --workspace-frosted-human-comment: initial;
+  --workspace-frosted-agent-comment: initial;
+}
+
+/* Keep comment counts legible over the frosted header. */
+[data-workspace-panel-screen] [data-workspace-panel-header] [data-comment-author="human"] {
+  color: var(--workspace-frosted-human-comment, #d49a00);
+}
+
+[data-workspace-panel-screen] [data-workspace-panel-header] [data-comment-author="agent"] {
+  color: var(--workspace-frosted-agent-comment, #7352b3);
 }
 
 /* Tint the existing selection and hover surfaces with the same translucent fill. */
 :root[data-ui-theme="modern"][data-workspace-vibrancy] {
   --workspace-content-fill: color-mix(in oklab, var(--muted) 25%, transparent);
+  --workspace-content-panel-backing: var(--workspace-content-fill);
+  --workspace-frosted-human-comment: #b88600;
   --workspace-glass-highlight: rgb(255 255 255 / 92%);
   --workspace-glass-hover: color-mix(in srgb, var(--foreground) 4%, transparent);
 }
 
+:root[data-ui-theme="modern"][data-workspace-vibrancy] [data-workspace-panel-screen] {
+  --workspace-editor-surface-fill: transparent;
+  --workspace-panel-background-clip: padding-box;
+
+  /* The minimap still paints its own layer over the document. */
+  & [data-editor-minimap] {
+    background-color: var(--workspace-content-fill);
+  }
+}
+
 :root.dark[data-ui-theme="modern"][data-workspace-vibrancy] {
+  --workspace-frosted-human-comment: initial;
+  --workspace-frosted-agent-comment: #7756b7;
   --workspace-glass-highlight: rgb(255 255 255 / 12%);
   --workspace-glass-hover: color-mix(in srgb, var(--workspace-glass-highlight) 50%, transparent);
 }
@@ -179,36 +215,32 @@
   outline-offset: -1px;
 }
 
-/* Inset Modern panel separators within their existing bottom borders. */
+/* Draw the themed stroke inside the existing bottom border. A full-width
+   separator uses its original border color. */
+:is(
+  [data-workspace-separator],
+  .workspace-document-bar,
+  [data-external-file-review],
+  [data-editor-history-bar],
+  .history-snapshot-large-notice
+) {
+  border-image-source: var(--workspace-full-width-separator, linear-gradient(
+    to right,
+    transparent var(--workspace-separator-inset),
+    var(--workspace-separator-color, var(--border)) var(--workspace-separator-inset)
+      calc(100% - var(--workspace-separator-inset)),
+    transparent calc(100% - var(--workspace-separator-inset))
+  ));
+  border-image-slice: 0 0 100% 0;
+}
+
+[data-workspace-separator="conflict"] {
+  --workspace-separator-color: color-mix(in oklab, var(--color-slate-500) 30%, transparent);
+}
+
 :root[data-ui-theme="modern"] {
   --workspace-separator-inset: 8px;
-
-  & :is(
-    [data-workspace-panel-header]:not(:has(> [data-chat-panel-title]), [data-testid="markdown-preview"] *),
-    .workspace-document-bar:not(:is([data-testid="chat-search-panel"], [data-testid="markdown-preview"]) *),
-    [data-external-file-review],
-    [data-editor-history-bar],
-    [data-workspace-separator],
-    .history-snapshot-large-notice
-  ) {
-    --workspace-separator-color: var(--border);
-    border-image-source: linear-gradient(
-      to right,
-      transparent var(--workspace-separator-inset),
-      var(--workspace-separator-color) var(--workspace-separator-inset)
-        calc(100% - var(--workspace-separator-inset)),
-      transparent calc(100% - var(--workspace-separator-inset))
-    );
-    border-image-slice: 0 0 100% 0;
-  }
-
-  & [data-testid="csv-table"] [data-workspace-panel-header] {
-    --workspace-separator-color: color-mix(in oklab, var(--border) 70%, transparent);
-  }
-
-  & [data-workspace-separator="conflict"] {
-    --workspace-separator-color: color-mix(in oklab, var(--color-slate-500) 30%, transparent);
-  }
+  --workspace-full-width-separator: initial;
 }
 
 :root[data-ui-theme="classic"] {
@@ -261,7 +293,7 @@
 }
 
 :root[data-ui-theme="classic"] :is([data-workspace-editor-shell], [data-workspace-review-surface])
-  [data-workspace-separator] {
+  :is([data-workspace-separator=""], [data-workspace-separator="conflict"]) {
   background-color: var(--workspace-content-fill);
   backdrop-filter: none;
 }

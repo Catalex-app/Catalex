@@ -322,6 +322,7 @@ export function WorkspacePanel({
           )}
         <div
           {...props}
+          data-workspace-panel-screen="true"
           tabIndex={props.tabIndex ?? -1}
           onFocusCapture={(event) => {
             props.onFocusCapture?.(event);
@@ -660,6 +661,7 @@ export function WorkspacePanelHeader(props: WorkspacePanelHeaderProps) {
   const showFindButton = !!findAction && !findOpen && !overflowFind;
   const shared = {
     "data-workspace-panel-header": "",
+    "data-workspace-separator": "header",
     className: cn(
       "flex h-12 shrink-0 items-center border-border border-b bg-background px-2",
       className,

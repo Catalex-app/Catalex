@@ -19,7 +19,7 @@
   min-height: 0;
   min-width: 0;
   overflow: hidden;
-  background: var(--background);
+  background: var(--workspace-panel-region-fill, var(--background));
 }
 
 .history-snapshot-legend {

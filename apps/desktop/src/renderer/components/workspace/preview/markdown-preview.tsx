@@ -1485,6 +1485,7 @@ export function MarkdownPreview({
       data-preview-pane
       className="flex h-full min-h-0 flex-col bg-background outline-none"
       data-testid="markdown-preview"
+      data-workspace-panel-own-surface=""
       style={previewPanelStyle}
     >
       <WorkspacePanelHeader

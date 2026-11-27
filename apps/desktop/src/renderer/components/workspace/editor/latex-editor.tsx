@@ -6079,11 +6079,12 @@ export function LatexEditor({
       <WorkspacePanel
         expansion={expansion}
         data-drawer-shell="true"
-        data-workspace-panel-screen="true"
-        data-workspace-content-panel={
-          !isWholeFileReview && !activeGitFileConflict && !isLargeFileNotLoaded
-            ? ""
-            : undefined
+        data-workspace-editor-state={
+          isWholeFileReview || activeGitFileConflict
+            ? "review"
+            : isLargeFileNotLoaded
+              ? "large-file"
+              : undefined
         }
         className={`flex flex-1 flex-col ${
           showToolbar && !useGlobalToolbar ? "mt-2" : ""

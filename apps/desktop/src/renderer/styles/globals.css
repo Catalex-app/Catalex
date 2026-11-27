@@ -359,20 +359,13 @@ html.solar-mode body::after {
 }
 
 .chat-conversation-fade {
-  background-color: inherit;
-}
-
-.chat-conversation-fade::after {
-  content: "";
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  /* Leave the thin scrollbar clear, including its hover target. */
-  right: 8px;
-  height: 24px;
-  background-color: inherit;
-  mask-image: linear-gradient(to top, black, transparent);
-  pointer-events: none;
+  /* Fade messages while leaving the scrollbar and its hover target visible. */
+  mask-image:
+    linear-gradient(to bottom, black calc(100% - 24px), transparent),
+    linear-gradient(black, black);
+  mask-size: calc(100% - 8px) 100%, 8px 100%;
+  mask-position: left, right;
+  mask-repeat: no-repeat;
 }
 
 .app-scrollbar {

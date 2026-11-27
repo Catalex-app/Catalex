@@ -3473,7 +3473,6 @@ function ProjectWorkspaceLayout() {
                                   "Incoming",
                                 )}
                                 data-workspace-column="incoming"
-                                data-workspace-panel-screen="true"
                                 className="h-full"
                               >
                                 {fileConflict
@@ -3498,12 +3497,6 @@ function ProjectWorkspaceLayout() {
                                   previewPanelLabel,
                                 )}
                                 data-workspace-column="preview"
-                                data-workspace-panel-screen="true"
-                                data-workspace-content-panel={
-                                  isCsvDocument || isMarkdownDocument
-                                    ? undefined
-                                    : ""
-                                }
                                 className="h-full"
                               >
                                 <div className="flex h-full min-h-0 flex-col">

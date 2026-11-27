@@ -76,7 +76,8 @@ const editorSurfaceTheme = EditorView.theme({
   },
   ':root[data-ui-theme="modern"][data-workspace-vibrancy] &, :root[data-ui-theme="classic"] &':
     {
-      backgroundColor: "var(--workspace-content-fill)",
+      backgroundColor:
+        "var(--workspace-editor-surface-fill, var(--workspace-content-fill))",
     },
   ':root[data-ui-theme="modern"][data-workspace-vibrancy] & .cm-gutters, :root[data-ui-theme="classic"] & .cm-gutters':
     {

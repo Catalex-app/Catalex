@@ -127,6 +127,7 @@ export function CsvTable() {
       className="flex h-full min-h-0 flex-col bg-background"
       aria-label={`${activeFile.name} table`}
       data-testid="csv-table"
+      data-workspace-content-surface=""
     >
       <WorkspacePanelHeader
         hasTrailingContent
@@ -159,7 +160,7 @@ export function CsvTable() {
           </div>
         }
         as="header"
-        className="flex h-10 shrink-0 items-center gap-2 border-border/70 border-b px-3"
+        className="gap-2 px-3"
       >
         <div className="min-w-0 flex-1 truncate text-muted-foreground text-xs">
           <span data-testid="csv-table-size">

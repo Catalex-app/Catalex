@@ -209,3 +209,57 @@ test("theme assignments survive reload and follow changes from another window @c
   await page.getByRole("tab", { name: "Duet", exact: true }).click();
   await expect(page.locator("html")).toHaveAttribute("data-ui-theme", "modern");
 });
+
+test("workspace panels share theme surfaces and Markdown preview keeps its own", async ({
+  page,
+}) => {
+  await page.goto("/?debug=markdown-workspace");
+  const markdown = page.getByTestId("markdown-preview");
+  const editor = page.locator("[data-workspace-editor-shell]");
+  const editorPanel = editor.locator("[data-workspace-panel-screen]");
+  const editorHeader = editorPanel.locator("[data-workspace-panel-header]");
+  const previewHeader = markdown.getByTestId("markdown-preview-toolbar");
+  await expect(editorHeader).toBeVisible();
+  await expect(previewHeader).toBeVisible();
+  await page.locator("html").evaluate((root) => {
+    root.setAttribute("data-ui-theme", "modern");
+    root.setAttribute("data-workspace-vibrancy", "");
+  });
+
+  await expect(editorHeader).toHaveAttribute(
+    "data-workspace-separator",
+    "header",
+  );
+  await expect(previewHeader).toHaveAttribute(
+    "data-workspace-separator",
+    "header",
+  );
+  await expect(editorPanel).toHaveCSS("background-color", /\/ 0\.25\)/);
+  await expect(editorHeader).toHaveCSS("border-image-source", /8px/);
+  await expect(editorHeader).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+  await expect(editorPanel.locator(".cm-editor")).toHaveCSS(
+    "background-color",
+    "rgba(0, 0, 0, 0)",
+  );
+  await expect(page.locator("[data-workspace-panel-own-surface]")).toHaveCount(
+    1,
+  );
+  await expect(markdown).toHaveAttribute(
+    "data-workspace-panel-own-surface",
+    "",
+  );
+  const previewBackground = await markdown.evaluate(
+    (element) => getComputedStyle(element).backgroundColor,
+  );
+  await expect(previewHeader).toHaveCSS("background-color", previewBackground);
+  await expect(previewHeader).toHaveCSS("border-image-source", /8px/);
+
+  await page.locator("html").evaluate((root) => {
+    root.setAttribute("data-ui-theme", "classic");
+    root.removeAttribute("data-workspace-vibrancy");
+  });
+  await expect(editorHeader).toHaveCSS("border-image-source", "none");
+  await expect(editorPanel).toHaveCSS("border-radius", "4px");
+  await expect(previewHeader).toHaveCSS("background-color", previewBackground);
+  await expect(previewHeader).toHaveCSS("border-image-source", "none");
+});

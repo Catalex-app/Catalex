@@ -217,8 +217,7 @@ export function ChatWorkspacePane({
     <WorkspacePanel
       ref={panelRef}
       expansion={expansion}
-      data-workspace-panel-screen="true"
-      className="flex h-full min-h-0 flex-col overflow-hidden rounded-panel border border-border/70 bg-card"
+      className="flex h-full min-h-0 flex-col bg-background"
     >
       <WorkspacePanelHeader
         actionsLabel="Chat"

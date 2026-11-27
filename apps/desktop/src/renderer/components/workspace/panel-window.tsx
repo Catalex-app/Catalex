@@ -197,14 +197,7 @@ function PanelContent() {
         ) : session.kind === "chat" ? (
           <ChatWorkspacePane expansion={expansion} />
         ) : (
-          <WorkspacePanel
-            expansion={expansion}
-            className="h-full"
-            data-workspace-panel-screen="true"
-            data-workspace-content-panel={
-              file?.type === "csv" || isMarkdownFile(file) ? undefined : ""
-            }
-          >
+          <WorkspacePanel expansion={expansion} className="h-full">
             {file?.type === "csv" ? (
               <CsvTable />
             ) : isMarkdownFile(file) ? (
