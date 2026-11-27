@@ -210,6 +210,59 @@ test("theme assignments survive reload and follow changes from another window @c
   await expect(page.locator("html")).toHaveAttribute("data-ui-theme", "modern");
 });
 
+test("Modern popups are solid and Classic popups keep their glass finish", async ({
+  page,
+}) => {
+  await page.goto("/?debug=input-transfer");
+  const root = page.locator("html");
+  await expect(root).toHaveAttribute("data-ui-theme", "modern");
+  await page
+    .getByRole("button", { name: "Minimap layers", exact: true })
+    .click();
+  const popup = page.getByRole("menu");
+  async function expectSolidBackground() {
+    const fill = await popup.evaluate((el) => {
+      const sample = document.createElement("span");
+      sample.style.backgroundColor = "var(--background)";
+      el.append(sample);
+      const color = getComputedStyle(sample).backgroundColor;
+      sample.remove();
+      return color;
+    });
+    await expect(popup).toHaveCSS("background-color", fill);
+    await expect(popup).toHaveCSS("backdrop-filter", "none");
+  }
+
+  for (const dark of [false, true]) {
+    await root.evaluate((el, dark) => {
+      el.classList.toggle("dark", dark);
+      el.removeAttribute("data-workspace-vibrancy");
+    }, dark);
+    await expectSolidBackground();
+    await root.evaluate((el) => el.setAttribute("data-workspace-vibrancy", ""));
+    await expectSolidBackground();
+  }
+
+  await root.evaluate((el) => {
+    el.setAttribute("data-ui-theme", "classic");
+    el.removeAttribute("data-workspace-vibrancy");
+    el.classList.remove("dark");
+  });
+  await expect(popup).toHaveCSS("background-color", /\/ 0\.8\)$/);
+  await expect(popup).toHaveCSS("backdrop-filter", "blur(10px) saturate(1.1)");
+  await root.evaluate((el) => el.classList.add("dark"));
+  await expect(popup).toHaveCSS("background-color", /\/ 0\.95\)$/);
+  await expect(popup).toHaveCSS("backdrop-filter", "blur(18px) saturate(1.1)");
+
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send("Emulation.setEmulatedMedia", {
+    features: [{ name: "prefers-reduced-transparency", value: "reduce" }],
+  });
+  await expectSolidBackground();
+  await root.evaluate((el) => el.setAttribute("data-ui-theme", "modern"));
+  await expectSolidBackground();
+});
+
 test("workspace panels share theme surfaces and Markdown preview keeps its own", async ({
   page,
 }) => {

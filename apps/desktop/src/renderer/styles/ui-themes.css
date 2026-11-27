@@ -644,7 +644,7 @@
 
 @supports (backdrop-filter: blur(10px)) {
   :root[data-ui-theme="classic"] {
-    --popup-surface-background: color-mix(in srgb, var(--background) 58%, transparent);
+    --popup-surface-background: color-mix(in srgb, var(--background) 80%, transparent);
     --popup-surface-filter: blur(10px) saturate(110%);
   }
 
@@ -657,7 +657,8 @@
 /* Shared modern popup finish. Components keep their layout and can override
    individual properties with ordinary utilities or inline styles. */
 :root:not([data-ui-theme="classic"]) {
-  --popup-surface-background: var(--popover);
+  --popup-surface-background: var(--background);
+  --popup-surface-filter: none;
   --popup-surface-foreground: var(--popover-foreground);
   --popup-surface-border: color-mix(in srgb, var(--border) 80%, transparent);
   --popup-surface-shadow:
@@ -666,22 +667,10 @@
     0 12px 32px rgb(0 0 0 / 10%);
 }
 
-@supports (backdrop-filter: blur(18px)) {
-  :root:not([data-ui-theme="classic"]) {
-    --popup-surface-background: color-mix(in srgb, var(--popover) 86%, transparent);
-    --popup-surface-filter: blur(18px) saturate(90%);
-  }
-}
-
 @media (prefers-reduced-transparency: reduce) {
   :root[data-ui-theme="classic"],
   :root.dark[data-ui-theme="classic"] {
     --popup-surface-background: var(--background);
-    --popup-surface-filter: none;
-  }
-
-  :root:not([data-ui-theme="classic"]) {
-    --popup-surface-background: var(--popover);
     --popup-surface-filter: none;
   }
 }
