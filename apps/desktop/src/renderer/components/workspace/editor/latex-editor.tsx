@@ -117,6 +117,7 @@ import {
   EditorSelection,
   Prec,
   RangeSetBuilder,
+  StateField,
   Transaction,
   type Extension,
 } from "@codemirror/state";
@@ -567,12 +568,26 @@ function centerInlineCommentCard(view: EditorView, commentId: string): boolean {
   return true;
 }
 
+const searchSelection = Annotation.define<boolean>();
+// Keep the selection's origin when the editor regains focus without a new selection.
+const searchSelectionField = StateField.define<boolean>({
+  create: () => false,
+  update(previous, transaction) {
+    if (!transaction.selection) return previous;
+    return (
+      transaction.annotation(searchSelection) === true ||
+      transaction.isUserEvent("input.replace")
+    );
+  },
+});
+
 function selectSearchMatch(
   view: EditorView,
   match: { from: number; to: number },
 ) {
   view.dispatch({
     selection: { anchor: match.from, head: match.to },
+    annotations: searchSelection.of(true),
   });
   scrollSearchFocusIntoView(view, match.from);
 }
@@ -792,6 +807,7 @@ function createSelectionReactivationGuard(): Extension {
         const target = event.target;
         if (
           this.view.hasFocus ||
+          this.view.state.field(searchSelectionField) ||
           !this.view.state.selection.ranges.some((range) => !range.empty) ||
           event.button !== 0 ||
           event.shiftKey ||
@@ -1462,6 +1478,7 @@ export function LatexEditor({
 
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const searchPanelRef = useRef<HTMLDivElement>(null);
+  const editorBarContentRef = useRef<HTMLDivElement>(null);
   const [searchState, setSearchState] = useState(DEFAULT_SEARCH_STATE);
   const searchStateByFile = useRef(new Map<string, EditorSearchState>());
   const searchFile = useRef(activeFileId);
@@ -1834,6 +1851,13 @@ export function LatexEditor({
   useLayoutEffect(() => {
     searchAvailableRef.current = searchAvailable;
   }, [searchAvailable]);
+  const focusSearchInput = useCallback(() => {
+    const input = searchPanelRef.current?.querySelector<HTMLInputElement>(
+      'input[aria-label="Search"]',
+    );
+    input?.focus({ preventScroll: true });
+    input?.select();
+  }, []);
   const openSearch = useCallback(
     (showReplace = false, seedFindText?: string) => {
       if (!searchAvailableRef.current) return;
@@ -1841,11 +1865,7 @@ export function LatexEditor({
         if (showReplace) {
           setSearchState((previous) => ({ ...previous, showReplace: true }));
         }
-        const input = searchPanelRef.current?.querySelector<HTMLInputElement>(
-          'input[aria-label="Search"]',
-        );
-        input?.focus();
-        input?.select();
+        focusSearchInput();
         return;
       }
       const view = viewRef.current;
@@ -1886,7 +1906,13 @@ export function LatexEditor({
         findHistoryDraftRef.current = "";
       }
     },
-    [panelsProjectKey, requestDrawerCollapse, setEditorInfoBar, showSidecarUi],
+    [
+      focusSearchInput,
+      panelsProjectKey,
+      requestDrawerCollapse,
+      setEditorInfoBar,
+      showSidecarUi,
+    ],
   );
 
   const closeSearch = useCallback(() => {
@@ -2767,7 +2793,8 @@ export function LatexEditor({
       // Chat shares the drawer host with the editor. Scope shortcuts to the
       // actual editor/search controls, not their common workspace ancestor.
       const inEditor = viewRef.current?.dom.contains(target);
-      const inSearch = searchPanelRef.current?.contains(target);
+      const inSearch =
+        isSearchOpenRef.current && searchPanelRef.current?.contains(target);
       if (!inEditor && !inSearch) return;
       if (e.key === "f") {
         e.preventDefault();
@@ -3276,9 +3303,15 @@ export function LatexEditor({
 
         // Compute toolbar position below the selection end
         // Skip toolbar for "select all" (Cmd+A) to avoid overlay issues
-        const isSelectAll = from === 0 && to === update.state.doc.length;
-        if (from !== to && !isSelectAll) {
+        const hasSelection =
+          from !== to && (from !== 0 || to !== update.state.doc.length);
+        if (hasSelection) {
           setSelectionRange({ start: from, end: to });
+        }
+        if (update.state.field(searchSelectionField)) {
+          toolbarStickyRef.current = false;
+          setSelectionCoords(null);
+        } else if (hasSelection) {
           const startCoords = update.view.coordsAtPos(from);
           const endCoords = update.view.coordsAtPos(to);
           if (endCoords && startCoords) {
@@ -3544,6 +3577,7 @@ export function LatexEditor({
           createEditorFontSizeTheme(editorFontSize),
         ),
         search(),
+        searchSelectionField,
         selectionHighlightsCompartmentRef.current.of(
           createSelectionCaseAwareHighlights(isSearchOpen, isSearchOpen),
         ),
@@ -4664,7 +4698,12 @@ export function LatexEditor({
     )
       return;
     const view = viewRef.current;
-    if (!view?.hasFocus || selectionRange.start === selectionRange.end) return;
+    if (
+      !view?.hasFocus ||
+      view.state.field(searchSelectionField) ||
+      selectionRange.start === selectionRange.end
+    )
+      return;
     const from = Math.max(
       0,
       Math.min(selectionRange.start, view.state.doc.length),
@@ -5108,7 +5147,8 @@ export function LatexEditor({
       if (detail.projectRoot !== commentProjectRoot) return;
       if (
         detail.searchSource &&
-        !searchPanelRef.current?.contains(detail.searchSource)
+        (!isSearchOpenRef.current ||
+          !searchPanelRef.current?.contains(detail.searchSource))
       )
         return;
       const file = useDocumentStore
@@ -5917,6 +5957,62 @@ export function LatexEditor({
     !isPdf &&
     !isFilePreview &&
     !isLargeFileNotLoaded;
+  const showInfoBar =
+    (canShowProblems && problemsPanelOpen) ||
+    (canShowComments && commentsPanelOpen);
+  const [retainSearchBar, setRetainSearchBar] = useState(false);
+  const renderSearchBar = showSearchBar || (retainSearchBar && !showInfoBar);
+  useLayoutEffect(() => {
+    const content = editorBarContentRef.current;
+    const motion = content?.closest<HTMLElement>(
+      '[data-problems-motion="bar"]',
+    );
+    if (!content || !motion) return;
+
+    // Give the shared height transition a measured target when Replace adds a row.
+    const updateHeight = () => {
+      motion.style.setProperty(
+        "--editor-bar-height",
+        `${content.offsetHeight}px`,
+      );
+    };
+    updateHeight();
+    const observer = new ResizeObserver(updateHeight);
+    observer.observe(content);
+    return () => observer.disconnect();
+  }, []);
+  useLayoutEffect(() => {
+    if (showSearchBar) {
+      setRetainSearchBar(true);
+      focusSearchInput();
+      return;
+    }
+
+    // Keep Search mounted through the shared bar's exit, then release its highlights.
+    const motion = searchPanelRef.current?.closest(
+      '[data-problems-motion="bar"]',
+    );
+    const transition = motion
+      ?.getAnimations()
+      .find(
+        (animation) =>
+          animation instanceof CSSTransition &&
+          animation.transitionProperty === "height",
+      );
+    if (!transition) {
+      setRetainSearchBar(false);
+      return;
+    }
+
+    let cancelled = false;
+    const release = () => {
+      if (!cancelled) setRetainSearchBar(false);
+    };
+    void transition.finished.then(release, release);
+    return () => {
+      cancelled = true;
+    };
+  }, [focusSearchInput, showInfoBar, showSearchBar]);
 
   const problemsSummary = (
     <div className="flex shrink-0 items-center">
@@ -6254,170 +6350,171 @@ export function LatexEditor({
           )}
         <ProblemsMotion
           kind="bar"
-          open={
-            (canShowProblems && problemsPanelOpen) ||
-            (canShowComments && commentsPanelOpen)
-          }
+          open={showInfoBar || showSearchBar}
+          className="data-[open=true]:h-[var(--editor-bar-height)]!"
         >
-          <div hidden={commentsPanelOpen}>
-            <ProblemsPanel
-              navigationSelection={
-                minimapProblemSelection?.fileId === activeFileId
-                  ? minimapProblemSelection
-                  : undefined
-              }
-              onClose={() => setEditorInfoBar(panelsProjectKey, null)}
-              diagnostics={problemDiagnostics}
-              onFixAllWithChat={
-                showSidecarUi
-                  ? (filteredDiagnostics) => {
-                      const fileName = activeFile?.relativePath ?? "main.tex";
-                      const problems = filteredDiagnostics
-                        .map(
-                          (diagnostic) =>
-                            `- ${fileName}${diagnostic.line === null ? " (last compile)" : `:${diagnostic.line}`} — ${diagnostic.message}`,
-                        )
-                        .join("\n");
-                      useAgentChatStore
-                        .getState()
-                        .sendPrompt(
-                          `[Problems in ${fileName}]\n${problems}\n\nFix all these problems.`,
-                        );
-                    }
-                  : undefined
-              }
-              fileName={activeFile?.relativePath ?? "main.tex"}
-              onNavigate={(from) => {
-                const view = viewRef.current;
-                if (!view) return;
-                view.dispatch({
-                  selection: { anchor: from },
-                  effects: EditorView.scrollIntoView(from, { y: "center" }),
-                });
-                view.focus();
-              }}
-            />
-          </div>
-          <div hidden={!commentsPanelOpen}>
-            <CommentsPanel
-              navigationSelection={
-                commentNavigationSelection?.fileId === activeFileId
-                  ? commentNavigationSelection
-                  : undefined
-              }
-              key={activeFile?.relativePath}
-              comments={allActiveFileInlineComments}
-              filter={commentFilter}
-              onFilter={setCommentFilter}
-              onClose={() => setEditorInfoBar(panelsProjectKey, null)}
-              onNavigate={(comment) => {
-                const view = viewRef.current;
-                if (!view) return;
-                if (selectionAiEnabled && activeFile && !comment.isEditing) {
-                  attachCommentToChat(
-                    projectRoot,
-                    activeFile.relativePath,
-                    comment,
-                  );
+          <div ref={editorBarContentRef}>
+            <div hidden={renderSearchBar || commentsPanelOpen}>
+              <ProblemsPanel
+                navigationSelection={
+                  minimapProblemSelection?.fileId === activeFileId
+                    ? minimapProblemSelection
+                    : undefined
                 }
-                const from = Math.max(
-                  0,
-                  Math.min(comment.from, view.state.doc.length),
-                );
-                scrollToEditorPosition(view, from, { commentId: comment.id });
-              }}
-            />
+                onClose={() => setEditorInfoBar(panelsProjectKey, null)}
+                diagnostics={problemDiagnostics}
+                onFixAllWithChat={
+                  showSidecarUi
+                    ? (filteredDiagnostics) => {
+                        const fileName = activeFile?.relativePath ?? "main.tex";
+                        const problems = filteredDiagnostics
+                          .map(
+                            (diagnostic) =>
+                              `- ${fileName}${diagnostic.line === null ? " (last compile)" : `:${diagnostic.line}`} — ${diagnostic.message}`,
+                          )
+                          .join("\n");
+                        useAgentChatStore
+                          .getState()
+                          .sendPrompt(
+                            `[Problems in ${fileName}]\n${problems}\n\nFix all these problems.`,
+                          );
+                      }
+                    : undefined
+                }
+                fileName={activeFile?.relativePath ?? "main.tex"}
+                onNavigate={(from) => {
+                  const view = viewRef.current;
+                  if (!view) return;
+                  view.dispatch({
+                    selection: { anchor: from },
+                    effects: EditorView.scrollIntoView(from, { y: "center" }),
+                  });
+                  view.focus();
+                }}
+              />
+            </div>
+            <div hidden={renderSearchBar || !commentsPanelOpen}>
+              <CommentsPanel
+                navigationSelection={
+                  commentNavigationSelection?.fileId === activeFileId
+                    ? commentNavigationSelection
+                    : undefined
+                }
+                key={activeFile?.relativePath}
+                comments={allActiveFileInlineComments}
+                filter={commentFilter}
+                onFilter={setCommentFilter}
+                onClose={() => setEditorInfoBar(panelsProjectKey, null)}
+                onNavigate={(comment) => {
+                  const view = viewRef.current;
+                  if (!view) return;
+                  if (selectionAiEnabled && activeFile && !comment.isEditing) {
+                    attachCommentToChat(
+                      projectRoot,
+                      activeFile.relativePath,
+                      comment,
+                    );
+                  }
+                  const from = Math.max(
+                    0,
+                    Math.min(comment.from, view.state.doc.length),
+                  );
+                  scrollToEditorPosition(view, from, { commentId: comment.id });
+                }}
+              />
+            </div>
+            {renderSearchBar && (
+              <div
+                ref={searchPanelRef}
+                data-editor-search-bar=""
+                className="shrink-0"
+              >
+                <SearchPanel
+                  findText={searchState.findText}
+                  replaceText={searchState.replaceText}
+                  isReplaceOpen={searchState.showReplace}
+                  isCaseSensitive={searchState.caseSensitive}
+                  isWholeWord={searchState.wholeWord}
+                  isRegex={searchState.useRegex}
+                  scope={searchState.scope}
+                  preserveCase={searchState.preserveCase}
+                  findInSelection={searchState.findInSelection}
+                  canEnableFindInSelection={canToggleFindInSelection}
+                  isQueryValid={findQuery.valid}
+                  canReplace={canReplace}
+                  onFindTextChange={(findText) => {
+                    setFindHistoryIndex(-1);
+                    findHistoryDraftRef.current = "";
+                    setSearchState((prev) => ({ ...prev, findText }));
+                  }}
+                  onReplaceTextChange={(replaceText) => {
+                    setReplaceHistoryIndex(-1);
+                    replaceHistoryDraftRef.current = "";
+                    setSearchState((prev) => ({ ...prev, replaceText }));
+                  }}
+                  onToggleReplace={() =>
+                    setSearchState((prev) => ({
+                      ...prev,
+                      showReplace: !prev.showReplace,
+                    }))
+                  }
+                  onToggleCaseSensitive={() =>
+                    setSearchState((prev) => ({
+                      ...prev,
+                      caseSensitive: !prev.caseSensitive,
+                    }))
+                  }
+                  onToggleWholeWord={() =>
+                    setSearchState((prev) => ({
+                      ...prev,
+                      wholeWord: !prev.wholeWord,
+                    }))
+                  }
+                  onToggleRegex={() =>
+                    setSearchState((prev) => ({
+                      ...prev,
+                      useRegex: !prev.useRegex,
+                    }))
+                  }
+                  onTogglePreserveCase={() =>
+                    setSearchState((prev) => ({
+                      ...prev,
+                      preserveCase: !prev.preserveCase,
+                    }))
+                  }
+                  onToggleFindInSelection={() => {
+                    setSearchState((prev) => {
+                      if (prev.findInSelection) {
+                        setSearchScopeRange(null);
+                        return { ...prev, findInSelection: false };
+                      }
+                      if (!selectionRangeForSearch) return prev;
+                      setSearchScopeRange(selectionRangeForSearch);
+                      return { ...prev, findInSelection: true };
+                    });
+                  }}
+                  onScopeChange={(scope) =>
+                    setSearchState((prev) => ({ ...prev, scope }))
+                  }
+                  onHistoryNavigate={navigateHistory}
+                  onClose={closeSearch}
+                  onFindNext={handleFindNext}
+                  onFindPrevious={handleFindPrevious}
+                  onFindCurrent={() => {
+                    const view = viewRef.current;
+                    if (view)
+                      navigateSearchMatch(view, view.state.selection.main);
+                  }}
+                  onReplaceNext={handleReplaceNext}
+                  onReplaceAll={handleReplaceAll}
+                  commentRange={searchScopeRange}
+                  matchCount={matchCount}
+                  currentMatch={currentMatch}
+                />
+              </div>
+            )}
           </div>
         </ProblemsMotion>
-        {showSearchBar && (
-          <div
-            ref={searchPanelRef}
-            data-editor-search-bar=""
-            className="shrink-0"
-          >
-            <SearchPanel
-              findText={searchState.findText}
-              replaceText={searchState.replaceText}
-              isReplaceOpen={searchState.showReplace}
-              isCaseSensitive={searchState.caseSensitive}
-              isWholeWord={searchState.wholeWord}
-              isRegex={searchState.useRegex}
-              scope={searchState.scope}
-              preserveCase={searchState.preserveCase}
-              findInSelection={searchState.findInSelection}
-              canEnableFindInSelection={canToggleFindInSelection}
-              isQueryValid={findQuery.valid}
-              canReplace={canReplace}
-              onFindTextChange={(findText) => {
-                setFindHistoryIndex(-1);
-                findHistoryDraftRef.current = "";
-                setSearchState((prev) => ({ ...prev, findText }));
-              }}
-              onReplaceTextChange={(replaceText) => {
-                setReplaceHistoryIndex(-1);
-                replaceHistoryDraftRef.current = "";
-                setSearchState((prev) => ({ ...prev, replaceText }));
-              }}
-              onToggleReplace={() =>
-                setSearchState((prev) => ({
-                  ...prev,
-                  showReplace: !prev.showReplace,
-                }))
-              }
-              onToggleCaseSensitive={() =>
-                setSearchState((prev) => ({
-                  ...prev,
-                  caseSensitive: !prev.caseSensitive,
-                }))
-              }
-              onToggleWholeWord={() =>
-                setSearchState((prev) => ({
-                  ...prev,
-                  wholeWord: !prev.wholeWord,
-                }))
-              }
-              onToggleRegex={() =>
-                setSearchState((prev) => ({
-                  ...prev,
-                  useRegex: !prev.useRegex,
-                }))
-              }
-              onTogglePreserveCase={() =>
-                setSearchState((prev) => ({
-                  ...prev,
-                  preserveCase: !prev.preserveCase,
-                }))
-              }
-              onToggleFindInSelection={() => {
-                setSearchState((prev) => {
-                  if (prev.findInSelection) {
-                    setSearchScopeRange(null);
-                    return { ...prev, findInSelection: false };
-                  }
-                  if (!selectionRangeForSearch) return prev;
-                  setSearchScopeRange(selectionRangeForSearch);
-                  return { ...prev, findInSelection: true };
-                });
-              }}
-              onScopeChange={(scope) =>
-                setSearchState((prev) => ({ ...prev, scope }))
-              }
-              onHistoryNavigate={navigateHistory}
-              onClose={closeSearch}
-              onFindNext={handleFindNext}
-              onFindPrevious={handleFindPrevious}
-              onFindCurrent={() => {
-                const view = viewRef.current;
-                if (view) navigateSearchMatch(view, view.state.selection.main);
-              }}
-              onReplaceNext={handleReplaceNext}
-              onReplaceAll={handleReplaceAll}
-              commentRange={searchScopeRange}
-              matchCount={matchCount}
-              currentMatch={currentMatch}
-            />
-          </div>
-        )}
         {/* Main content area */}
         <div
           ref={
@@ -6553,8 +6650,7 @@ export function LatexEditor({
                 {(editorToolbarActions.length > 0 || selectionContext) &&
                   toolbarPosition &&
                   selectionLabel &&
-                  !isReviewDisplay &&
-                  !isSearchOpen && (
+                  !isReviewDisplay && (
                     <SelectionToolbar
                       position={toolbarPosition}
                       getAnchor={getToolbarAnchor}
@@ -6573,8 +6669,8 @@ export function LatexEditor({
                   )}
                 {displayComments &&
                   !isReviewDisplay &&
-                  !isSearchOpen &&
-                  !selectionRange &&
+                  (!selectionRange ||
+                    viewRef.current?.state.field(searchSelectionField)) &&
                   activeAnnotation &&
                   !activeAnnotation.origin &&
                   !activeAnnotation.isEditing &&
