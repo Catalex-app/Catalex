@@ -29,6 +29,7 @@ export function FileVersionPane({
   return (
     <section
       aria-label={label}
+      data-workspace-review-surface=""
       className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-card"
     >
       {previewUrl ? (
@@ -108,6 +109,7 @@ function ConflictImagePreview({
       {children}
       <div
         ref={viewportRef}
+        data-workspace-content-surface=""
         className="app-scrollbar min-h-0 flex-1 overflow-auto bg-muted/50 p-4"
       >
         <div

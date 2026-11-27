@@ -182,11 +182,17 @@ export function GitFileConflictView({
     );
     const sideExplanation =
       choice === "ancestor" ? (
-        <p className="shrink-0 border-slate-500/30 border-b bg-slate-500/10 px-3 py-2 text-slate-700 text-xs dark:text-slate-300">
+        <p
+          data-workspace-separator="conflict"
+          className="shrink-0 border-slate-500/30 border-b bg-slate-500/10 px-3 py-2 text-slate-700 text-xs dark:text-slate-300"
+        >
           Shared starting version. Selecting this restores the entire file.
         </p>
       ) : rebasing ? (
-        <p className="shrink-0 border-b px-3 py-2 text-muted-foreground text-xs">
+        <p
+          data-workspace-separator=""
+          className="shrink-0 border-b px-3 py-2 text-muted-foreground text-xs"
+        >
           {choice === "current"
             ? "Rebase target — the history you are rebasing onto."
             : "Commit being replayed — your changes."}

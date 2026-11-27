@@ -208,11 +208,35 @@ try {
   console.log("Settings window passed.");
 
   const settingsWindow = await app.browserWindow(settings);
-  const lightBackground = await readBackgroundToken(page);
-  assert.equal(
-    await window.evaluate((win) => win.getBackgroundColor()),
-    lightBackground,
+  const workspace = page.locator("html");
+  const mode = await workspace.getAttribute("data-workspace-mode");
+  assert.ok(mode === "artisan" || mode === "duet");
+  const workspaceThemePicker = settings
+    .locator(`[data-settings-row-id="appearance-mode-theme-${mode}"]`)
+    .getByRole("combobox");
+  const chooseWorkspaceTheme = async (name) => {
+    await workspaceThemePicker.click();
+    await settings.getByRole("option", { name, exact: true }).click();
+    await expect(workspace).toHaveAttribute(
+      "data-ui-theme",
+      name.toLowerCase(),
+    );
+  };
+  const prefersReducedTransparency = await page.evaluate(
+    () => matchMedia("(prefers-reduced-transparency: reduce)").matches,
   );
+  const expectsVibrancy =
+    process.platform === "darwin" && !prefersReducedTransparency;
+  await chooseWorkspaceTheme("Modern");
+  const vibrancy = page.locator("html[data-workspace-vibrancy]");
+  await expect(vibrancy).toHaveCount(expectsVibrancy ? 1 : 0);
+  // Check native opaque backgrounds in Classic.
+  await chooseWorkspaceTheme("Classic");
+  await expect(vibrancy).toHaveCount(0);
+  const lightBackground = await readBackgroundToken(page);
+  await expect
+    .poll(() => window.evaluate((win) => win.getBackgroundColor()))
+    .toBe(lightBackground);
   await settings
     .locator('[data-settings-row-id="appearance-editor-font-size"] button')
     .click();
@@ -319,11 +343,19 @@ try {
   await expect(restored.locator("html")).toHaveClass(/dark/);
   await expect.poll(readNativeThemeSource).toBe("dark");
   const restoredWindow = await app.browserWindow(restored);
+  const restoredVibrancy = restored.locator("html[data-workspace-vibrancy]");
+  await expect(restored.getByTestId("welcome-layout")).toBeVisible();
+  await expect(restoredVibrancy).toHaveCount(expectsVibrancy ? 1 : 0);
+  await restored.getByText("Smoke project", { exact: true }).first().click();
+  await restored.locator(".cm-content").first().waitFor();
+  await expect(restored.locator("html")).toHaveAttribute(
+    "data-ui-theme",
+    "classic",
+  );
+  await expect(restoredVibrancy).toHaveCount(0);
   await expect
     .poll(() => restoredWindow.evaluate((win) => win.getBackgroundColor()))
     .toBe(await readBackgroundToken(restored));
-  await restored.getByText("Smoke project", { exact: true }).first().click();
-  await restored.locator(".cm-content").first().waitFor();
   await expect(restored.locator(".cm-content").first()).toContainText(
     "External edit detected",
   );

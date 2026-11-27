@@ -5,6 +5,24 @@
 /* Match the card's 4px gutter gap; retain its existing left alignment. */
 .editor-with-minimap .cm-inlineCommentCard { width: calc(100% + 20px); }
 .editor-minimap { position: absolute; inset: 4px 4px 8px auto; width: 32px; border-radius: 8px; color: var(--muted-foreground); background: var(--minimap-background, var(--background)); box-shadow: none; z-index: 2; user-select: none; }
+/* Place the shared Git and review gutter before the line numbers. */
+:root:is([data-ui-theme="modern"], [data-ui-theme="classic"]) [data-workspace-editor-shell] {
+  --editor-edge-inset: 4px;
+
+  & [data-editor-minimap] {
+    right: var(--editor-edge-inset);
+  }
+
+  & .cm-gutters > :is(.cm-gitChangeGutter, .cm-changeGutter) {
+    order: -1;
+  }
+
+  /* When both gutters are present, keep the review gutter over the Git gutter. */
+  & .cm-gutters > :is(.cm-gitChangeGutter, .cm-changeGutter:not(.cm-gitChangeGutter ~ .cm-changeGutter)) {
+    margin-left: var(--editor-edge-inset);
+  }
+}
+
 .editor-minimap-settings { display: grid; place-items: center; width: 26px; height: 28px; margin: 3px; border-radius: 5px; cursor: pointer; opacity: .7; }
 .editor-minimap-settings:hover, .editor-minimap-settings[data-state="open"] { background: var(--muted); color: var(--foreground); opacity: 1; }
 .editor-minimap-settings[data-filtered="true"] { color: var(--foreground); opacity: 1; }

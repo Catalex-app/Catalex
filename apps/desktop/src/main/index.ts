@@ -106,6 +106,11 @@ const pdfSnapshots = new PdfSnapshots(
   path.join(app.getPath("userData"), "pdf-snapshots"),
 );
 const windows = new Map<string, BrowserWindow>();
+// Child windows start with the owner's native surface before the renderer paints.
+const windowBackgrounds = new WeakMap<
+  BrowserWindow,
+  { color: string; vibrancy: boolean }
+>();
 let applicationMenu: ReturnType<typeof installApplicationMenu> | undefined;
 // Dependent views share the owner's native project context, never another lease.
 const panelOwners = new Map<number, string>();
@@ -224,7 +229,8 @@ function configureWindowOpening(win: BrowserWindow, ownerId: string) {
   };
   win.webContents.setWindowOpenHandler(({ url }) => {
     const token = panelToken(url);
-    if (token)
+    if (token) {
+      const background = windowBackgrounds.get(win);
       return {
         action: "allow",
         outlivesOpener: false,
@@ -235,11 +241,16 @@ function configureWindowOpening(win: BrowserWindow, ownerId: string) {
           minWidth: 480,
           minHeight: 360,
           show: false,
-          backgroundColor: win.getBackgroundColor(),
+          backgroundColor: background?.vibrancy
+            ? "#00000000"
+            : (background?.color ?? win.getBackgroundColor()),
           ...(process.platform === "darwin"
             ? {
                 titleBarStyle: "hidden" as const,
                 trafficLightPosition: { x: 14, y: 13 },
+                ...(background?.vibrancy
+                  ? { vibrancy: "under-window" as const }
+                  : {}),
               }
             : {}),
           webPreferences: {
@@ -252,6 +263,7 @@ function configureWindowOpening(win: BrowserWindow, ownerId: string) {
           },
         },
       };
+    }
     if (/^https?:/i.test(url)) void shell.openExternal(url);
     return { action: "deny" };
   });
@@ -338,6 +350,8 @@ async function createWindow(id: string, query = "") {
   }
   const settings = id === "settings";
   const debug = id === "debug";
+  const main = windows.get("main");
+  const supportsVibrancy = process.platform === "darwin" && !settings && !debug;
   const win = new BrowserWindow({
     title: settings ? "" : debug ? `${PRODUCT_NAME} — Debug` : PRODUCT_NAME,
     width: settings ? 720 : debug ? 560 : 1400,
@@ -346,9 +360,13 @@ async function createWindow(id: string, query = "") {
     minHeight: settings ? 420 : debug ? 400 : 700,
     ...(settings ? { maxWidth: 720, maxHeight: 900 } : {}),
     show: false,
-    backgroundColor: settings
-      ? windows.get("main")?.getBackgroundColor()
-      : undefined,
+    backgroundColor:
+      settings && main
+        ? (windowBackgrounds.get(main)?.color ?? main.getBackgroundColor())
+        : supportsVibrancy
+          ? "#ffffff"
+          : undefined,
+    ...(supportsVibrancy ? { vibrancy: "under-window" as const } : {}),
     ...(process.platform === "darwin"
       ? {
           titleBarStyle: "hidden" as const,
@@ -833,14 +851,22 @@ async function hostCommand(
       if (backgroundTestWindows) win.showInactive();
       else win.show();
       return { result: null };
-    case "desktop:window:setBackgroundColor":
+    case "desktop:window:setBackgroundColor": {
       if (
         typeof args.color !== "string" ||
         !/^#[\da-f]{3}(?:[\da-f]{3})?$/i.test(args.color)
       )
         throw new Error("Invalid window background color.");
-      win.setBackgroundColor(args.color);
-      return { result: null };
+      const supportsVibrancy =
+        process.platform === "darwin" &&
+        win !== windows.get("settings") &&
+        win !== windows.get("debug");
+      const vibrancy = supportsVibrancy && args.vibrancy === true;
+      if (supportsVibrancy) win.setVibrancy(vibrancy ? "under-window" : null);
+      win.setBackgroundColor(vibrancy ? "#00000000" : args.color);
+      windowBackgrounds.set(win, { color: args.color, vibrancy });
+      return { result: vibrancy };
+    }
     case "desktop:window:focusOwner": {
       const owner = panelOwners.get(win.id);
       const target = owner ? windows.get(owner) : undefined;

@@ -201,6 +201,9 @@ function PanelContent() {
             expansion={expansion}
             className="h-full"
             data-workspace-panel-screen="true"
+            data-workspace-content-panel={
+              file?.type === "csv" || isMarkdownFile(file) ? undefined : ""
+            }
           >
             {file?.type === "csv" ? (
               <CsvTable />

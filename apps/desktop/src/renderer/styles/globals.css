@@ -462,6 +462,7 @@ textarea[data-mini-text-fade] {
 
 .chat-markdown {
   max-width: none;
+  overflow-wrap: anywhere;
   color: var(--foreground);
   font-size: 0.875rem;
   line-height: 1.58;

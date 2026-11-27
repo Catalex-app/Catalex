@@ -134,6 +134,7 @@ export const GitConflictPanel: FC<GitConflictPanelProps> = ({
       />
       {!threeWay && ancestorContent !== undefined && (
         <details
+          data-workspace-separator="conflict"
           className="max-h-48 shrink-0 overflow-auto border-slate-500/30 border-b bg-slate-500/10"
           open
         >

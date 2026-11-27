@@ -106,6 +106,14 @@ describe("collapsed chat status", () => {
   it.each([
     ["Write", { file_path: "a.tex" }, "Writing a.tex"],
     ["MultiEdit", { file_path: "a.tex" }, "Editing a.tex"],
+    ["read", { path: "pi-read.tex" }, "Reading pi-read.tex"],
+    ["write", { path: "pi-write.tex" }, "Writing pi-write.tex"],
+    ["edit", { path: "pi-edit.tex" }, "Editing pi-edit.tex"],
+    [
+      "Read",
+      { file_path: "claude.tex", path: "fallback.tex" },
+      "Reading claude.tex",
+    ],
     ["Glob", { pattern: "*.tex" }, "Searching *.tex"],
     ["Grep", { pattern: "abstract" }, "Grepping abstract"],
     ["Bash", { command: "pnpm test" }, "$ pnpm test"],

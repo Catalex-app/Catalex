@@ -8,7 +8,212 @@
   --workspace-accent: #4f9c45;
 }
 
+/* Paint one surface over the native material so adjacent chrome shares a tint.
+   The ordinary background and card tokens still paint the workspace panels. */
+:root[data-workspace-vibrancy] {
+  --workspace-window-tint-opacity: 90%;
+  --workspace-window-tint: rgb(255 255 255 / var(--workspace-window-tint-opacity));
+  background-color: var(--workspace-window-tint);
+}
+
+:root.dark[data-workspace-vibrancy] {
+  --workspace-window-tint-opacity: 70%;
+  --workspace-window-tint: rgb(0 0 0 / var(--workspace-window-tint-opacity));
+}
+
+:root[data-workspace-vibrancy] :is(
+  body,
+  [data-project-screen],
+  [data-project-sidebar] > .bg-background,
+  [data-welcome-sidebar] > .bg-background,
+  [data-panel-window],
+  [data-workspace-editor-shell]
+) {
+  background-color: transparent;
+}
+
+/* Share the content surface with its bars. Paint the fill once behind each. */
+:is(
+  :root[data-ui-theme="modern"][data-workspace-vibrancy] [data-workspace-content-panel],
+  :root[data-ui-theme="classic"] [data-workspace-content-panel],
+  :root[data-ui-theme="classic"] :where(
+    [data-workspace-editor-shell] > [data-workspace-panel-screen],
+    [data-workspace-review-surface]
+  )
+) {
+  background-color: var(--workspace-content-panel-backing, transparent);
+
+  [data-workspace-content-surface],
+  > [data-workspace-panel-header],
+  [data-workspace-panel-header]:has(+ [data-workspace-content-surface]),
+  .workspace-document-bar,
+  > [data-external-file-review] {
+    background-color: var(--workspace-content-fill);
+  }
+
+  /* The PDF surface already paints the fill behind its bars. */
+  .pdf-panel-surface :is([data-workspace-panel-header], .workspace-document-bar) {
+    background-color: transparent;
+  }
+
+  > [data-editor-history-bar] {
+    background-color: color-mix(in srgb, var(--color-amber-500) 10%, var(--workspace-content-fill));
+  }
+}
+
+/* Keep the comment counts legible over the frosted head bars. */
+:root:not(.dark)[data-ui-theme="modern"][data-workspace-vibrancy]
+  [data-workspace-content-panel] [data-workspace-panel-header] [data-comment-author="human"] {
+  color: #b88600;
+}
+
+:root.dark[data-ui-theme="modern"][data-workspace-vibrancy]
+  [data-workspace-content-panel] [data-workspace-panel-header] [data-comment-author="agent"] {
+  color: #7756b7;
+}
+
+/* Tint the existing selection and hover surfaces with the same translucent fill. */
+:root[data-ui-theme="modern"][data-workspace-vibrancy] {
+  --workspace-content-fill: color-mix(in oklab, var(--muted) 25%, transparent);
+  --workspace-glass-highlight: rgb(255 255 255 / 92%);
+  --workspace-glass-hover: color-mix(in srgb, var(--foreground) 4%, transparent);
+}
+
+:root.dark[data-ui-theme="modern"][data-workspace-vibrancy] {
+  --workspace-glass-highlight: rgb(255 255 255 / 12%);
+  --workspace-glass-hover: color-mix(in srgb, var(--workspace-glass-highlight) 50%, transparent);
+}
+
+:root[data-workspace-vibrancy] [data-project-sidebar] {
+  --sidebar-accent: var(--workspace-glass-highlight);
+  --sidebar-ring: #6d6d6d;
+}
+
+:root.dark[data-workspace-vibrancy] [data-project-sidebar] {
+  --sidebar-ring: #c0c0c0;
+}
+
+:root[data-workspace-vibrancy] [data-project-sidebar] .assistant-mode-tab:first-child {
+  border-right-width: 0;
+}
+
+:root[data-workspace-vibrancy] [data-project-sidebar] [data-sidebar-row] {
+  position: relative;
+  isolation: isolate;
+  background-color: transparent;
+
+  & > [data-outline-line] {
+    position: relative;
+    isolation: isolate;
+  }
+
+  &:not(:has(> [data-outline-line]))::before,
+  & > [data-outline-line]::before {
+    position: absolute;
+    z-index: -1;
+    inset: 1px 0;
+    border: 1px solid var(--sidebar-row-edge, transparent);
+    border-radius: var(--radius-md);
+    background-color: var(--sidebar-row-fill, transparent);
+    content: "";
+    pointer-events: none;
+  }
+
+  &:where(:not(:disabled)):is(:hover, [data-state="open"], [data-sidebar-folder-add-open="true"]) {
+    --sidebar-row-fill: var(--workspace-glass-hover);
+    --sidebar-row-edge: color-mix(in oklab, var(--border) 60%, transparent);
+  }
+
+  &:is(.bg-sidebar-accent, [data-sidebar-selected="true"], .bg-emerald-100, .bg-violet-100) {
+    --sidebar-row-fill: var(--sidebar-accent);
+    --sidebar-row-edge: var(--border);
+  }
+
+  &.bg-emerald-100 { --sidebar-row-fill: var(--color-emerald-100); }
+  &.bg-violet-100 { --sidebar-row-fill: var(--color-violet-100); }
+
+  /* The row supplies the fill and edge. Child controls keep their focus rings. */
+  & :is([data-outline-line], [data-outline-disclosure], .hover\:bg-sidebar-accent:hover) {
+    background-color: transparent;
+  }
+}
+
+:root.dark[data-workspace-vibrancy] [data-project-sidebar] [data-sidebar-row] {
+  &.bg-emerald-100 { --sidebar-row-fill: color-mix(in srgb, var(--color-emerald-600) 20%, transparent); }
+  &.bg-violet-100 { --sidebar-row-fill: color-mix(in srgb, var(--color-violet-600) 20%, transparent); }
+}
+
+:root[data-ui-theme="modern"][data-workspace-vibrancy]
+  [data-workspace-titlebar] .segmented-control {
+  background-color: color-mix(in srgb, var(--muted) 30%, var(--workspace-glass-highlight) 30%);
+}
+
+:root[data-ui-theme="modern"][data-workspace-vibrancy] [data-workspace-titlebar] :is(
+  .editor-file-tab[data-active="true"],
+  .segmented-control button:is([aria-selected="true"], [aria-pressed="true"])
+) {
+  background-color: var(--workspace-glass-highlight);
+}
+
+:root[data-ui-theme="modern"][data-workspace-vibrancy] [data-workspace-titlebar] :is(
+  .editor-file-tab[data-active="false"],
+  .segmented-control button:is([aria-selected="false"], [aria-pressed="false"])
+):hover {
+  background-color: var(--workspace-glass-hover);
+}
+
+:root.light[data-workspace-vibrancy] :is(
+  [data-project-sidebar],
+  [data-workspace-titlebar],
+  body:has([data-welcome-sidebar]),
+  [data-panel-window] > :first-child
+) {
+  --muted-foreground: #595959;
+}
+
+/* Match the input focus stroke without moving the grouped search controls. */
+:root:is([data-ui-theme="modern"], [data-ui-theme="classic"])
+  [data-editor-search-bar] [data-search-field]:focus-within {
+  border-color: transparent;
+  outline: 1px solid var(--foreground);
+  outline-offset: -1px;
+}
+
+/* Inset Modern panel separators within their existing bottom borders. */
+:root[data-ui-theme="modern"] {
+  --workspace-separator-inset: 8px;
+
+  & :is(
+    [data-workspace-panel-header]:not(:has(> [data-chat-panel-title]), [data-testid="markdown-preview"] *),
+    .workspace-document-bar:not(:is([data-testid="chat-search-panel"], [data-testid="markdown-preview"]) *),
+    [data-external-file-review],
+    [data-editor-history-bar],
+    [data-workspace-separator],
+    .history-snapshot-large-notice
+  ) {
+    --workspace-separator-color: var(--border);
+    border-image-source: linear-gradient(
+      to right,
+      transparent var(--workspace-separator-inset),
+      var(--workspace-separator-color) var(--workspace-separator-inset)
+        calc(100% - var(--workspace-separator-inset)),
+      transparent calc(100% - var(--workspace-separator-inset))
+    );
+    border-image-slice: 0 0 100% 0;
+  }
+
+  & [data-testid="csv-table"] [data-workspace-panel-header] {
+    --workspace-separator-color: color-mix(in oklab, var(--border) 70%, transparent);
+  }
+
+  & [data-workspace-separator="conflict"] {
+    --workspace-separator-color: color-mix(in oklab, var(--color-slate-500) 30%, transparent);
+  }
+}
+
 :root[data-ui-theme="classic"] {
+  --workspace-content-fill: var(--background);
+  --workspace-content-panel-backing: var(--workspace-content-fill);
   --artisan-surface-radius: 4px;
   --classic-surface: #f8f8f5;
   --classic-border: #777872;
@@ -55,6 +260,12 @@
     inset 0 -2px 5px rgb(0 0 0 / 20%);
 }
 
+:root[data-ui-theme="classic"] :is([data-workspace-editor-shell], [data-workspace-review-surface])
+  [data-workspace-separator] {
+  background-color: var(--workspace-content-fill);
+  backdrop-filter: none;
+}
+
 [data-ui-theme="classic"] [data-workspace-mode-area="true"],
 [data-ui-theme="classic"] [data-workspace-mode-content="true"] {
   border-radius: 0;
@@ -74,7 +285,6 @@
   pointer-events: none;
 }
 
-[data-ui-theme="classic"] .editor-file-tab,
 [data-ui-theme="classic"] [data-review-file-navigation] {
   border-radius: 0;
 }
@@ -90,8 +300,10 @@
 
 [data-ui-theme="classic"] .editor-file-tab {
   position: relative;
+  height: 1.75rem;
   overflow: hidden;
   border-color: transparent;
+  border-radius: 1px;
   background-color: var(--classic-surface);
   color: var(--classic-foreground);
   box-shadow: none;

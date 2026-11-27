@@ -3,7 +3,13 @@ import { Hint } from "@/components/ui/tooltip";
 import { toast } from "sonner";
 import { invoke } from "@/lib/desktop/core";
 import { useProjectOwnership } from "@/hooks/use-project-ownership";
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { isDesktop } from "@/lib/desktop/bridge";
 import { getCurrentWebview } from "@/lib/desktop/webview";
 import { stat } from "@/lib/desktop/fs";
@@ -150,6 +156,12 @@ export function ProjectPicker() {
   const [showBlankProjectDialog, setShowBlankProjectDialog] = useState(false);
   const [showOverleafCloneDialog, setShowOverleafCloneDialog] = useState(false);
   const [showTemplateGallery, setShowTemplateGallery] = useState(false);
+
+  useLayoutEffect(() => {
+    const html = document.documentElement;
+    html.toggleAttribute("data-welcome-screen", !showTemplateGallery);
+    return () => html.removeAttribute("data-welcome-screen");
+  }, [showTemplateGallery]);
 
   const projectOwners = useProjectOwnership();
   const recentProjects = useProjectStore((s) => s.recentProjects);
@@ -375,6 +387,7 @@ export function ProjectPicker() {
     <div className="flex h-full pt-0 pr-2 pl-3" data-testid="welcome-layout">
       <aside
         className="h-full w-60 shrink-0"
+        data-welcome-sidebar
         data-testid="welcome-sidebar-panel"
       >
         <Sidebar

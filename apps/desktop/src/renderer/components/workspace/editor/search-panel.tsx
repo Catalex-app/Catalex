@@ -84,6 +84,7 @@ function SearchField({
 }) {
   return (
     <div
+      data-search-field=""
       className={cn(
         "flex @[460px]/search:h-8 h-7 min-w-0 items-center gap-1 @[460px]/search:rounded-lg rounded-md border border-input bg-muted/30 pr-1 transition-colors focus-within:border-foreground focus-within:bg-background",
         className,

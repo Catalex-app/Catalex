@@ -1281,15 +1281,19 @@ export class InlineCommentCardWidget extends WidgetType {
       )
         continue;
       const style = getComputedStyle(element);
+      const insetUnderline = style.boxShadow && style.boxShadow !== "none";
+      const underlineProperty = insetUnderline
+        ? "boxShadow"
+        : "borderBottomColor";
       const keyframes = element.classList.contains("cm-inlineCommentMark")
         ? [
             {
               backgroundColor: style.backgroundColor,
-              borderBottomColor: style.borderBottomColor,
+              [underlineProperty]: style[underlineProperty],
             },
             {
               backgroundColor: "transparent",
-              borderBottomColor: "transparent",
+              [underlineProperty]: insetUnderline ? "none" : "transparent",
             },
           ]
         : [{ opacity: 1 }, { opacity: 0 }];
@@ -1672,7 +1676,7 @@ function buildInlineCommentDecorations(
                   : "cm-inlineCommentMark",
                 attributes: {
                   "data-inline-comment-id": comment.id,
-                  style: `background-color: ${paint.background}; border-bottom-color: ${paint.border}`,
+                  style: `background-color: ${paint.background}; border-bottom-color: ${paint.border}; --inline-comment-underline: ${paint.border}`,
                 },
               }).range(
                 preview?.id === comment.id ? preview.range.from : from,
@@ -2001,6 +2005,12 @@ export const inlineCommentStyles = {
       "color-mix(in oklab, var(--color-amber-300) 25%, transparent)",
     borderBottom:
       "2px solid color-mix(in oklab, var(--color-amber-500) 70%, transparent)",
+  },
+  ":root[data-ui-theme] & .cm-inlineCommentMark": {
+    // Paint the underline inside the text box so it shares selection height.
+    borderBottomWidth: "0",
+    borderRadius: "var(--radius-xs)",
+    boxShadow: "inset 0 -2px var(--inline-comment-underline)",
   },
   ".cm-inlineCommentSuperscript": {
     background: "var(--comment-badge-color, #ca8a04)",

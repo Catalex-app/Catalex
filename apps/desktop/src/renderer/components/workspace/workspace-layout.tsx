@@ -3499,6 +3499,11 @@ function ProjectWorkspaceLayout() {
                                 )}
                                 data-workspace-column="preview"
                                 data-workspace-panel-screen="true"
+                                data-workspace-content-panel={
+                                  isCsvDocument || isMarkdownDocument
+                                    ? undefined
+                                    : ""
+                                }
                                 className="h-full"
                               >
                                 <div className="flex h-full min-h-0 flex-col">

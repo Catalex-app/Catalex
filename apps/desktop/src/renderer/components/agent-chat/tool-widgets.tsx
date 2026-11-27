@@ -121,15 +121,16 @@ const WriteWidget: FC<{ input: any; result?: ContentBlock }> = ({
   input,
   result,
 }) => {
+  const { label, detail } = toolTitle(
+    { type: "tool_use", name: "write", input },
+    result,
+  );
   return (
-    <div className="my-1.5 flex items-center gap-2 rounded-lg border border-border bg-muted/50 px-3 py-2 text-sm">
+    <div className="my-1.5 flex items-center gap-2 rounded-lg border border-border bg-muted/50 px-3 py-2 text-sm [&>svg]:shrink-0">
       <StatusIcon result={result} />
       <FileOutputIcon className="size-3.5 shrink-0 text-muted-foreground" />
       <span className="min-w-0 truncate text-muted-foreground">
-        {toolTitle({ type: "tool_use", name: "write", input }, result).label}{" "}
-        <code className="rounded bg-muted px-1 text-xs">
-          {input?.file_path}
-        </code>
+        {label} <code className="rounded bg-muted px-1 text-xs">{detail}</code>
       </span>
     </div>
   );
@@ -143,20 +144,22 @@ const EditWidget: FC<{ input: any; result?: ContentBlock }> = ({
 }) => {
   const [expanded, setExpanded] = useExpanded(false);
 
+  const { label, detail } = toolTitle(
+    { type: "tool_use", name: "edit", input },
+    result,
+  );
   return (
     <div className="my-1.5 rounded-lg border border-border bg-muted/50 text-sm">
       <button
         type="button"
-        className="flex w-full items-center gap-2 px-3 py-2"
+        className="flex w-full items-center gap-2 px-3 py-2 [&>svg]:shrink-0"
         onClick={() => setExpanded(!expanded)}
       >
         <StatusIcon result={result} />
         <FileEditIcon className="size-3.5 shrink-0 text-muted-foreground" />
         <span className="min-w-0 truncate text-muted-foreground">
-          {toolTitle({ type: "tool_use", name: "edit", input }, result).label}{" "}
-          <code className="rounded bg-muted px-1 text-xs">
-            {input?.file_path}
-          </code>
+          {label}{" "}
+          <code className="rounded bg-muted px-1 text-xs">{detail}</code>
         </span>
         {(input?.old_string || input?.edits) &&
           (expanded ? (
@@ -185,15 +188,16 @@ const ReadWidget: FC<{ input: any; result?: ContentBlock }> = ({
   input,
   result,
 }) => {
+  const { label, detail } = toolTitle(
+    { type: "tool_use", name: "read", input },
+    result,
+  );
   return (
-    <div className="my-1.5 flex items-center gap-2 rounded-lg border border-border bg-muted/50 px-3 py-2 text-sm">
+    <div className="my-1.5 flex items-center gap-2 rounded-lg border border-border bg-muted/50 px-3 py-2 text-sm [&>svg]:shrink-0">
       <StatusIcon result={result} />
       <FileIcon className="size-3.5 shrink-0 text-muted-foreground" />
       <span className="min-w-0 truncate text-muted-foreground">
-        {toolTitle({ type: "tool_use", name: "read", input }, result).label}{" "}
-        <code className="rounded bg-muted px-1 text-xs">
-          {input?.file_path}
-        </code>
+        {label} <code className="rounded bg-muted px-1 text-xs">{detail}</code>
       </span>
     </div>
   );
@@ -234,7 +238,7 @@ const BashWidget: FC<{ input: any; result?: ContentBlock }> = ({
       </button>
       {expanded && resultContent && (
         <div className="app-scrollbar max-h-40 overflow-auto border-border border-t px-3 py-2 dark:border-border/50">
-          <pre className="whitespace-pre-wrap font-mono text-slate-700 text-xs dark:text-gray-300">
+          <pre className="wrap-anywhere whitespace-pre-wrap font-mono text-slate-700 text-xs dark:text-gray-300">
             {truncate(resultContent, 2000)}
           </pre>
         </div>
@@ -690,12 +694,12 @@ const GenericWidget: FC<{
     <div className="my-1.5 rounded-lg border border-border bg-muted/50 text-sm">
       <button
         type="button"
-        className="flex w-full items-center gap-2 px-3 py-2"
+        className="flex w-full items-center gap-2 px-3 py-2 [&>svg]:shrink-0"
         onClick={() => setExpanded(!expanded)}
       >
         <StatusIcon result={result} />
         <WrenchIcon className="size-3.5 text-muted-foreground" />
-        <span className="text-muted-foreground">
+        <span className="min-w-0 truncate text-muted-foreground">
           {toolTitle({ type: "tool_use", name, input }, result).label}{" "}
           <code className="text-xs">{name}</code>
         </span>
@@ -707,7 +711,7 @@ const GenericWidget: FC<{
       </button>
       {expanded && input && (
         <div className="app-scrollbar max-h-32 overflow-auto border-border border-t px-3 py-2">
-          <pre className="whitespace-pre-wrap font-mono text-muted-foreground text-xs">
+          <pre className="wrap-anywhere whitespace-pre-wrap font-mono text-muted-foreground text-xs">
             {JSON.stringify(input, null, 2)}
           </pre>
         </div>
@@ -748,7 +752,7 @@ export const ThinkingWidget: FC<{
       </button>
       {expanded && (
         <div className="border-muted-foreground/20 border-t px-3 pt-2 pb-3">
-          <pre className="whitespace-pre-wrap rounded-lg bg-muted-foreground/5 p-3 font-mono text-muted-foreground text-xs italic">
+          <pre className="wrap-anywhere whitespace-pre-wrap rounded-lg bg-muted-foreground/5 p-3 font-mono text-muted-foreground text-xs italic">
             {trimmed}
           </pre>
         </div>

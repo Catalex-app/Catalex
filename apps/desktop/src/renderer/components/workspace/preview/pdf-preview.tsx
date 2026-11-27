@@ -3381,6 +3381,7 @@ export function PdfPreview({
     <div
       ref={previewContainerRef}
       data-preview-pane
+      data-workspace-content-surface=""
       className="@container/pv pdf-panel-surface relative flex h-full flex-col"
     >
       <WorkspacePanelHeader

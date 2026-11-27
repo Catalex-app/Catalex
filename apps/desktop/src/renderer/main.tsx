@@ -14,6 +14,7 @@ import { listen } from "@/lib/desktop/event";
 import { ThemeProvider } from "next-themes";
 import { DEFAULT_APP_THEME, syncNativeTheme } from "./lib/app-theme";
 import { initializeAppZoom } from "./lib/app-zoom";
+import { usesWorkspaceVibrancy } from "./lib/workspace-vibrancy";
 import { createLogger } from "./lib/debug/logger";
 import { APP_VISIBILITY_RESTORED } from "./lib/debug/log-store";
 import {
@@ -45,26 +46,61 @@ const log = createLogger("app");
 const isDesktopRuntime = isDesktop();
 
 if (window.catalex) {
+  const { platform } = window.catalex;
   const html = document.documentElement;
-  let lastColor: string | undefined;
+  const reducedTransparency = matchMedia(
+    "(prefers-reduced-transparency: reduce)",
+  );
+  let lastRequest: { color: string; vibrancy: boolean } | undefined;
   const syncWindowBackground = () => {
     if (!html.matches(".light, .dark")) return;
     const color = getComputedStyle(html)
       .getPropertyValue("--background")
       .trim();
-    if (!color || color === lastColor) return;
-    lastColor = color;
-    // Match the native surface that can be exposed before Chromium repaints.
-    void invoke("desktop:window:setBackgroundColor", { color }).catch((error) =>
-      log.error("Failed to update the window background", {
-        error: String(error),
-      }),
+    const vibrancy = usesWorkspaceVibrancy(
+      platform,
+      html.dataset.uiTheme,
+      html.hasAttribute("data-workspace-mode"),
+      html.hasAttribute("data-welcome-screen"),
+      reducedTransparency.matches,
     );
+    if (
+      !color ||
+      (lastRequest?.color === color && lastRequest.vibrancy === vibrancy)
+    )
+      return;
+    const request = { color, vibrancy };
+    lastRequest = request;
+    if (!vibrancy) html.removeAttribute("data-workspace-vibrancy");
+    // Match the native surface that can be exposed before Chromium repaints.
+    void invoke<boolean>("desktop:window:setBackgroundColor", request)
+      .then((enabled) => {
+        if (lastRequest === request)
+          html.toggleAttribute("data-workspace-vibrancy", enabled);
+      })
+      .catch((error) => {
+        if (lastRequest === request) lastRequest = undefined;
+        log.error("Failed to update the window background", {
+          error: String(error),
+        });
+      });
   };
   const observer = new MutationObserver(syncWindowBackground);
-  observer.observe(html, { attributeFilter: ["class", "data-ui-theme"] });
+  observer.observe(html, {
+    attributeFilter: [
+      "class",
+      "data-ui-theme",
+      "data-workspace-mode",
+      "data-welcome-screen",
+    ],
+  });
+  reducedTransparency.addEventListener("change", syncWindowBackground);
   syncWindowBackground();
-  if (import.meta.hot) import.meta.hot.dispose(() => observer.disconnect());
+  if (import.meta.hot)
+    import.meta.hot.dispose(() => {
+      observer.disconnect();
+      reducedTransparency.removeEventListener("change", syncWindowBackground);
+    });
 }
 
 function reportFrontendHealth(source: string) {

@@ -951,6 +951,10 @@ const editorInteractionTheme = EditorView.theme({
     {
       backgroundColor: "rgba(225, 227, 231, 0.55) !important",
     },
+  ":root.dark[data-ui-theme] &:not(.cm-focused) > .cm-scroller > .cm-rowSelectionLayer .cm-selectionBackground":
+    {
+      backgroundColor: "rgba(225, 227, 231, 0.12) !important",
+    },
   ".cm-activeLine, .cm-activeLineGutter": {
     backgroundColor: "transparent !important",
   },
@@ -5965,7 +5969,10 @@ export function LatexEditor({
     showToolbar && (!useGlobalToolbar || !globalToolbarTarget);
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-background">
+    <div
+      data-workspace-editor-shell=""
+      className="flex h-full min-h-0 flex-col bg-background"
+    >
       {/* Toolbar — adapts to file type */}
       {shouldRenderInlineToolbar ? (
         <div className="h-10 shrink-0">{toolbarNode}</div>
@@ -5977,6 +5984,11 @@ export function LatexEditor({
         expansion={expansion}
         data-drawer-shell="true"
         data-workspace-panel-screen="true"
+        data-workspace-content-panel={
+          !isWholeFileReview && !activeGitFileConflict && !isLargeFileNotLoaded
+            ? ""
+            : undefined
+        }
         className={`flex flex-1 flex-col ${
           showToolbar && !useGlobalToolbar ? "mt-2" : ""
         }`}
@@ -6095,7 +6107,10 @@ export function LatexEditor({
           !isFilePreview &&
           !isLargeFileNotLoaded &&
           reviewingSnapshot && (
-            <div className="flex h-9 shrink-0 items-center justify-between border-border border-b bg-amber-500/10 px-3">
+            <div
+              data-editor-history-bar=""
+              className="flex h-9 shrink-0 items-center justify-between border-border border-b bg-amber-500/10 px-3"
+            >
               <div className="flex items-center gap-2 text-xs">
                 <RotateCcwIcon className="size-3.5 text-amber-600 dark:text-amber-400" />
                 <span className="font-medium text-amber-700 dark:text-amber-300">
@@ -6315,7 +6330,11 @@ export function LatexEditor({
           </div>
         </ProblemsMotion>
         {showSearchBar && (
-          <div ref={searchPanelRef} className="shrink-0">
+          <div
+            ref={searchPanelRef}
+            data-editor-search-bar=""
+            className="shrink-0"
+          >
             <SearchPanel
               findText={searchState.findText}
               replaceText={searchState.replaceText}
@@ -6698,7 +6717,10 @@ function HistoryDiffView({ diffs }: { diffs: FileDiff[] }) {
       {diffs.map((diff) => (
         <div key={diff.file_path} className="border-border border-b">
           {/* File header */}
-          <div className="sticky top-0 z-10 flex items-center gap-2 border-border border-b bg-muted/80 px-4 py-1.5 backdrop-blur-sm">
+          <div
+            data-workspace-separator=""
+            className="sticky top-0 z-10 flex items-center gap-2 border-border border-b bg-muted/80 px-4 py-1.5 backdrop-blur-sm"
+          >
             <span
               className={
                 diff.status === "added"

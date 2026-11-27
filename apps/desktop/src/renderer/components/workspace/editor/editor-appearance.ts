@@ -6,7 +6,13 @@ import {
 } from "@codemirror/language";
 import type { Extension } from "@codemirror/state";
 import { oneDark, oneDarkTheme } from "@codemirror/theme-one-dark";
-import { EditorView, drawSelection } from "@codemirror/view";
+import {
+  Direction,
+  EditorView,
+  RectangleMarker,
+  drawSelection,
+  layer,
+} from "@codemirror/view";
 import { tags } from "@lezer/highlight";
 import { latex } from "codemirror-lang-latex";
 import { isMarkdownPath } from "@/lib/markdown";
@@ -65,6 +71,17 @@ const editorSurfaceTheme = EditorView.theme({
     backgroundColor: "color-mix(in oklab, var(--muted) 50%, var(--background))",
     borderRight: "1px solid var(--border)",
   },
+  ":root[data-ui-theme] & .cm-gutters": {
+    borderRightWidth: "0",
+  },
+  ':root[data-ui-theme="modern"][data-workspace-vibrancy] &, :root[data-ui-theme="classic"] &':
+    {
+      backgroundColor: "var(--workspace-content-fill)",
+    },
+  ':root[data-ui-theme="modern"][data-workspace-vibrancy] & .cm-gutters, :root[data-ui-theme="classic"] & .cm-gutters':
+    {
+      backgroundColor: "transparent",
+    },
   ".cm-lineNumbers": {
     transition: "width 320ms ease-out, min-width 320ms ease-out",
   },
@@ -74,11 +91,140 @@ const editorSurfaceTheme = EditorView.theme({
     transition: "transform 320ms ease-out, opacity 180ms ease-out",
     willChange: "transform",
   },
+  ":root[data-ui-theme] & .cm-lineNumbers .cm-gutterElement": {
+    paddingLeft: "12px",
+  },
   ".cm-content": {
     paddingLeft: "8px",
     paddingRight: "12px",
   },
+  ":root[data-ui-theme] & .cm-content": {
+    paddingLeft: "4px",
+  },
+  ":root[data-ui-theme] & .cm-selectionBackground": {
+    borderRadius: "var(--radius-xs)",
+  },
+  ":root[data-ui-theme] & .cm-lineNumbers .cm-activeLineGutter": {
+    color: "var(--foreground)",
+  },
 });
+
+// Draw selections per rendered text fragment while CodeMirror handles the
+// caret and selection state.
+const rowSelection = [
+  layer({
+    above: false,
+    class: "cm-rowSelectionLayer",
+    mount: (dom) => dom.classList.add("cm-selectionLayer"),
+    update: (update) =>
+      update.selectionSet || update.docChanged || update.viewportChanged,
+    markers(view) {
+      if (view.state.selection.ranges.every((range) => range.empty)) return [];
+
+      const document = view.dom.ownerDocument;
+      const selected = document.createRange();
+      const textRange = document.createRange();
+      const scroll = view.scrollDOM;
+      const bounds = scroll.getBoundingClientRect();
+      const originX =
+        (view.textDirection === Direction.LTR
+          ? bounds.left
+          : bounds.right - scroll.clientWidth * view.scaleX) -
+        scroll.scrollLeft * view.scaleX;
+      const originY = bounds.top - scroll.scrollTop * view.scaleY;
+      const markers: RectangleMarker[] = [];
+
+      for (const range of view.state.selection.ranges) {
+        for (const visible of view.visibleRanges) {
+          const from = Math.max(range.from, visible.from);
+          const to = Math.min(range.to, visible.to);
+          if (from >= to) continue;
+
+          const start = view.domAtPos(from, 1);
+          const end = view.domAtPos(to, -1);
+          selected.setStart(start.node, start.offset);
+          selected.setEnd(end.node, end.offset);
+          if (selected.collapsed) continue;
+
+          const root = selected.commonAncestorContainer;
+          const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+          const fragments: DOMRect[] = [];
+          for (
+            let node =
+              root.nodeType === Node.TEXT_NODE ? root : walker.nextNode();
+            node;
+            node = walker.nextNode()
+          ) {
+            if (
+              !selected.intersectsNode(node) ||
+              node.parentElement?.closest(
+                '.cm-content [contenteditable="false"]',
+              )
+            )
+              continue;
+            const startOffset =
+              node === selected.startContainer ? selected.startOffset : 0;
+            const endOffset =
+              node === selected.endContainer
+                ? selected.endOffset
+                : (node as Text).length;
+            if (startOffset >= endOffset) continue;
+            textRange.setStart(node, startOffset);
+            textRange.setEnd(node, endOffset);
+            for (const rect of textRange.getClientRects()) {
+              if (rect.width && rect.height) fragments.push(rect);
+            }
+          }
+
+          // Syntax spans can split a visual row. Join touching fragments while
+          // preserving separate islands in bidirectional text.
+          fragments.sort((a, b) => a.top - b.top || a.left - b.left);
+          let row:
+            | { left: number; right: number; top: number; bottom: number }
+            | undefined;
+          const paint = () => {
+            if (!row) return;
+            markers.push(
+              new RectangleMarker(
+                "cm-selectionBackground",
+                row.left - originX,
+                row.top - originY,
+                row.right - row.left,
+                row.bottom - row.top,
+              ),
+            );
+          };
+          for (const fragment of fragments) {
+            if (
+              row &&
+              Math.abs(fragment.top - row.top) < 0.5 &&
+              fragment.left <= row.right + 0.5 &&
+              fragment.right >= row.left - 0.5
+            ) {
+              row.left = Math.min(row.left, fragment.left);
+              row.right = Math.max(row.right, fragment.right);
+              row.bottom = Math.max(row.bottom, fragment.bottom);
+            } else {
+              paint();
+              row = fragment.toJSON();
+            }
+          }
+          paint();
+        }
+      }
+      return markers;
+    },
+  }),
+  EditorView.theme({
+    ".cm-rowSelectionLayer": { display: "none" },
+    ":root[data-ui-theme] & .cm-rowSelectionLayer": {
+      display: "block",
+    },
+    ":root[data-ui-theme] & .cm-selectionLayer:not(.cm-rowSelectionLayer)": {
+      visibility: "hidden",
+    },
+  }),
+];
 
 /** Presentation shared by editable documents and isolated historical source. */
 export function createEditorSurfaceExtensions(): Extension[] {
@@ -86,6 +232,7 @@ export function createEditorSurfaceExtensions(): Extension[] {
     EditorView.lineWrapping,
     modelBackedCopyExtension(),
     drawSelection(),
+    rowSelection,
     editorSurfaceTheme,
   ];
 }

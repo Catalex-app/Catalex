@@ -32,6 +32,8 @@ import {
   EDITOR_COLOR_SCHEME_OPTIONS,
   SOLAR_MODE_LABELS,
   SOLAR_MODE_OPTIONS,
+  UI_THEME_OPTIONS,
+  setWorkspaceModeTheme,
 } from "./settings-dropdown";
 export {
   SettingsDropdown,
@@ -116,7 +118,7 @@ import { resolveAppVersion } from "@/lib/app-version";
 import { DEFAULT_AGENT_MD } from "@/lib/default-agent-md";
 import { resolveCcfddlCatLabel } from "@/lib/ccfddl";
 import { cn } from "@/lib/utils";
-import { UI_THEMES, WORKSPACE_MODES } from "@/lib/ui-theme";
+import { WORKSPACE_MODES } from "@/lib/ui-theme";
 import {
   GITHUB_DARK_MARKDOWN_THEME_ID,
   GITHUB_LIGHT_MARKDOWN_THEME_ID,
@@ -206,11 +208,6 @@ export const THEME_OPTIONS: Array<{
   { value: "light", label: "Light", icon: SunIcon },
   { value: "dark", label: "Dark", icon: MoonIcon },
 ];
-
-const UI_THEME_OPTIONS = UI_THEMES.map(({ id, label }) => ({
-  value: id,
-  label,
-}));
 
 const BUILT_IN_MARKDOWN_THEME_OPTIONS: Array<{
   value: string;
@@ -835,7 +832,6 @@ export function SettingsWindow() {
   const [searchQuery, setSearchQuery] = useState("");
   const { theme, setTheme } = useAppTheme();
   const modeThemes = useSettingsStore((s) => s.modeThemes);
-  const setModeTheme = useSettingsStore((s) => s.setModeTheme);
   const defaultAutoCompile = useSettingsStore((s) => s.defaultAutoCompile);
   const setDefaultAutoCompile = useSettingsStore(
     (s) => s.setDefaultAutoCompile,
@@ -2281,10 +2277,9 @@ export function SettingsWindow() {
                               ariaLabel={`${label} theme`}
                               value={modeThemes[id]}
                               options={UI_THEME_OPTIONS}
-                              onChange={(value) => {
-                                setModeTheme(id, value);
-                                broadcastSettingsChanged();
-                              }}
+                              onChange={(value) =>
+                                setWorkspaceModeTheme(id, value)
+                              }
                             />
                           </SettingsRow>
                         ))}

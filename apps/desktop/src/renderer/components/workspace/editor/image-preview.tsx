@@ -111,6 +111,7 @@ export function ImagePreview({
       />
       <div
         ref={containerRef}
+        data-workspace-content-surface=""
         tabIndex={-1}
         {...{ [LOCAL_ZOOM_SHORTCUTS_ATTR]: "true" }}
         className="app-scrollbar relative min-h-0 flex-1 overflow-auto bg-muted/50 p-4 outline-none"

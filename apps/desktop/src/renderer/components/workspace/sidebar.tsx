@@ -91,6 +91,7 @@ import {
   type DragEndEvent,
 } from "@dnd-kit/core";
 import { useAppTheme } from "@/lib/app-theme";
+import { WORKSPACE_MODES } from "@/lib/ui-theme";
 import { useDocumentStore, type ProjectFile } from "@/stores/document-store";
 import { useHistoryStore } from "@/stores/history-store";
 import { useProposedChangesStore } from "@/stores/proposed-changes-store";
@@ -122,6 +123,8 @@ import {
   SettingsDropdown,
   SolarizeDropdown,
   EDITOR_COLOR_SCHEME_OPTIONS,
+  UI_THEME_OPTIONS,
+  setWorkspaceModeTheme,
 } from "@/components/settings/settings-dropdown";
 import {
   Dialog,
@@ -186,7 +189,7 @@ function openSettingsWindow(section?: "about") {
   );
 }
 
-function SidebarUtilityControls() {
+function SidebarUtilityControls({ mode }: { mode?: WorkspaceAssistantMode }) {
   const { notice: updateStatus } = useUpdater();
   const hasUpdate = updateStatus.state === "available";
   const { theme, setTheme } = useAppTheme();
@@ -195,6 +198,10 @@ function SidebarUtilityControls() {
   const themeLabel =
     theme === "system" ? "Auto" : theme === "dark" ? "Dark" : "Light";
   const [appearanceOpen, setAppearanceOpen] = useState(false);
+  const modeTheme = useSettingsStore((state) =>
+    mode ? state.modeThemes[mode] : undefined,
+  );
+  const modeLabel = WORKSPACE_MODES.find(({ id }) => id === mode)?.label;
   const solarModeLevel = useSettingsStore((state) => state.solarModeLevel);
   const setSolarModeLevel = useSettingsStore(
     (state) => state.setSolarModeLevel,
@@ -349,6 +356,17 @@ function SidebarUtilityControls() {
                 }}
               />
             </div>
+            {mode && modeLabel && modeTheme && (
+              <div className="flex h-8 items-center justify-between gap-4 text-xs">
+                <span>{modeLabel} theme</span>
+                <SettingsDropdown
+                  ariaLabel={`${modeLabel} theme`}
+                  value={modeTheme}
+                  options={UI_THEME_OPTIONS}
+                  onChange={(value) => setWorkspaceModeTheme(mode, value)}
+                />
+              </div>
+            )}
           </div>
         </PopoverContent>
       </Popover>
@@ -2850,101 +2868,112 @@ function SidebarDefault({
                         />
                       );
                       return (
-                        <SidebarRow
-                          asChild
-                          depth={item.level - outlineBaseLevel}
+                        <div
                           key={key}
-                          className="gap-0 py-0 pr-0 hover:bg-transparent"
+                          className="relative"
+                          style={{
+                            paddingLeft:
+                              (item.level - outlineBaseLevel) * 16 + 4,
+                          }}
                         >
-                          <div className="group relative">
-                            <span
-                              aria-hidden="true"
-                              className="pointer-events-none absolute inset-0"
-                            >
-                              {item.ancestorLevels.map((level) => (
-                                <SidebarTreeGuide
-                                  key={level}
-                                  data-outline-guide={level}
-                                  depth={level - outlineBaseLevel}
-                                  top={
-                                    outlineRows[index - 1]?.level === level
-                                      ? SIDEBAR_GUIDE_CHILD_TOP
-                                      : 0
-                                  }
-                                  bottom={
-                                    (outlineRows[index + 1]?.level ?? 0) <=
-                                    level
-                                      ? SIDEBAR_GUIDE_BOTTOM
-                                      : 0
-                                  }
-                                />
-                              ))}
-                              {item.hasChildren && !item.isCollapsed && (
-                                <SidebarTreeGuide
-                                  data-outline-guide-start={item.level}
-                                  depth={item.level - outlineBaseLevel}
-                                  top="100%"
-                                  bottom={0}
-                                />
-                              )}
-                            </span>
-                            <span className="-ml-1 flex w-6 shrink-0 items-center font-mono text-[10px] text-muted-foreground">
-                              {item.hasChildren ? (
-                                <Hint
-                                  content={`${marker} — ${item.isCollapsed ? "Expand" : "Collapse"} ${item.title}`}
-                                >
-                                  <button
-                                    type="button"
-                                    className="flex h-5 w-6 items-center rounded transition-colors hover:bg-sidebar-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring aria-[expanded=false]:bg-sidebar-accent aria-[expanded=false]:font-semibold aria-[expanded=false]:text-foreground"
-                                    style={{
-                                      paddingInline: activeOutlineIsMarkdown
-                                        ? 4
-                                        : 2,
-                                    }}
-                                    aria-label={`${item.isCollapsed ? "Expand" : "Collapse"} ${item.title}`}
-                                    aria-expanded={!item.isCollapsed}
-                                    onClick={() => toggleOutlineHeading(key)}
+                          <span
+                            aria-hidden="true"
+                            className="pointer-events-none absolute inset-0"
+                          >
+                            {item.ancestorLevels.map((level) => (
+                              <SidebarTreeGuide
+                                key={level}
+                                data-outline-guide={level}
+                                depth={level - outlineBaseLevel}
+                                top={
+                                  outlineRows[index - 1]?.level === level
+                                    ? SIDEBAR_GUIDE_CHILD_TOP
+                                    : 0
+                                }
+                                bottom={
+                                  (outlineRows[index + 1]?.level ?? 0) <= level
+                                    ? SIDEBAR_GUIDE_BOTTOM
+                                    : 0
+                                }
+                              />
+                            ))}
+                            {item.hasChildren && !item.isCollapsed && (
+                              <SidebarTreeGuide
+                                data-outline-guide-start={item.level}
+                                depth={item.level - outlineBaseLevel}
+                                top="100%"
+                                bottom={0}
+                              />
+                            )}
+                          </span>
+                          <SidebarRow
+                            asChild
+                            data-sidebar-selected={
+                              item.line === currentOutlineLine
+                            }
+                            className="gap-0 py-0 pr-0 hover:bg-transparent"
+                            style={{ paddingLeft: 0 }}
+                          >
+                            <div>
+                              <span className="flex w-6 shrink-0 items-center font-mono text-[10px] text-muted-foreground">
+                                {item.hasChildren ? (
+                                  <Hint
+                                    content={`${marker} — ${item.isCollapsed ? "Expand" : "Collapse"} ${item.title}`}
                                   >
-                                    {markerContent}
-                                  </button>
-                                </Hint>
-                              ) : (
-                                <Hint content={marker}>
-                                  <span
-                                    style={{
-                                      paddingInline: activeOutlineIsMarkdown
-                                        ? 4
-                                        : 2,
-                                    }}
-                                  >
-                                    {markerContent}
-                                  </span>
-                                </Hint>
-                              )}
-                            </span>
-                            <button
-                              type="button"
-                              data-outline-level={item.level}
-                              data-outline-line={item.line}
-                              aria-current={
-                                item.line === currentOutlineLine
-                                  ? "location"
-                                  : undefined
-                              }
-                              className={cn(
-                                "min-w-0 flex-1 truncate rounded-md py-1.5 pr-2 text-left text-sm transition-colors hover:bg-sidebar-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring",
-                                activeOutlineIsMarkdown
-                                  ? "pl-2"
-                                  : "ml-0.5 pl-1.5",
-                                item.line === currentOutlineLine &&
-                                  "bg-sidebar-accent text-sidebar-accent-foreground hover:bg-sidebar-accent",
-                              )}
-                              onClick={() => handleTocClick(item.line)}
-                            >
-                              {item.title}
-                            </button>
-                          </div>
-                        </SidebarRow>
+                                    <button
+                                      type="button"
+                                      className="flex h-5 w-6 items-center rounded transition-colors hover:bg-sidebar-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring aria-[expanded=false]:bg-sidebar-accent aria-[expanded=false]:font-semibold aria-[expanded=false]:text-foreground"
+                                      style={{
+                                        paddingInline: activeOutlineIsMarkdown
+                                          ? 4
+                                          : 2,
+                                      }}
+                                      aria-label={`${item.isCollapsed ? "Expand" : "Collapse"} ${item.title}`}
+                                      aria-expanded={!item.isCollapsed}
+                                      data-outline-disclosure
+                                      onClick={() => toggleOutlineHeading(key)}
+                                    >
+                                      {markerContent}
+                                    </button>
+                                  </Hint>
+                                ) : (
+                                  <Hint content={marker}>
+                                    <span
+                                      style={{
+                                        paddingInline: activeOutlineIsMarkdown
+                                          ? 4
+                                          : 2,
+                                      }}
+                                    >
+                                      {markerContent}
+                                    </span>
+                                  </Hint>
+                                )}
+                              </span>
+                              <button
+                                type="button"
+                                data-outline-level={item.level}
+                                data-outline-line={item.line}
+                                aria-current={
+                                  item.line === currentOutlineLine
+                                    ? "location"
+                                    : undefined
+                                }
+                                className={cn(
+                                  "min-w-0 flex-1 truncate rounded-md py-1.5 pr-2 text-left text-sm transition-colors hover:bg-sidebar-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring",
+                                  activeOutlineIsMarkdown
+                                    ? "pl-2"
+                                    : "ml-0.5 pl-1.5",
+                                  item.line === currentOutlineLine &&
+                                    "bg-sidebar-accent text-sidebar-accent-foreground hover:bg-sidebar-accent",
+                                )}
+                                onClick={() => handleTocClick(item.line)}
+                              >
+                                {item.title}
+                              </button>
+                            </div>
+                          </SidebarRow>
+                        </div>
                       );
                     })
                   ) : (
@@ -3088,7 +3117,7 @@ function SidebarDefault({
       </div>
 
       {/* Footer */}
-      <SidebarUtilityControls />
+      <SidebarUtilityControls mode={assistantMode} />
 
       {/* File Move Confirmation Dialog */}
       <Dialog
@@ -3355,15 +3384,14 @@ function FileTreeNode({
         <DraggableItem id={node.relativePath} type="folder" name={node.name}>
           <ContextMenu>
             <ContextMenuTrigger asChild>
-              <div
-                className={cn(
-                  "group relative",
-                  folderAddMenuOpen && "bg-sidebar-accent/50",
-                )}
-              >
+              <div className="group relative">
                 <SidebarRow
                   type="button"
-                  className="py-1.5 pr-7"
+                  className={cn(
+                    "py-1.5 pr-7",
+                    folderAddMenuOpen && "bg-sidebar-accent/50",
+                  )}
+                  data-sidebar-folder-add-open={folderAddMenuOpen || undefined}
                   depth={depth}
                   aria-expanded={isExpanded}
                   data-sidebar-folder-id={encodeURIComponent(node.relativePath)}

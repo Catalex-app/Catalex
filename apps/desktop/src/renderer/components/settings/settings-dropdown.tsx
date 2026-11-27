@@ -9,14 +9,27 @@ import {
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { Hint } from "@/components/ui/tooltip";
-import type {
-  EditorColorScheme,
-  SolarModeLevel,
+import { UI_THEMES, type UiThemeId, type WorkspaceMode } from "@/lib/ui-theme";
+import {
+  type EditorColorScheme,
+  type SolarModeLevel,
+  useSettingsStore,
 } from "@/stores/settings-store";
 import {
   applySolarModeLevel,
+  broadcastSettingsChanged,
   broadcastSolarModePreview,
 } from "./solar-mode-effect";
+
+export const UI_THEME_OPTIONS = UI_THEMES.map(({ id, label }) => ({
+  value: id,
+  label,
+}));
+
+export function setWorkspaceModeTheme(mode: WorkspaceMode, theme: UiThemeId) {
+  useSettingsStore.getState().setModeTheme(mode, theme);
+  broadcastSettingsChanged();
+}
 
 export const EDITOR_COLOR_SCHEME_OPTIONS: Array<{
   value: EditorColorScheme;

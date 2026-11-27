@@ -23,6 +23,7 @@ export type CommentFilter = EditorCommentFilter;
 function AuthorBadge({ filter }: { filter: CommentFilter }) {
   return (
     <MessageSquareTextIcon
+      data-comment-author={filter}
       className={cn(
         "size-3.5 shrink-0",
         filter === "all"

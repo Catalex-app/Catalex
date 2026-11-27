@@ -14,9 +14,14 @@ export function toolTitle(tool: ContentBlock, result?: ContentBlock) {
   };
   const action = actions[name.toLowerCase()];
   if (action) {
+    const field = action[2];
+    const detail =
+      field === "file_path"
+        ? (input?.file_path ?? input?.path)
+        : input?.[field];
     return {
       label: action[result ? 1 : 0],
-      detail: String(input?.[action[2]] ?? ""),
+      detail: String(detail ?? ""),
     };
   }
   if (name.toLowerCase() === "bash") {
