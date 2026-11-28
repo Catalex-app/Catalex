@@ -271,6 +271,9 @@ test("workspace panels share theme surfaces and Markdown preview keeps its own",
   const editor = page.locator("[data-workspace-editor-shell]");
   const editorPanel = editor.locator("[data-workspace-panel-screen]");
   const editorHeader = editorPanel.locator("[data-workspace-panel-header]");
+  const previewPanel = page
+    .locator("[data-workspace-panel-screen]")
+    .filter({ has: markdown });
   const previewHeader = markdown.getByTestId("markdown-preview-toolbar");
   await expect(editorHeader).toBeVisible();
   await expect(previewHeader).toBeVisible();
@@ -306,6 +309,118 @@ test("workspace panels share theme surfaces and Markdown preview keeps its own",
   );
   await expect(previewHeader).toHaveCSS("background-color", previewBackground);
   await expect(previewHeader).toHaveCSS("border-image-source", /8px/);
+
+  const compactEditorBacking = await editorPanel.evaluate(
+    (element) => getComputedStyle(element).backgroundColor,
+  );
+  const previewBacking = await previewPanel.evaluate(
+    (element) => getComputedStyle(element).backgroundColor,
+  );
+  const solidBacking = await editorPanel.evaluate((element) => {
+    const sample = document.createElement("span");
+    sample.style.backgroundColor = "var(--background)";
+    element.append(sample);
+    const color = getComputedStyle(sample).backgroundColor;
+    sample.remove();
+    return color;
+  });
+  async function expectBackingToFollowMotion(
+    direction: "entering" | "exiting",
+  ) {
+    const frames = await editorPanel.evaluate((panel, direction) => {
+      const pixel = document.createElement("canvas");
+      pixel.width = pixel.height = 1;
+      const context = pixel.getContext("2d", { willReadFrequently: true })!;
+      const frames: { progress: number; opacity: number }[] = [];
+
+      return new Promise<typeof frames>((resolve) => {
+        const observer = new MutationObserver(() => {
+          if (panel.getAttribute("data-panel-expansion-motion") !== direction) {
+            if (frames.length) {
+              observer.disconnect();
+              resolve(frames);
+            }
+            return;
+          }
+          context.clearRect(0, 0, 1, 1);
+          context.fillStyle = getComputedStyle(panel).backgroundColor;
+          context.fillRect(0, 0, 1, 1);
+          frames.push({
+            progress: Number(
+              panel.style.getPropertyValue("--expanded-panel-elevation"),
+            ),
+            opacity: context.getImageData(0, 0, 1, 1).data[3] / 255,
+          });
+        });
+        observer.observe(panel, {
+          attributeFilter: ["style", "data-panel-expansion-motion"],
+        });
+        if (direction === "entering") {
+          panel
+            .querySelector("[data-panel-header-space]")!
+            .dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+        } else {
+          panel
+            .querySelector<HTMLButtonElement>(
+              '[data-panel-floating-controls] [aria-label="Restore Editor"]',
+            )!
+            .click();
+        }
+      });
+    }, direction);
+    expect(
+      new Set(
+        frames.map(({ progress }) => progress).filter((p) => p > 0 && p < 1),
+      ).size,
+    ).toBeGreaterThan(1);
+    for (const { progress, opacity } of frames) {
+      expect(opacity).toBeCloseTo(0.25 + 0.75 * progress, 2);
+    }
+  }
+  await expectBackingToFollowMotion("entering");
+  await expect(editorPanel).toHaveAttribute(
+    "data-expanded-workspace-panel",
+    "Editor",
+  );
+  await expect(editorPanel).toHaveCSS("background-color", solidBacking);
+  await expect(editorHeader).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+  await expect(editorPanel.locator(".cm-editor")).toHaveCSS(
+    "background-color",
+    "rgba(0, 0, 0, 0)",
+  );
+  await expectBackingToFollowMotion("exiting");
+  await expect(editorPanel).not.toHaveAttribute(
+    "data-expanded-workspace-panel",
+  );
+  await expect(editorPanel).toHaveCSS("background-color", compactEditorBacking);
+
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await editorHeader.locator("[data-panel-header-space]").dblclick();
+  await expect(editorPanel).toHaveAttribute(
+    "data-expanded-workspace-panel",
+    "Editor",
+  );
+  await expect(editorPanel).not.toHaveAttribute("data-panel-expansion-motion");
+  await expect(editorPanel).toHaveCSS("background-color", solidBacking);
+  await page
+    .getByRole("button", { name: "Restore Editor", exact: true })
+    .click();
+  await expect(editorPanel).toHaveCSS("background-color", compactEditorBacking);
+
+  await previewHeader.locator("[data-panel-header-space]").dblclick();
+  await expect(previewPanel).toHaveAttribute(
+    "data-expanded-workspace-panel",
+    "Preview",
+  );
+  await expect(previewPanel).toHaveCSS("background-color", previewBacking);
+  await expect(markdown).toHaveCSS("background-color", previewBackground);
+  await expect(previewHeader).toHaveCSS("background-color", previewBackground);
+  await page
+    .getByRole("button", { name: "Restore Preview", exact: true })
+    .click();
+  await expect(previewPanel).not.toHaveAttribute(
+    "data-expanded-workspace-panel",
+  );
 
   await page.locator("html").evaluate((root) => {
     root.setAttribute("data-ui-theme", "classic");

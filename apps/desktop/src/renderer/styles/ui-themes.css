@@ -107,6 +107,22 @@
   --workspace-editor-surface-fill: transparent;
   --workspace-panel-background-clip: padding-box;
 
+  &[data-expanded-workspace-panel]:not(
+    [data-workspace-editor-state],
+    :has([data-workspace-panel-own-surface])
+  ) {
+    --workspace-panel-backing: var(--background);
+
+    /* Follow the same eased progress as the panel bounds and backdrop. */
+    &[data-panel-expansion-motion] {
+      --workspace-panel-backing: color-mix(
+        in oklab,
+        var(--workspace-content-panel-backing),
+        var(--background) calc(100% * var(--expanded-panel-elevation))
+      );
+    }
+  }
+
   /* The minimap still paints its own layer over the document. */
   & [data-editor-minimap] {
     background-color: var(--workspace-content-fill);
