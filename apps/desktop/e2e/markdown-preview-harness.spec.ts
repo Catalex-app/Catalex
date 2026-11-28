@@ -954,12 +954,15 @@ test("renders the Markdown outline and syncs through the real workspace layout",
   const readingNotesFoldButton = outline.getByRole("button", {
     name: "Collapse Reading notes",
   });
-  const firstRow = outlineItems.first().locator("..");
+  const outlineRows = outline.locator(
+    "div:has(> [data-sidebar-row] [data-outline-line])",
+  );
+  const firstRow = outlineRows.first();
   await expect(firstRow.locator("[data-outline-guide]")).toHaveCount(0);
   await expect(firstRow.locator("[data-outline-guide-start]")).toHaveCount(1);
-  await expect(
-    outlineItems.nth(2).locator("..").locator("[data-outline-guide]"),
-  ).toHaveCount(2);
+  await expect(outlineRows.nth(2).locator("[data-outline-guide]")).toHaveCount(
+    2,
+  );
   const guide = await firstRow
     .locator("[data-outline-guide-start]")
     .boundingBox();
