@@ -89,18 +89,14 @@ const editorSurfaceTheme = EditorView.theme({
     backgroundColor: "color-mix(in oklab, var(--muted) 50%, var(--background))",
     borderRight: "1px solid var(--border)",
   },
+  ":root[data-ui-theme] &": {
+    backgroundColor:
+      "var(--workspace-editor-surface-fill, var(--workspace-content-fill))",
+  },
   ":root[data-ui-theme] & .cm-gutters": {
     borderRightWidth: "0",
+    backgroundColor: "transparent",
   },
-  ':root[data-ui-theme="modern"][data-workspace-vibrancy] &, :root[data-ui-theme="classic"] &':
-    {
-      backgroundColor:
-        "var(--workspace-editor-surface-fill, var(--workspace-content-fill))",
-    },
-  ':root[data-ui-theme="modern"][data-workspace-vibrancy] & .cm-gutters, :root[data-ui-theme="classic"] & .cm-gutters':
-    {
-      backgroundColor: "transparent",
-    },
   ".cm-lineNumbers": {
     transition: "width 320ms ease-out, min-width 320ms ease-out",
   },

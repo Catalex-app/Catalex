@@ -10,32 +10,8 @@
   --workspace-accent: #4f9c45;
 }
 
-/* Paint one surface over the native material so adjacent chrome shares a tint.
-   The ordinary background and card tokens still paint the workspace panels. */
-:root[data-workspace-vibrancy] {
-  --workspace-window-tint-opacity: 90%;
-  --workspace-window-tint: rgb(255 255 255 / var(--workspace-window-tint-opacity));
-  background-color: var(--workspace-window-tint);
-}
-
-:root.dark[data-workspace-vibrancy] {
-  --workspace-window-tint-opacity: 70%;
-  --workspace-window-tint: rgb(0 0 0 / var(--workspace-window-tint-opacity));
-}
-
-:root[data-workspace-vibrancy] :is(
-  body,
-  [data-project-screen],
-  [data-project-sidebar] > .bg-background,
-  [data-welcome-sidebar] > .bg-background,
-  [data-panel-window],
-  [data-workspace-editor-shell]
-) {
-  background-color: transparent;
-}
-
 /* Paint the shared fill once on the frame so the body and bars match. */
-:root:is([data-ui-theme="modern"][data-workspace-vibrancy], [data-ui-theme="classic"]) {
+:root:is([data-ui-theme="modern"], [data-ui-theme="classic"]) {
   & [data-workspace-panel-screen] {
     --workspace-panel-bar-fill: transparent;
     --workspace-panel-region-fill: transparent;
@@ -83,16 +59,66 @@
   color: var(--workspace-frosted-agent-comment, #7352b3);
 }
 
-/* Use the same solid backing for normal and expanded Modern panels. */
-:root[data-ui-theme="modern"][data-workspace-vibrancy] {
+:root[data-ui-theme="modern"] {
+  --workspace-separator-inset: 8px;
+  --workspace-full-width-separator: initial;
   --workspace-content-fill: color-mix(in oklab, var(--muted) 25%, transparent);
   --workspace-content-panel-backing: var(--background);
   --workspace-frosted-human-comment: #b88600;
-  --workspace-glass-highlight: rgb(255 255 255 / 92%);
-  --workspace-glass-hover: color-mix(in srgb, var(--foreground) 4%, transparent);
+
+  /* Opaque chrome uses the sidebar color; vibrancy swaps in the translucent tint. */
+  --workspace-window-fill: var(--sidebar);
+  --workspace-chrome-fill: var(--workspace-window-fill);
+  --workspace-glass-highlight-opacity: 92%;
+  --workspace-glass-highlight: color-mix(
+    in srgb, white var(--workspace-glass-highlight-opacity), var(--workspace-chrome-fill)
+  );
+  --workspace-glass-hover: color-mix(in srgb, var(--foreground) 4%, var(--workspace-chrome-fill));
+  /* The track puts 30% muted over the highlight tint and the chrome beneath it. */
+  --workspace-titlebar-track-fill: color-mix(
+    in srgb,
+    var(--muted) 30%,
+    color-mix(in srgb, white calc(var(--workspace-glass-highlight-opacity) * 3 / 7), var(--workspace-chrome-fill))
+  );
 }
 
-:root[data-ui-theme="modern"][data-workspace-vibrancy] [data-workspace-panel-screen] {
+:root.dark[data-ui-theme="modern"] {
+  --workspace-frosted-human-comment: initial;
+  --workspace-frosted-agent-comment: #7756b7;
+  --workspace-glass-highlight-opacity: 12%;
+  --workspace-glass-hover: color-mix(in srgb, var(--workspace-glass-highlight) 50%, var(--workspace-chrome-fill));
+}
+
+/* Paint one tint over the native material so adjacent chrome shares a backdrop. */
+:root[data-ui-theme="modern"][data-workspace-vibrancy] {
+  --workspace-window-fill: rgb(255 255 255 / 90%);
+  --workspace-chrome-fill: transparent;
+  --workspace-glass-highlight: rgb(255 255 255 / var(--workspace-glass-highlight-opacity));
+  --workspace-titlebar-track-fill: color-mix(in srgb, var(--muted) 30%, var(--workspace-glass-highlight) 30%);
+}
+
+:root.dark[data-ui-theme="modern"][data-workspace-vibrancy] {
+  --workspace-window-fill: rgb(0 0 0 / 70%);
+}
+
+:root[data-ui-theme="modern"]:is([data-workspace-mode], [data-welcome-screen]) {
+  background-color: var(--workspace-window-fill);
+
+  & :is(
+    body,
+    [data-project-screen],
+    [data-project-sidebar] > .bg-background,
+    [data-welcome-sidebar] > .bg-background,
+    [data-panel-window],
+    [data-workspace-editor-shell],
+    [data-workspace-titlebar]
+  ) {
+    background-color: var(--workspace-chrome-fill);
+  }
+}
+
+/* Use the same solid backing for normal and expanded Modern panels. */
+:root[data-ui-theme="modern"] [data-workspace-panel-screen] {
   --workspace-editor-surface-fill: transparent;
   --workspace-panel-background-clip: padding-box;
 
@@ -102,27 +128,20 @@
   }
 }
 
-:root.dark[data-ui-theme="modern"][data-workspace-vibrancy] {
-  --workspace-frosted-human-comment: initial;
-  --workspace-frosted-agent-comment: #7756b7;
-  --workspace-glass-highlight: rgb(255 255 255 / 12%);
-  --workspace-glass-hover: color-mix(in srgb, var(--workspace-glass-highlight) 50%, transparent);
-}
-
-:root[data-workspace-vibrancy] [data-project-sidebar] {
+:root[data-ui-theme="modern"] [data-project-sidebar] {
   --sidebar-accent: var(--workspace-glass-highlight);
   --sidebar-ring: #6d6d6d;
 }
 
-:root.dark[data-workspace-vibrancy] [data-project-sidebar] {
+:root.dark[data-ui-theme="modern"] [data-project-sidebar] {
   --sidebar-ring: #c0c0c0;
 }
 
-:root[data-workspace-vibrancy] [data-project-sidebar] .assistant-mode-tab:first-child {
+:root[data-ui-theme="modern"] [data-project-sidebar] .assistant-mode-tab:first-child {
   border-right-width: 0;
 }
 
-:root[data-workspace-vibrancy] [data-project-sidebar] [data-sidebar-row] {
+:root[data-ui-theme="modern"] [data-project-sidebar] [data-sidebar-row] {
   position: relative;
   isolation: isolate;
   background-color: transparent;
@@ -163,31 +182,30 @@
   }
 }
 
-:root.dark[data-workspace-vibrancy] [data-project-sidebar] [data-sidebar-row] {
-  &.bg-emerald-100 { --sidebar-row-fill: color-mix(in srgb, var(--color-emerald-600) 20%, transparent); }
-  &.bg-violet-100 { --sidebar-row-fill: color-mix(in srgb, var(--color-violet-600) 20%, transparent); }
+:root.dark[data-ui-theme="modern"] [data-project-sidebar] [data-sidebar-row] {
+  &.bg-emerald-100 { --sidebar-row-fill: color-mix(in srgb, var(--color-emerald-600) 20%, var(--workspace-chrome-fill)); }
+  &.bg-violet-100 { --sidebar-row-fill: color-mix(in srgb, var(--color-violet-600) 20%, var(--workspace-chrome-fill)); }
 }
 
-:root[data-ui-theme="modern"][data-workspace-vibrancy]
-  [data-workspace-titlebar] .segmented-control {
-  background-color: color-mix(in srgb, var(--muted) 30%, var(--workspace-glass-highlight) 30%);
+:root[data-ui-theme="modern"] [data-workspace-titlebar] .segmented-control {
+  background-color: var(--workspace-titlebar-track-fill);
 }
 
-:root[data-ui-theme="modern"][data-workspace-vibrancy] [data-workspace-titlebar] :is(
+:root[data-ui-theme="modern"] [data-workspace-titlebar] :is(
   .editor-file-tab[data-active="true"],
   .segmented-control button:is([aria-selected="true"], [aria-pressed="true"])
 ) {
   background-color: var(--workspace-glass-highlight);
 }
 
-:root[data-ui-theme="modern"][data-workspace-vibrancy] [data-workspace-titlebar] :is(
+:root[data-ui-theme="modern"] [data-workspace-titlebar] :is(
   .editor-file-tab[data-active="false"],
   .segmented-control button:is([aria-selected="false"], [aria-pressed="false"])
 ):hover {
   background-color: var(--workspace-glass-hover);
 }
 
-:root.light[data-workspace-vibrancy] :is(
+:root.light[data-ui-theme="modern"] :is(
   [data-project-sidebar],
   [data-workspace-titlebar],
   body:has([data-welcome-sidebar]),
@@ -225,11 +243,6 @@
 
 [data-workspace-separator="conflict"] {
   --workspace-separator-color: color-mix(in oklab, var(--color-slate-500) 30%, transparent);
-}
-
-:root[data-ui-theme="modern"] {
-  --workspace-separator-inset: 8px;
-  --workspace-full-width-separator: initial;
 }
 
 :root[data-ui-theme="classic"] {

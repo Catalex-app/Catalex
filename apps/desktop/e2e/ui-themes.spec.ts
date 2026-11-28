@@ -366,23 +366,20 @@ test("workspace panels share theme surfaces and Markdown preview keeps its own",
   await expect(editorHeader).toBeVisible();
   await expect(previewHeader).toBeVisible();
   const root = page.locator("html");
-  await root.evaluate((root) => {
-    root.setAttribute("data-ui-theme", "modern");
-    root.setAttribute("data-workspace-vibrancy", "");
-  });
+  await root.evaluate((root) => root.setAttribute("data-ui-theme", "modern"));
 
   const sidebar = page.locator("[data-project-sidebar] > .bg-background");
   const titlebar = page.locator("[data-workspace-titlebar]");
   const transparent = "rgba(0, 0, 0, 0)";
-  const backingFromTheme = () =>
-    editorPanel.evaluate((element) => {
+  const themeColor = (token: "--background" | "--sidebar") =>
+    editorPanel.evaluate((element, token) => {
       const sample = document.createElement("span");
-      sample.style.backgroundColor = "var(--background)";
+      sample.style.backgroundColor = `var(${token})`;
       element.append(sample);
       const color = getComputedStyle(sample).backgroundColor;
       sample.remove();
       return color;
-    });
+    }, token);
   for (const [appearance, tint] of [
     ["dark", "rgba(0, 0, 0, 0.7)"],
     ["light", "rgba(255, 255, 255, 0.9)"],
@@ -391,13 +388,34 @@ test("workspace panels share theme surfaces and Markdown preview keeps its own",
       element.classList.remove("light", "dark");
       element.classList.add(appearance);
     }, appearance);
-    await expect(editorPanel).toHaveCSS(
-      "background-color",
-      await backingFromTheme(),
-    );
-    await expect(root).toHaveCSS("background-color", tint);
-    await expect(sidebar).toHaveCSS("background-color", transparent);
-    await expect(titlebar).toHaveCSS("background-color", transparent);
+    const backing = await themeColor("--background");
+    const solidChrome = await themeColor("--sidebar");
+    for (const vibrancy of [false, true]) {
+      await root.evaluate((element, vibrancy) => {
+        element.toggleAttribute("data-workspace-vibrancy", vibrancy);
+      }, vibrancy);
+
+      await expect(editorPanel).toHaveCSS("background-color", backing);
+      await expect(editorHeader).toHaveCSS("background-color", transparent);
+      await expect(editorPanel.locator(".cm-editor")).toHaveCSS(
+        "background-color",
+        transparent,
+      );
+      await expect(editorPanel.locator(".cm-gutters")).toHaveCSS(
+        "background-color",
+        transparent,
+      );
+      await expect(root).toHaveCSS(
+        "background-color",
+        vibrancy ? tint : solidChrome,
+      );
+      for (const chrome of [sidebar, titlebar]) {
+        await expect(chrome).toHaveCSS(
+          "background-color",
+          vibrancy ? transparent : solidChrome,
+        );
+      }
+    }
   }
 
   await expect(editorHeader).toHaveAttribute(
@@ -430,7 +448,7 @@ test("workspace panels share theme surfaces and Markdown preview keeps its own",
   const previewBacking = await previewPanel.evaluate(
     (element) => getComputedStyle(element).backgroundColor,
   );
-  const solidBacking = await backingFromTheme();
+  const solidBacking = await themeColor("--background");
   async function expectSolidBackingDuringMotion(
     direction: "entering" | "exiting",
   ) {
