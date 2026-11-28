@@ -51,10 +51,7 @@ export function CommentCloseDialog({
         if (!next && !busy) onCancel();
       }}
     >
-      <DialogContent
-        showCloseButton={false}
-        onInteractOutside={(event) => event.preventDefault()}
-      >
+      <DialogContent onInteractOutside={(event) => event.preventDefault()}>
         <DialogHeader className="text-left">
           <DialogTitle>
             {waiting

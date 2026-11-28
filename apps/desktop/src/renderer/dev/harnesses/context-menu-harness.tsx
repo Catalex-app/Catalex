@@ -92,7 +92,7 @@ export function ContextMenuHarness() {
         <DialogTrigger asChild>
           <button>Open dialog</button>
         </DialogTrigger>
-        <DialogContent>
+        <DialogContent showCloseButton>
           <DialogTitle>Text dialog</DialogTitle>
           <DialogDescription>Menu focus check</DialogDescription>
           <textarea aria-label="Dialog input" defaultValue="dialog selection" />

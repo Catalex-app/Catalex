@@ -56,9 +56,7 @@ export function GitCredentialDialog({
       }}
     >
       <DialogContent
-        className="gap-5 rounded-[20px] bg-muted p-4 shadow-2xl dark:bg-background"
-        overlayClassName="bg-black/10"
-        showCloseButton={false}
+        className="gap-5"
         aria-describedby="credential-heading"
         onPointerDownOutside={(event) => event.preventDefault()}
       >

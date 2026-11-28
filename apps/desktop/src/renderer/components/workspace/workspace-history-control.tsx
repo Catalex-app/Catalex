@@ -164,7 +164,6 @@ export function WorkspaceHistoryControl() {
         }}
       >
         <DialogContent
-          showCloseButton={!saving}
           onCloseAutoFocus={(event) => {
             event.preventDefault();
             if (openedFor.current === useDocumentStore.getState().projectRoot)

@@ -49,8 +49,8 @@ export function ProjectTrashDialog({
         if (!open) close();
       }}
     >
-      <DialogContent className="sm:max-w-md" showCloseButton={!busy}>
-        <DialogHeader className="pr-8">
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Trash2Icon className="size-5 shrink-0" />
             Move project to Trash?

@@ -1263,10 +1263,7 @@ function HistoryStage({
           if (!labelSaving) setLabelOpen(next);
         }}
       >
-        <DialogContent
-          showCloseButton={!labelSaving}
-          aria-describedby={undefined}
-        >
+        <DialogContent aria-describedby={undefined}>
           <DialogHeader>
             <DialogTitle>Snapshot labels</DialogTitle>
           </DialogHeader>

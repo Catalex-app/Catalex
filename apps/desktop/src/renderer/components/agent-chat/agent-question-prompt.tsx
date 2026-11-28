@@ -49,7 +49,6 @@ export function ProjectChangedDialog() {
   return (
     <Dialog open={Boolean(notice)}>
       <DialogContent
-        showCloseButton={false}
         onInteractOutside={(event) => event.preventDefault()}
         onEscapeKeyDown={(event) => event.preventDefault()}
       >

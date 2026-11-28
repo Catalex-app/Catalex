@@ -38,7 +38,7 @@ function DialogOverlay({
     <DialogPrimitive.Overlay
       data-slot="dialog-overlay"
       className={cn(
-        "data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 fixed inset-0 z-50 bg-black/50 data-[state=closed]:animate-out data-[state=open]:animate-in",
+        "data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 fixed inset-0 z-50 bg-black/10 data-[state=closed]:animate-out data-[state=open]:animate-in",
         className,
       )}
       {...props}
@@ -54,25 +54,23 @@ const dialogWidths = {
 function DialogContent({
   className,
   children,
-  showCloseButton = true,
+  showCloseButton = false,
   size = "compact",
-  overlayClassName,
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Content> & {
   showCloseButton?: boolean;
   size?: keyof typeof dialogWidths;
-  overlayClassName?: string;
 }) {
   return (
     <DialogResizeTransition>
       {(motionRef) => (
         <DialogPortal data-slot="dialog-portal">
-          <DialogOverlay className={overlayClassName} />
+          <DialogOverlay />
           <DialogPrimitive.Content
             ref={motionRef}
             data-slot="dialog-content"
             className={cn(
-              "popup-glass popup-motion fixed top-[50%] left-[50%] z-50 grid w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] gap-4 rounded-xl border border-[color:var(--popup-surface-border,var(--border))] bg-[var(--popup-surface-background,var(--background))] p-6 shadow-[0_0_0_transparent,var(--popup-surface-shadow,var(--shadow-lg))] outline-none duration-200",
+              "popup-glass popup-motion fixed top-[50%] left-[50%] z-50 grid w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] gap-4 rounded-[20px] border border-[color:var(--popup-surface-border,var(--border))] bg-muted p-4 shadow-2xl outline-none duration-200 dark:bg-background",
               dialogWidths[size],
               className,
             )}

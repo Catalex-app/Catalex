@@ -142,11 +142,7 @@ export function GitHistoryDialog({
         if (!open) onClose();
       }}
     >
-      <DialogContent
-        className="h-[min(32rem,calc(100svh-2rem))] grid-rows-[auto_auto_minmax(0,1fr)] overflow-hidden rounded-[20px] bg-muted p-4 shadow-2xl dark:bg-background"
-        overlayClassName="bg-black/10"
-        showCloseButton={false}
-      >
+      <DialogContent className="h-[min(32rem,calc(100svh-2rem))] grid-rows-[auto_auto_minmax(0,1fr)] overflow-hidden">
         <DialogHeader className="space-y-3">
           <DialogIconHeader>
             <GitCommitHorizontalIcon

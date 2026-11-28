@@ -236,9 +236,7 @@ export function OverleafCloneDialog({
   return (
     <Dialog open={isOpen} onOpenChange={onOpenChange}>
       <DialogContent
-        className="gap-5 rounded-[20px] bg-muted p-4 shadow-2xl sm:max-w-[420px] dark:bg-background"
-        overlayClassName="bg-black/10"
-        showCloseButton={false}
+        className="gap-5 sm:max-w-[420px]"
         data-testid="overleaf-clone-dialog"
         onPointerDownOutside={(event) => event.preventDefault()}
       >

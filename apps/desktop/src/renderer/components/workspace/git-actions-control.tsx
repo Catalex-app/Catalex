@@ -1999,11 +1999,7 @@ export const GitActionsControl = memo(function GitActionsControl({
       ) : null}
 
       <Dialog open={isCommitDialogOpen} onOpenChange={setIsCommitDialogOpen}>
-        <DialogContent
-          className="rounded-[20px] bg-muted p-4 shadow-2xl dark:bg-background"
-          overlayClassName="bg-black/10"
-          showCloseButton={false}
-        >
+        <DialogContent>
           <DialogHeader className="space-y-3">
             <DialogIconHeader>
               <GitCommitHorizontalIcon className="text-muted-foreground" />
@@ -2275,9 +2271,7 @@ export const GitActionsControl = memo(function GitActionsControl({
       >
         <DialogContent
           data-testid="rebase-dialog"
-          className="max-h-[calc(100svh-2rem)] rounded-[20px] bg-muted p-4 shadow-2xl sm:max-w-[720px] dark:bg-background"
-          overlayClassName="bg-black/10"
-          showCloseButton={false}
+          className="max-h-[calc(100svh-2rem)] sm:max-w-[720px]"
         >
           <DialogHeader className="space-y-3">
             <DialogIconHeader closeDisabled={isRebasing}>
@@ -2578,12 +2572,7 @@ export const GitActionsControl = memo(function GitActionsControl({
           if (!isRemoteUpdateRunning) setIsRemoteUpdateOpen(open);
         }}
       >
-        <DialogContent
-          data-testid="remote-update-dialog"
-          className="rounded-[20px] bg-muted p-4 shadow-2xl dark:bg-background"
-          overlayClassName="bg-black/10"
-          showCloseButton={false}
-        >
+        <DialogContent data-testid="remote-update-dialog">
           <DialogHeader className="space-y-3">
             <DialogIconHeader closeDisabled={isRemoteUpdateRunning}>
               <GitBranchIcon className="text-muted-foreground" />
@@ -2657,12 +2646,7 @@ export const GitActionsControl = memo(function GitActionsControl({
           if (!isPushRecoveryRunning) setIsPushRecoveryOpen(open);
         }}
       >
-        <DialogContent
-          data-testid="push-recovery-dialog"
-          className="rounded-[20px] bg-muted p-4 shadow-2xl dark:bg-background"
-          overlayClassName="bg-black/10"
-          showCloseButton={false}
-        >
+        <DialogContent data-testid="push-recovery-dialog">
           <DialogHeader className="space-y-3">
             <DialogIconHeader closeDisabled={isPushRecoveryRunning}>
               <GitBranchIcon className="text-muted-foreground" />
@@ -2815,11 +2799,7 @@ export const GitActionsControl = memo(function GitActionsControl({
         open={isStashPullDialogOpen}
         onOpenChange={setIsStashPullDialogOpen}
       >
-        <DialogContent
-          className="rounded-[20px] bg-muted p-4 shadow-2xl dark:bg-background"
-          overlayClassName="bg-black/10"
-          showCloseButton={false}
-        >
+        <DialogContent>
           <DialogHeader className="space-y-3">
             <DialogIconHeader>
               <button
@@ -3032,11 +3012,7 @@ export const GitActionsControl = memo(function GitActionsControl({
       </Dialog>
 
       <Dialog open={isStashDialogOpen} onOpenChange={setIsStashDialogOpen}>
-        <DialogContent
-          className="max-h-[calc(100svh-2rem)] grid-rows-[auto_minmax(0,1fr)_auto] rounded-[20px] bg-muted p-4 shadow-2xl dark:bg-background"
-          overlayClassName="bg-black/10"
-          showCloseButton={false}
-        >
+        <DialogContent className="max-h-[calc(100svh-2rem)] grid-rows-[auto_minmax(0,1fr)_auto]">
           <DialogHeader className="space-y-3">
             <DialogIconHeader>
               <ArchiveIcon className="text-muted-foreground" />
@@ -3215,11 +3191,7 @@ export const GitActionsControl = memo(function GitActionsControl({
       </Dialog>
 
       <Dialog open={isResetDialogOpen} onOpenChange={setIsResetDialogOpen}>
-        <DialogContent
-          className="rounded-[20px] bg-muted p-4 shadow-2xl dark:bg-background"
-          overlayClassName="bg-black/10"
-          showCloseButton={false}
-        >
+        <DialogContent>
           <DialogHeader className="space-y-3">
             <DialogIconHeader>
               <Trash2Icon className="text-muted-foreground" />

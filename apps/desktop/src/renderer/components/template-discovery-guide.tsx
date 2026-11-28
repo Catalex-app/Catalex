@@ -63,7 +63,10 @@ export function TemplateDiscoveryGuide({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[calc(100vh-2rem)] gap-0 overflow-y-auto p-0 sm:max-w-3xl">
+      <DialogContent
+        showCloseButton
+        className="max-h-[calc(100vh-2rem)] gap-0 overflow-y-auto p-0 sm:max-w-3xl"
+      >
         <DialogHeader className="border-border/70 border-b px-6 py-5 pr-14">
           <DialogTitle>Publisher templates and Overleaf projects</DialogTitle>
           <DialogDescription>

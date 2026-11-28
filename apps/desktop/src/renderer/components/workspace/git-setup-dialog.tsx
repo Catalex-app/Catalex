@@ -983,9 +983,7 @@ export function GitSetupDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        className="max-h-[calc(100svh-2rem)] grid-rows-[auto_minmax(0,1fr)_auto] gap-4 rounded-[20px] bg-muted p-4 shadow-2xl sm:max-w-[480px] dark:bg-background"
-        overlayClassName="bg-black/10"
-        showCloseButton={false}
+        className="max-h-[calc(100svh-2rem)] grid-rows-[auto_minmax(0,1fr)_auto] sm:max-w-[480px]"
         data-testid="git-setup-dialog"
       >
         <DialogHeader className="space-y-3">

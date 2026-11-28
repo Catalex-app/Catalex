@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, type Locator, test, type Page } from "@playwright/test";
 import path from "node:path";
 
 const modes = [
@@ -262,6 +262,87 @@ test("Modern popups are solid and Classic popups keep their glass finish", async
   await root.evaluate((el) => el.setAttribute("data-ui-theme", "modern"));
   await expectSolidBackground();
 });
+
+async function dialogFinish(dialog: Locator) {
+  return dialog.evaluate((element) => {
+    const style = getComputedStyle(element);
+    const overlay = getComputedStyle(
+      document.querySelector(
+        '[data-slot="dialog-overlay"][data-state="open"]',
+      )!,
+    );
+    return {
+      background: style.backgroundColor,
+      texture: style.backgroundImage,
+      textureSize: style.backgroundSize,
+      filter: style.backdropFilter,
+      foreground: style.color,
+      border: style.border,
+      shadow: style.boxShadow,
+      radius: style.borderRadius,
+      padding: style.padding,
+      overlayBackground: overlay.backgroundColor,
+      overlayFilter: overlay.backdropFilter,
+    };
+  });
+}
+
+for (const theme of ["modern", "classic"]) {
+  for (const appearance of ["light", "dark"]) {
+    test(`New File shares the Git setup dialog finish in ${theme} ${appearance}`, async ({
+      page,
+    }) => {
+      async function setTheme() {
+        await page.locator("html").evaluate(
+          (root, { theme, appearance }) => {
+            root.setAttribute("data-ui-theme", theme);
+            root.classList.toggle("dark", appearance === "dark");
+          },
+          { theme, appearance },
+        );
+      }
+
+      await page.goto("/?debug=git-actions&repo=none");
+      const setup = page.getByRole("button", { name: "Set up Git" });
+      await expect(setup).toBeVisible();
+      await setTheme();
+      await setup.click();
+      const git = page.getByTestId("git-setup-dialog");
+      await expect(git).toBeVisible();
+      const reference = await dialogFinish(git);
+      expect(reference).toMatchObject({
+        radius: theme === "classic" ? "4px" : "20px",
+        padding: "16px",
+        filter:
+          theme === "modern"
+            ? "none"
+            : appearance === "light"
+              ? "blur(10px) saturate(1.1)"
+              : "blur(18px) saturate(1.1)",
+        overlayBackground: "oklab(0 0 0 / 0.1)",
+        overlayFilter: "none",
+      });
+      await expect(git.getByRole("button", { name: "Close" })).toHaveCount(1);
+
+      await page.goto("/?debug=sidebar-animation&trash-confirmation");
+      const add = page
+        .locator('[data-sidebar-section="files"]')
+        .getByRole("button", { name: "Add", exact: true });
+      await expect(add).toBeVisible();
+      await setTheme();
+      await add.click();
+      await page
+        .getByRole("menuitem", { name: "New File", exact: true })
+        .click();
+      const plain = page.getByRole("dialog", { name: "New File", exact: true });
+      await expect(plain).toBeVisible();
+      expect(await dialogFinish(plain)).toEqual(reference);
+      await expect(plain.getByRole("button", { name: "Close" })).toHaveCount(0);
+      await plain.getByRole("button", { name: "Cancel" }).click();
+      await expect(plain).toBeHidden();
+    });
+  }
+}
 
 test("workspace panels share theme surfaces and Markdown preview keeps its own", async ({
   page,

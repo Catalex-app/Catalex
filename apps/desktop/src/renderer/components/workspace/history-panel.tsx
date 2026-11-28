@@ -420,9 +420,7 @@ export function HistoryPanel({
         onOpenChange={handleManagementDialogChange}
       >
         <DialogContent
-          className="rounded-[20px] bg-muted p-4 shadow-2xl sm:max-w-md dark:bg-background"
-          overlayClassName="bg-black/10"
-          showCloseButton={false}
+          className="sm:max-w-md"
           aria-describedby={undefined}
           onCloseAutoFocus={(event) => {
             if (confirmingClear || pendingLimit !== null)

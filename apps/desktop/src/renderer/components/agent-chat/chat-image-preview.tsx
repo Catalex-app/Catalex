@@ -65,18 +65,14 @@ export const ChatImagePreview: FC<ChatImagePreviewProps> = ({
           {label && <span className="truncate">{label}</span>}
         </button>
       </Hint>
-      <DialogContent
-        className="w-auto max-w-[92vw] gap-0 overflow-visible border-none bg-transparent p-0 shadow-none sm:max-w-[92vw]"
-        overlayClassName="bg-black/70"
-        showCloseButton={false}
-      >
+      <DialogContent className="w-auto max-w-[92vw] gap-0 overflow-hidden p-0 sm:max-w-[92vw]">
         <DialogTitle className="sr-only">{imageAlt}</DialogTitle>
         <img
           data-testid="chat-image-preview-dialog-image"
           src={effectiveSrc}
           alt={imageAlt}
           onError={handleImageError}
-          className="max-h-[86vh] max-w-[92vw] rounded-lg bg-background object-contain shadow-2xl"
+          className="max-h-[86vh] max-w-[92vw] bg-background object-contain"
         />
       </DialogContent>
     </Dialog>

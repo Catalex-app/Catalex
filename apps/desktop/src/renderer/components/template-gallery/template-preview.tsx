@@ -500,7 +500,6 @@ export function TemplatePreview() {
   return (
     <Dialog open={!!previewTemplateId} onOpenChange={handleOpenChange}>
       <DialogContent
-        showCloseButton={false}
         className={`flex max-w-none flex-col gap-0 overflow-hidden p-0 transition-[width] duration-300 sm:max-w-none ${modalWidth} ${modalStep === "preview" ? "h-[70vh]" : "max-h-[80vh]"}`}
       >
         {modalStep === "preview" ? (

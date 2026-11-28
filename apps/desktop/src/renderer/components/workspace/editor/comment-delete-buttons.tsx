@@ -79,9 +79,7 @@ export function CommentDeleteButtons() {
       <DialogContent
         size="wide"
         aria-describedby={undefined}
-        className="flex max-h-[90vh] flex-col overflow-hidden rounded-[20px] bg-muted p-4 shadow-2xl dark:bg-background"
-        overlayClassName="bg-black/10"
-        showCloseButton={false}
+        className="flex max-h-[90vh] flex-col overflow-hidden"
       >
         <DialogHeader className="space-y-3">
           <div className="flex items-center justify-between">
