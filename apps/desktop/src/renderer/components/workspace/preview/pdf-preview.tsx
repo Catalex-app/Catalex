@@ -2774,7 +2774,7 @@ export function PdfPreview({
         <ButtonGroup
           variant="plain"
           aria-label="Compilation"
-          className="flex h-7 shrink-0 items-center rounded-md border border-border/70 bg-muted/50 transition-opacity"
+          className="workspace-bar-control flex h-7 shrink-0 items-center rounded-md border border-border/70 bg-muted/50 transition-opacity"
         >
           <Hint
             content={

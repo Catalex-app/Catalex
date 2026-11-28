@@ -656,3 +656,33 @@ test("review, conflict and large-file panels share the normal editor surface", a
   await expect(conflict.locator(".cm-changeGutter")).toBeVisible();
   expect(await editorPanelColors(conflict)).toEqual(reference);
 });
+
+for (const { query, selector } of [
+  { query: "", selector: "[data-proposed-changes-panel]" },
+  { query: "&gitConflict=multi", selector: "[data-git-conflict-panel]" },
+  { query: "&gitConflict=three-way", selector: "[data-git-conflict-panel]" },
+]) {
+  test(`review bar follows Classic density while Modern keeps its height (${query || "proposal"})`, async ({
+    page,
+  }) => {
+    await page.goto(`/?debug=editor-diff${query}`);
+    const bar = page.locator(selector);
+    await expect(bar).toBeVisible();
+
+    for (const [theme, barHeight, controlHeight] of [
+      ["modern", "48px", "28px"],
+      ["classic", "28px", "24px"],
+    ]) {
+      await page.evaluate((theme) => {
+        document.documentElement.dataset.uiTheme = theme;
+      }, theme);
+      await expect(bar).toHaveCSS("height", barHeight);
+      const controls = bar.getByRole("button");
+      expect(await controls.count()).toBeGreaterThan(0);
+      for (const control of await controls.all()) {
+        await expect(control).toHaveCSS("height", controlHeight);
+      }
+      await expect(bar.locator("kbd").first()).toBeVisible();
+    }
+  });
+}

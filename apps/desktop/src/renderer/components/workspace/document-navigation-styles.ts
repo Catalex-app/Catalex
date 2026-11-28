@@ -10,8 +10,6 @@ export const documentBarClassName = `workspace-document-bar flex min-h-12 shrink
 export const documentBarButtonClassName =
   "text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring dark:hover:bg-muted";
 
-export const documentBarControlHeightClassName = "h-8";
-
 export const documentBarSummaryButtonClassName =
   "flex h-7 shrink-0 items-center gap-2 rounded-md px-2 text-muted-foreground text-xs tabular-nums transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
 

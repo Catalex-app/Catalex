@@ -945,10 +945,14 @@ test("renders the Markdown outline and syncs through the real workspace layout",
       headingToggle.evaluate((el) => getComputedStyle(el).backgroundColor),
     )
     .toBe("rgba(0, 0, 0, 0)");
+  // Modern rows paint their fill on a pseudo-element behind the line.
   expect(
-    await outlineItems
-      .first()
-      .evaluate((el) => getComputedStyle(el).backgroundColor),
+    await outlineItems.first().evaluate((el) => {
+      const own = getComputedStyle(el).backgroundColor;
+      return own !== "rgba(0, 0, 0, 0)"
+        ? own
+        : getComputedStyle(el, "::before").backgroundColor;
+    }),
   ).not.toBe("rgba(0, 0, 0, 0)");
 
   const readingNotesFoldButton = outline.getByRole("button", {

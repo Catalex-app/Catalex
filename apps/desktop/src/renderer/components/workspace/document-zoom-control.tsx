@@ -75,7 +75,7 @@ export function DocumentZoomControl({
       <div
         role="group"
         aria-label={label}
-        className="flex h-7 w-[98px] shrink-0 items-center overflow-hidden rounded-md border border-input bg-background text-muted-foreground shadow-xs transition-colors has-[input:focus]:border-ring"
+        className="workspace-bar-control flex h-7 w-[98px] shrink-0 items-center overflow-hidden rounded-md border border-input bg-background text-muted-foreground shadow-xs transition-colors has-[input:focus]:border-ring"
       >
         <Hint content="Zoom out">
           <button

@@ -177,8 +177,13 @@
   &.bg-violet-100 { --sidebar-row-fill: var(--color-violet-100); }
 
   /* The row supplies the fill and edge. Child controls keep their focus rings. */
-  & :is([data-outline-line], [data-outline-disclosure], .hover\:bg-sidebar-accent:hover) {
+  & :is([data-outline-line], .hover\:bg-sidebar-accent:hover:not([data-outline-disclosure])) {
     background-color: transparent;
+  }
+
+  /* The heading fold button is its own control, so it keeps its own chip. */
+  & [data-outline-disclosure]:is(:hover, [aria-expanded="false"]) {
+    box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--border) 60%, transparent);
   }
 }
 
@@ -249,6 +254,9 @@
   --workspace-content-fill: var(--background);
   --workspace-content-panel-backing: var(--workspace-content-fill);
   --artisan-surface-radius: 4px;
+  --classic-bar-height: 1.75rem;
+  --classic-bar-control-height: 1.5rem;
+  --classic-bar-padding: calc((var(--classic-bar-height) - var(--classic-bar-control-height) - 1px) / 2);
   --classic-surface: #f8f8f5;
   --classic-border: #777872;
   --classic-foreground: #4e4f49;
@@ -320,6 +328,7 @@
 }
 
 [data-ui-theme="classic"] [data-review-file-navigation] {
+  height: var(--classic-bar-height);
   border-radius: 0;
 }
 
@@ -334,13 +343,56 @@
 
 [data-ui-theme="classic"] .editor-file-tab {
   position: relative;
-  height: 1.75rem;
+  height: var(--classic-bar-height);
   overflow: hidden;
   border-color: transparent;
   border-radius: 1px;
   background-color: var(--classic-surface);
   color: var(--classic-foreground);
   box-shadow: none;
+}
+
+/* Single-line bars match the file tabs. Wrapped controls keep their space. */
+[data-ui-theme="classic"] :is(
+  .workspace-document-bar,
+  [data-workspace-panel-header],
+  [data-editor-history-bar]
+) {
+  height: auto;
+  min-height: var(--classic-bar-height);
+  padding-block: var(--classic-bar-padding);
+}
+
+[data-ui-theme="classic"] :is(
+  .workspace-document-bar,
+  [data-workspace-panel-header],
+  [data-editor-history-bar]
+) :is(
+  button,
+  input,
+  .segmented-control,
+  .workspace-bar-control,
+  [data-search-field],
+  [role="group"] > [role="status"]
+) {
+  max-height: var(--classic-bar-control-height);
+}
+
+[data-ui-theme="classic"] .workspace-document-bar .workspace-document-bar-controls {
+  min-height: var(--classic-bar-control-height);
+  height: auto;
+}
+
+[data-ui-theme="classic"] .workspace-document-bar .segmented-control {
+  padding-block: 0;
+}
+
+[data-ui-theme="classic"] .workspace-document-bar [data-search-field] button {
+  max-height: calc(var(--classic-bar-control-height) - 2px);
+}
+
+[data-ui-theme="classic"] [data-external-file-review] {
+  padding-block: var(--classic-bar-padding);
 }
 
 [data-ui-theme="classic"] .editor-file-tab[data-active="true"] {
@@ -383,7 +435,7 @@
 }
 
 [data-ui-theme="classic"] .git-actions-control[data-git-actions-standard="true"] {
-  height: 24px;
+  height: var(--classic-bar-control-height);
   gap: 0;
   border: 0;
   background-color: transparent;
@@ -460,7 +512,7 @@
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   width: 92px;
-  height: 24px;
+  height: var(--classic-bar-control-height);
   gap: 0;
   padding: 0;
   border: 0;
@@ -490,7 +542,7 @@
 [data-ui-theme="classic"] .git-actions-control[data-git-actions-standard="true"] .git-actions-primary,
 [data-ui-theme="classic"] .git-actions-control[data-git-actions-standard="true"] .git-actions-menu,
 [data-ui-theme="classic"] .workspace-history-control {
-  height: 24px;
+  height: var(--classic-bar-control-height);
 }
 
 [data-ui-theme="classic"] .git-actions-control[data-git-actions-standard="true"] .git-actions-menu {
