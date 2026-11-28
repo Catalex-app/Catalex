@@ -2,20 +2,36 @@
 
 ## [Unreleased]
 
-- Choose Antigravity models and their supported thinking levels separately in chat, Agent Settings, and onboarding.
-- See both permission choices as overlapping icons on the chat composer button, and identify agent permission options by their icons. Pi appears last in agent provider pickers.
-- Set the agent's tool permissions in the chat composer, Agent Settings, or onboarding. Paused chats show the writing permission for the draft you are continuing.
-- Use Google Antigravity CLI for interactive document chat and draft review. Enable Antigravity in Agent Settings after installing and signing in to `agy`. Pick an automatically detected model in onboarding or Agent Settings.
-- Choose from six colors, including Graphite, for highlights and comments in the source editor, Markdown preview, and PDF preview. Pick a color before choosing Highlight or Comment. Recolor or remove an existing highlight from its toolbar. Add a note to a highlight or clear a comment's text to turn it back into a highlight.
-- Use the same layout for agent review and Git conflict bars. In narrow panels, the navigator stays beside the title, the buttons move to a second row, and shortcut badges hide when space runs out.
-- Jump to the first change in a new agent proposal while keeping your place in chat. Reopening the same proposal keeps your reading position.
-- Open a workspace panel as a pop-out at your current reading position.
+## [0.4.0]
+
+### TL;DR
+
+New agent, new features, and a new look!
+
+- Antigravity CLI is here! Happy writing with Gemini 4.
+- A refreshed Modern theme that finally lives up to its name, in light and dark.
+- Highlight and comment in six colors across the source editor, Markdown preview, and PDF.
+
+### Full Changelog
+
+- Appearance: Workspace panels share one look across the editor, previews, chat and Rewind, in both themes. Modern uses translucent window chrome over macOS vibrancy and solid panels; with Reduce Transparency on, it keeps the same design with opaque chrome.
+- Focus mode: An expanded panel is solid in Modern, fading in step with the expand animation.
+- Popups and dialogs: Modern menus, dropdowns and tooltips are translucent with a background blur; Classic light popups are more opaque. Every dialog uses the same look as the Git setup dialog in its theme.
+- Diffs and merges: Agent proposals, Git conflicts (two-way and three-way), external changes and Rewind share one diff style: full-width chunk bands, rounded underlined word highlights on both sides, and the editor's selection inside read-only original text. Bands stay distinct in dark mode, and the change bar sits before the line numbers everywhere.
+- Review bars: The review title lines up with the toolbar above it. In Classic, the review navigation in the tab row matches the file tabs.
+- Search: Selecting text while the search bar is open shows the selection toolbar and comment bubble. The search bar slides open and closed like the comments and problems bars. Opening Replace puts the cursor in the Replace field; closing it returns to Find.
+- Outline: The heading fold button shows its own hover highlight again.
+- Agents: Use Google Antigravity CLI for interactive document chat and draft review. Enable Antigravity in Agent Settings after installing and signing in to `agy`, and pick an automatically detected model and its thinking level in chat, Agent Settings or onboarding.
+- Agent permissions: Set the agent's tool permissions in the chat composer, Agent Settings or onboarding. The composer button shows both choices as overlapping icons, and paused chats show the writing permission for the draft you are continuing. Pi appears last in agent provider pickers.
+- Highlights and comments: Choose from six colors, including Graphite, in the source editor, Markdown preview and PDF preview. Pick a color before choosing Highlight or Comment, recolor or remove a highlight from its toolbar, add a note to a highlight, or clear a comment's text to turn it back into a highlight.
+- Review bars: Agent review and Git conflict bars share one layout. In narrow panels the navigator stays beside the title, buttons move to a second row, and shortcut badges hide when space runs out.
+- Agent proposals: Jump to the first change in a new proposal while keeping your place in chat. Reopening the same proposal keeps your reading position.
+- Reading position: Pop-outs open at your current reading position, and switching between source and preview in Full chat returns to the exact spot you left.
+- Locate: In split view, double-click source text to locate and highlight the matching spot in the PDF or Markdown preview.
+- Pop-outs: Pop-out windows stay open when you rename their file or its folder.
 - Fixed Markdown and CSV preview pop-outs opening the project's LaTeX PDF.
-- Switching between source and preview in Full chat highlights your reading position. Switch back without scrolling to return to the exact spot you left.
 - Fixed Locate highlights that stayed on screen in the Markdown preview.
-- In split view, double-click source text to locate and highlight the matching spot in the PDF or Markdown preview.
 - Fixed duplicate editor toolbars after renaming a file to a different type.
-- Pop-out windows stay open when you rename their file or its folder.
 
 ## [0.3.1]
 
