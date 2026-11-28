@@ -4,6 +4,8 @@ import fixtures from "../src/renderer/dev/harnesses/agent-three-way-fixtures.jso
 };
 
 const ancestorFill = "color(srgb 0.580392 0.639216 0.721569 / 0.12)";
+// Dark mode uses a stronger band tint so chunks stay distinct on the black editor.
+const darkAncestorFill = "color(srgb 0.580392 0.639216 0.721569 / 0.34)";
 
 async function state(page: Page) {
   return page.evaluate(async () => {
@@ -117,7 +119,7 @@ test("project Git demo resolves multiple files independently through review navi
   await expect(panel).toBeVisible();
   await expect(page.locator(".cm-threeWayAncestorLine").first()).toHaveCSS(
     "background-color",
-    ancestorFill,
+    darkAncestorFill,
   );
   await page.screenshot({ path: test.info().outputPath("git-merge-dark.png") });
   await page.evaluate(() => localStorage.setItem("theme", "light"));
