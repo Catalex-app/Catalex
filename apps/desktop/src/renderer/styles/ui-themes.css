@@ -254,9 +254,6 @@
   --workspace-content-fill: var(--background);
   --workspace-content-panel-backing: var(--workspace-content-fill);
   --artisan-surface-radius: 4px;
-  --classic-bar-height: 1.75rem;
-  --classic-bar-control-height: 1.5rem;
-  --classic-bar-padding: calc((var(--classic-bar-height) - var(--classic-bar-control-height) - 1px) / 2);
   --classic-surface: #f8f8f5;
   --classic-border: #777872;
   --classic-foreground: #4e4f49;
@@ -327,9 +324,17 @@
   pointer-events: none;
 }
 
-[data-ui-theme="classic"] [data-review-file-navigation] {
-  height: var(--classic-bar-height);
-  border-radius: 0;
+/* File tabs and the review navigation share one tab-row shape per theme. */
+.workspace-tab-shape {
+  height: 2rem;
+  border-width: 1px;
+  border-style: solid;
+  border-radius: var(--radius-md);
+}
+
+[data-ui-theme="classic"] .workspace-tab-shape {
+  height: 1.75rem;
+  border-radius: 1px;
 }
 
 [data-ui-theme="classic"] [data-review-file-navigation] {
@@ -343,56 +348,11 @@
 
 [data-ui-theme="classic"] .editor-file-tab {
   position: relative;
-  height: var(--classic-bar-height);
   overflow: hidden;
   border-color: transparent;
-  border-radius: 1px;
   background-color: var(--classic-surface);
   color: var(--classic-foreground);
   box-shadow: none;
-}
-
-/* Single-line bars match the file tabs. Wrapped controls keep their space. */
-[data-ui-theme="classic"] :is(
-  .workspace-document-bar,
-  [data-workspace-panel-header],
-  [data-editor-history-bar]
-) {
-  height: auto;
-  min-height: var(--classic-bar-height);
-  padding-block: var(--classic-bar-padding);
-}
-
-[data-ui-theme="classic"] :is(
-  .workspace-document-bar,
-  [data-workspace-panel-header],
-  [data-editor-history-bar]
-) :is(
-  button,
-  input,
-  .segmented-control,
-  .workspace-bar-control,
-  [data-search-field],
-  [role="group"] > [role="status"]
-) {
-  max-height: var(--classic-bar-control-height);
-}
-
-[data-ui-theme="classic"] .workspace-document-bar .workspace-document-bar-controls {
-  min-height: var(--classic-bar-control-height);
-  height: auto;
-}
-
-[data-ui-theme="classic"] .workspace-document-bar .segmented-control {
-  padding-block: 0;
-}
-
-[data-ui-theme="classic"] .workspace-document-bar [data-search-field] button {
-  max-height: calc(var(--classic-bar-control-height) - 2px);
-}
-
-[data-ui-theme="classic"] [data-external-file-review] {
-  padding-block: var(--classic-bar-padding);
 }
 
 [data-ui-theme="classic"] .editor-file-tab[data-active="true"] {
@@ -435,7 +395,7 @@
 }
 
 [data-ui-theme="classic"] .git-actions-control[data-git-actions-standard="true"] {
-  height: var(--classic-bar-control-height);
+  height: 24px;
   gap: 0;
   border: 0;
   background-color: transparent;
@@ -512,7 +472,7 @@
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   width: 92px;
-  height: var(--classic-bar-control-height);
+  height: 24px;
   gap: 0;
   padding: 0;
   border: 0;
@@ -542,7 +502,7 @@
 [data-ui-theme="classic"] .git-actions-control[data-git-actions-standard="true"] .git-actions-primary,
 [data-ui-theme="classic"] .git-actions-control[data-git-actions-standard="true"] .git-actions-menu,
 [data-ui-theme="classic"] .workspace-history-control {
-  height: var(--classic-bar-control-height);
+  height: 24px;
 }
 
 [data-ui-theme="classic"] .git-actions-control[data-git-actions-standard="true"] .git-actions-menu {

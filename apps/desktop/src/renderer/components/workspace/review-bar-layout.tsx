@@ -80,7 +80,7 @@ export function ReviewBarLayout({
     >
       <div
         className={cn(
-          "review-bar-heading relative flex min-w-0 items-center justify-between",
+          "review-bar-heading relative flex min-w-0 items-center justify-between ps-3",
           documentBarGapClassName,
         )}
       >

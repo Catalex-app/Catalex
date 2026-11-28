@@ -662,27 +662,153 @@ for (const { query, selector } of [
   { query: "&gitConflict=multi", selector: "[data-git-conflict-panel]" },
   { query: "&gitConflict=three-way", selector: "[data-git-conflict-panel]" },
 ]) {
-  test(`review bar follows Classic density while Modern keeps its height (${query || "proposal"})`, async ({
+  test(`in-editor review keeps its height and title alignment in both themes (${query || "proposal"})`, async ({
     page,
   }) => {
     await page.goto(`/?debug=editor-diff${query}`);
     const bar = page.locator(selector);
+    const toolbar = page.getByTestId("latex-editor-toolbar");
+    const sectioning = toolbar.getByRole("button", {
+      name: "Sectioning command",
+    });
     await expect(bar).toBeVisible();
 
-    for (const [theme, barHeight, controlHeight] of [
-      ["modern", "48px", "28px"],
-      ["classic", "28px", "24px"],
-    ]) {
+    for (const theme of ["modern", "classic"]) {
       await page.evaluate((theme) => {
         document.documentElement.dataset.uiTheme = theme;
       }, theme);
-      await expect(bar).toHaveCSS("height", barHeight);
+      await expect(bar).toHaveCSS("height", "48px");
+      await expect(toolbar).toHaveCSS("height", "48px");
+      await expect(sectioning).toHaveCSS("height", "28px");
+      const headingGlyphX = await sectioning
+        .locator("svg.lucide-heading")
+        .evaluate((icon: SVGSVGElement) => {
+          const screenTransform = icon.getScreenCTM();
+          if (!screenTransform) throw new Error("Heading icon is not rendered");
+          const leftEdge = Math.min(
+            ...Array.from(icon.querySelectorAll("path"), (path) => {
+              const halfStroke =
+                parseFloat(getComputedStyle(path).strokeWidth) / 2;
+              return path.getBBox().x - halfStroke;
+            }),
+          );
+          return new DOMPoint(leftEdge, 0).matrixTransform(screenTransform).x;
+        });
+      const titleGlyphX = await bar
+        .getByText(/^(Proposed Changes|Resolve Git Conflict)$/)
+        .evaluate((title) => {
+          const range = document.createRange();
+          const text = title.firstChild as Text;
+          range.setStart(text, 0);
+          range.setEnd(text, 1);
+          return range.getBoundingClientRect().left;
+        });
+      expect(Math.abs(titleGlyphX - headingGlyphX)).toBeLessThanOrEqual(1);
       const controls = bar.getByRole("button");
       expect(await controls.count()).toBeGreaterThan(0);
       for (const control of await controls.all()) {
-        await expect(control).toHaveCSS("height", controlHeight);
+        await expect(control).toHaveCSS("height", "28px");
       }
       await expect(bar.locator("kbd").first()).toBeVisible();
     }
   });
 }
+
+test("Classic keeps file-review navigation compact above a standard review row", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto("/?debug=agent-three-way");
+  const bar = page.locator("[data-proposed-changes-panel]");
+  await expect(bar.getByText("Review draft", { exact: true })).toBeVisible();
+  await page.evaluate(() => {
+    document.documentElement.dataset.uiTheme = "classic";
+  });
+
+  const navigation = page.locator("[data-review-file-navigation]");
+  await expect(navigation).toHaveCSS("height", "28px");
+  const arrows = navigation.getByRole("button");
+  await expect(arrows).toHaveCount(2);
+  for (const arrow of await arrows.all()) {
+    await expect(arrow).toHaveCSS("height", "26px");
+  }
+  await expect(bar).toHaveCSS("height", "48px");
+  await expect(bar.getByRole("button", { name: "Accept All" })).toHaveCSS(
+    "height",
+    "28px",
+  );
+});
+
+test("Classic keeps the standard whole-file review header and control heights", async ({
+  page,
+}) => {
+  await page.goto("/?debug=git-actions&recovery=binary&workspace=1");
+  await page.getByText("figure.png", { exact: true }).first().click();
+  const headers = page.locator(
+    "[data-workspace-review-surface] [data-workspace-panel-header]",
+  );
+  await expect(headers).toHaveCount(2);
+  await page.evaluate(() => {
+    document.documentElement.dataset.uiTheme = "classic";
+  });
+
+  for (const header of await headers.all()) {
+    await expect(header).toHaveCSS("height", "48px");
+    await expect(header.getByRole("group", { name: "Image zoom" })).toHaveCSS(
+      "height",
+      "28px",
+    );
+    await expect(header.getByRole("button", { name: "Zoom in" })).toHaveCSS(
+      "height",
+      "26px",
+    );
+    await expect(header.getByRole("button", { name: "Fit width" })).toHaveCSS(
+      "height",
+      "28px",
+    );
+    await expect(
+      header.getByRole("button", { name: /^More .* view actions$/ }),
+    ).toHaveCSS("height", "24px");
+  }
+});
+
+test("Classic keeps the standard search and history bar heights", async ({
+  page,
+}) => {
+  await page.goto("/?debug=editor-diff&deferDiff=1");
+  await expect(page.locator(".cm-content")).toBeVisible();
+  await page.evaluate(() => {
+    document.documentElement.dataset.uiTheme = "classic";
+  });
+
+  await page.getByRole("button", { name: "Find", exact: true }).click();
+  const search = page.locator(
+    "[data-editor-search-bar] .workspace-document-bar",
+  );
+  await expect(search).toHaveCSS("height", "48px");
+  await expect(search.getByRole("textbox", { name: "Search" })).toHaveCSS(
+    "height",
+    "30px",
+  );
+
+  await page.evaluate(async () => {
+    const { useHistoryStore } = await import(
+      /* @vite-ignore */ "/src/renderer/stores/history-store.ts"
+    );
+    useHistoryStore.setState({
+      reviewingSnapshot: {
+        id: "9876543",
+        message: "Fixture snapshot",
+        timestamp: 0,
+        labels: [],
+        changed_files: [],
+      },
+    });
+  });
+  const history = page.locator("[data-editor-history-bar]");
+  await expect(history).toHaveCSS("height", "36px");
+  await expect(history.getByRole("button", { name: "Restore" })).toHaveCSS(
+    "height",
+    "24px",
+  );
+});

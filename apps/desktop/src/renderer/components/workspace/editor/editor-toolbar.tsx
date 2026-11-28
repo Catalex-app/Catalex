@@ -119,7 +119,7 @@ export const EditorToolbar = memo(function EditorToolbar() {
                   data-editor-file-tab
                   data-middle-click-tab
                   data-active={isActive}
-                  className={`editor-file-tab group flex h-8 max-w-[220px] items-center gap-1 rounded-md border px-2 transition-colors ${
+                  className={`editor-file-tab workspace-tab-shape group flex max-w-[220px] items-center gap-1 px-2 transition-colors ${
                     isActive
                       ? "border-border bg-muted/50 text-foreground"
                       : "border-transparent bg-transparent text-muted-foreground hover:border-border/60 hover:bg-transparent hover:text-foreground"

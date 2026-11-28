@@ -48,7 +48,7 @@ export function ReviewFileNavigation({
       variant="plain"
       aria-label={labels.group}
       data-review-file-navigation
-      className="flex h-8 shrink-0 items-center gap-1 overflow-hidden rounded-md border border-[var(--review-navigation-color)] bg-transparent p-0 text-[color:var(--review-navigation-color)] [--review-navigation-color:var(--review-navigation-light)] dark:[--review-navigation-color:var(--review-navigation-dark)]"
+      className="workspace-tab-shape flex shrink-0 items-center gap-1 overflow-hidden border-[var(--review-navigation-color)] bg-transparent p-0 text-[color:var(--review-navigation-color)] [--review-navigation-color:var(--review-navigation-light)] dark:[--review-navigation-color:var(--review-navigation-dark)]"
       style={
         {
           "--review-navigation-light": colors.light,

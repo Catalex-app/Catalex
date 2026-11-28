@@ -55,7 +55,7 @@ export function ResponsiveFormattingTools({
     <div
       ref={availableRef}
       data-formatting-collapsed={collapsed}
-      className="workspace-bar-control relative h-7 min-w-11 flex-1 overflow-hidden"
+      className="relative h-7 min-w-11 flex-1 overflow-hidden"
     >
       <div
         ref={toolsRef}

@@ -23,6 +23,7 @@ import type { SearchScope } from "@/lib/preview-search";
 import {
   documentBarButtonClassName,
   documentBarClassName,
+  documentBarControlHeightClassName,
 } from "../document-navigation-styles";
 
 type HistoryField = "find" | "replace";
@@ -71,7 +72,7 @@ const searchRowClassName = cn(
   "col-span-2 grid grid-cols-subgrid",
 );
 const searchControlsClassName =
-  "workspace-document-bar-controls flex min-h-8 min-w-0 flex-wrap content-center items-center gap-1";
+  "flex min-h-8 min-w-0 flex-wrap content-center items-center gap-1";
 function SearchField({
   label,
   children,
@@ -294,7 +295,12 @@ export function SearchPanel({
     >
       <div className={searchRowClassName}>
         {onScopeChange && (
-          <div className="workspace-document-bar-controls flex h-8 items-center self-start">
+          <div
+            className={cn(
+              documentBarControlHeightClassName,
+              "flex items-center self-start",
+            )}
+          >
             <ButtonGroup<SearchScope>
               aria-label="Search scope"
               className="[&>button]:w-7 [&>button]:px-0"

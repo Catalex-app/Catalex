@@ -194,8 +194,16 @@ test("compact review navigation stays before the file tabs across file types", a
   const panel = page.locator("[data-proposed-changes-panel]");
   await expect(navigation).toContainText("3/3");
   const pendingImage = page.locator('[data-sidebar-file-id="new-figure.png"]');
+  // Modern rows paint their fill on a pseudo-element behind the row.
+  const rowFill = () =>
+    pendingImage.evaluate((el) => {
+      const own = getComputedStyle(el).backgroundColor;
+      return own !== "rgba(0, 0, 0, 0)"
+        ? own
+        : getComputedStyle(el, "::before").backgroundColor;
+    });
   await page.mouse.move(0, 0);
-  await expect(pendingImage).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+  await expect.poll(rowFill).toBe("rgba(0, 0, 0, 0)");
   await expect(panel).not.toContainText("manuscript.md");
   await expect(panel).not.toContainText("files");
   const initialNav = (await navigation.boundingBox())!;
@@ -205,10 +213,7 @@ test("compact review navigation stays before the file tabs across file types", a
   await expect(navigation).toContainText("1/3");
   await expect(page.locator("[data-agent-file-review]")).toBeVisible();
   await page.mouse.move(0, 0);
-  await expect(pendingImage).not.toHaveCSS(
-    "background-color",
-    "rgba(0, 0, 0, 0)",
-  );
+  await expect.poll(rowFill).not.toBe("rgba(0, 0, 0, 0)");
   expect((await navigation.boundingBox())!.x).toBe(initialNav.x);
   await navigation
     .getByRole("button", { name: "Previous review file", exact: true })
