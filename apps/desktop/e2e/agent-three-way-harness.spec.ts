@@ -595,7 +595,7 @@ test("gutter and minimap show only present three-way versions and follow undo", 
   await page.reload();
   await expect(page.locator(".cm-threeWayAncestorLine").first()).toHaveCSS(
     "background-color",
-    "color(srgb 0.580392 0.639216 0.721569 / 0.12)",
+    "color(srgb 0.580392 0.639216 0.721569 / 0.34)",
   );
   await expect(gutter).toHaveCount(2);
   await page.waitForTimeout(900);

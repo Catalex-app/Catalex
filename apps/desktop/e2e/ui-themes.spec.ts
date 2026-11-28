@@ -328,6 +328,9 @@ for (const theme of ["modern", "classic"]) {
         expect(reference.background).toBe(
           appearance === "light" ? "oklch(0.97 0 0)" : "rgb(10, 10, 10)",
         );
+        if (appearance === "dark") {
+          expect(reference.border).toBe("1px solid rgba(255, 255, 255, 0.14)");
+        }
       }
       await expect(git.getByRole("button", { name: "Close" })).toHaveCount(1);
 

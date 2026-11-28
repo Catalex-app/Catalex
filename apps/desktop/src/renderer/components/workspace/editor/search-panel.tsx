@@ -237,9 +237,24 @@ export function SearchPanel({
   };
 
   useEffect(() => {
-    inputRef.current?.focus();
+    inputRef.current?.focus({ preventScroll: true });
     inputRef.current?.select();
   }, []);
+
+  // Opening Replace moves typing to the Replace field; closing it returns to Find.
+  const replaceInputRef = useRef<HTMLInputElement>(null);
+  const focusAfterReplaceToggle = useRef(false);
+  const toggleReplace = () => {
+    focusAfterReplaceToggle.current = true;
+    onToggleReplace();
+  };
+  useEffect(() => {
+    if (!focusAfterReplaceToggle.current) return;
+    focusAfterReplaceToggle.current = false;
+    (isReplaceOpen ? replaceInputRef : inputRef).current?.focus({
+      preventScroll: true,
+    });
+  }, [isReplaceOpen]);
 
   const handleFindKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229) return;
@@ -361,7 +376,7 @@ export function SearchPanel({
                   variant="ghost"
                   size="icon-xs"
                   className={cn(documentBarButtonClassName, "ml-1")}
-                  onClick={onToggleReplace}
+                  onClick={toggleReplace}
                   aria-label="Toggle Replace"
                 >
                   <ChevronDownIcon className="size-3.5" />
@@ -468,13 +483,14 @@ export function SearchPanel({
                   variant="ghost"
                   size="icon-xs"
                   className={cn(documentBarButtonClassName, "ml-1")}
-                  onClick={onToggleReplace}
+                  onClick={toggleReplace}
                   aria-label="Collapse Replace"
                 >
                   <ChevronUpIcon className="size-3.5" />
                 </Button>
               </Hint>
               <Input
+                ref={replaceInputRef}
                 type="text"
                 value={replaceText}
                 onChange={(e) => onReplaceTextChange(e.target.value)}

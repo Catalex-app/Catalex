@@ -1401,7 +1401,6 @@ export function LatexEditor({
 
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const searchPanelRef = useRef<HTMLDivElement>(null);
-  const editorBarContentRef = useRef<HTMLDivElement>(null);
   const [searchState, setSearchState] = useState(DEFAULT_SEARCH_STATE);
   const searchStateByFile = useRef(new Map<string, EditorSearchState>());
   const searchFile = useRef(activeFileId);
@@ -5889,25 +5888,6 @@ export function LatexEditor({
   const [retainSearchBar, setRetainSearchBar] = useState(false);
   const renderSearchBar = showSearchBar || (retainSearchBar && !showInfoBar);
   useLayoutEffect(() => {
-    const content = editorBarContentRef.current;
-    const motion = content?.closest<HTMLElement>(
-      '[data-problems-motion="bar"]',
-    );
-    if (!content || !motion) return;
-
-    // Give the shared height transition a measured target when Replace adds a row.
-    const updateHeight = () => {
-      motion.style.setProperty(
-        "--editor-bar-height",
-        `${content.offsetHeight}px`,
-      );
-    };
-    updateHeight();
-    const observer = new ResizeObserver(updateHeight);
-    observer.observe(content);
-    return () => observer.disconnect();
-  }, []);
-  useLayoutEffect(() => {
     if (showSearchBar) {
       setRetainSearchBar(true);
       focusSearchInput();
@@ -6268,12 +6248,8 @@ export function LatexEditor({
               settlementError={workspaceSettlementError}
             />,
           )}
-        <ProblemsMotion
-          kind="bar"
-          open={showInfoBar || showSearchBar}
-          className="data-[open=true]:h-[var(--editor-bar-height)]!"
-        >
-          <div ref={editorBarContentRef}>
+        <ProblemsMotion kind="bar" open={showInfoBar || showSearchBar}>
+          <div>
             <div hidden={renderSearchBar || commentsPanelOpen}>
               <ProblemsPanel
                 navigationSelection={

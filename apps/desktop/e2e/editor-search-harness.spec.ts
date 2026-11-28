@@ -120,6 +120,34 @@ test("real editor search fits narrow panes, keeps focus, and restores the query"
   const panel = page.getByTestId("editor-search-panel");
   const input = panel.getByRole("textbox", { name: "Search", exact: true });
   const close = panel.getByRole("button", { name: "Close", exact: true });
+  const motion = page.locator('[data-problems-motion="bar"]').filter({
+    has: panel,
+  });
+  async function expectUnclippedBar() {
+    await expect
+      .poll(() =>
+        motion.evaluate((bar) => {
+          const bounds = bar.getBoundingClientRect();
+          const content = bar.querySelector(".problems-motion-content")!;
+          const panel = content.querySelector(
+            '[data-testid="editor-search-panel"]',
+          )!;
+          const rowsVisible = Array.from(panel.children).every((row) => {
+            const rowBounds = row.getBoundingClientRect();
+            return (
+              rowBounds.top >= bounds.top && rowBounds.bottom <= bounds.bottom
+            );
+          });
+          return {
+            measuredHeight:
+              bounds.height === content.getBoundingClientRect().height,
+            rowsVisible,
+            scrollTop: bar.scrollTop,
+          };
+        }),
+      )
+      .toEqual({ measuredHeight: true, rowsVisible: true, scrollTop: 0 });
+  }
   for (const width of [1600, 1000]) {
     await page.setViewportSize({ width, height: 720 });
     await content.focus();
@@ -149,6 +177,18 @@ test("real editor search fits narrow panes, keeps focus, and restores the query"
     expect(bar.y + bar.height).toBeLessThanOrEqual(scroller.y + 1);
     expect(button.x + button.width).toBeLessThanOrEqual(bar.x + bar.width);
     await page.screenshot({ path: info.outputPath(`search-${width}.png`) });
+
+    await panel.getByRole("button", { name: "Toggle Replace" }).click();
+    const replace = panel.getByPlaceholder("Replace...");
+    await expect(replace).toBeFocused();
+    await expectUnclippedBar();
+    expect((await motion.boundingBox())!.height).toBeGreaterThan(bar.height);
+    await panel.getByRole("button", { name: "Collapse Replace" }).click();
+    await expect(replace).toHaveCount(0);
+    await expect(input).toBeFocused();
+    await expectUnclippedBar();
+    expect((await motion.boundingBox())!.height).toBe(bar.height);
+
     await close.click();
     await expect(panel).toHaveCount(0);
     await expect(content).toBeFocused();

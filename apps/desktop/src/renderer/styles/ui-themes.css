@@ -724,6 +724,11 @@
   backdrop-filter: none;
 }
 
+:root.dark:not([data-ui-theme="classic"]) [data-slot="dialog-content"] {
+  --dialog-surface-border: rgb(255 255 255 / 14%);
+  border-color: var(--dialog-surface-border);
+}
+
 :root:not([data-ui-theme="classic"]) [data-slot="context-menu-content"] {
   border-radius: 12px;
 }

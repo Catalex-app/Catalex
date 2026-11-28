@@ -12,7 +12,7 @@
 }
 
 .problems-motion--bar[data-open="true"] {
-  height: 3rem;
+  height: var(--problems-motion-height, 3rem);
 }
 
 .problems-motion--button {
@@ -28,6 +28,12 @@
 .problems-motion-clip {
   min-width: 0;
   overflow: hidden;
+}
+
+.problems-motion--bar,
+.problems-motion--bar > .problems-motion-clip {
+  /* Focusing a control during the height transition must not scroll the bar. */
+  overflow: clip;
 }
 
 .problems-motion-content {

@@ -331,6 +331,12 @@ const diffTheme = EditorView.theme({
   "&": {
     "--diff-original": "#ef4444",
     "--diff-proposed": "#22c55e",
+    "--diff-band-tint": "12%",
+    "--diff-word-tint": "25%",
+  },
+  ":root.dark &": {
+    "--diff-band-tint": "34%",
+    "--diff-word-tint": "35%",
   },
   "&.cm-gitConflictMerge": {
     "--diff-original": "#2563eb",
@@ -351,7 +357,7 @@ const diffTheme = EditorView.theme({
   },
   "&.cm-merge-b .cm-changedLine, .cm-deletedChunk, .cm-threeWayAncestorLine": {
     backgroundColor:
-      "color-mix(in srgb, var(--diff-color) 12%, transparent) !important",
+      "color-mix(in srgb, var(--diff-color) var(--diff-band-tint), transparent) !important",
   },
   ".cm-deletedChunk": {
     paddingLeft: "6px",
@@ -359,7 +365,8 @@ const diffTheme = EditorView.theme({
   },
   "&.cm-merge-b .cm-changedLine .cm-changedText, &.cm-merge-b .cm-deletedChunk .cm-deletedText, .cm-threeWayAncestorText":
     {
-      background: "color-mix(in srgb, var(--diff-color) 25%, transparent)",
+      background:
+        "color-mix(in srgb, var(--diff-color) var(--diff-word-tint), transparent)",
       textDecorationLine: "underline",
       textDecorationColor:
         "color-mix(in srgb, var(--diff-color) 75%, transparent)",
