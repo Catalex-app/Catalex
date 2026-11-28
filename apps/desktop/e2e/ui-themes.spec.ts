@@ -210,7 +210,7 @@ test("theme assignments survive reload and follow changes from another window @c
   await expect(page.locator("html")).toHaveAttribute("data-ui-theme", "modern");
 });
 
-test("Modern popups are solid and Classic popups keep their glass finish", async ({
+test("Modern and Classic popups use their themed glass finish", async ({
   page,
 }) => {
   await page.goto("/?debug=input-transfer");
@@ -220,27 +220,29 @@ test("Modern popups are solid and Classic popups keep their glass finish", async
     .getByRole("button", { name: "Minimap layers", exact: true })
     .click();
   const popup = page.getByRole("menu");
-  async function expectSolidBackground() {
-    const fill = await popup.evaluate((el) => {
+  async function expectPopupSurface(background: string, filter: string) {
+    const fill = await popup.evaluate((el, background) => {
       const sample = document.createElement("span");
-      sample.style.backgroundColor = "var(--background)";
+      sample.style.backgroundColor = background;
       el.append(sample);
       const color = getComputedStyle(sample).backgroundColor;
       sample.remove();
       return color;
-    });
+    }, background);
     await expect(popup).toHaveCSS("background-color", fill);
-    await expect(popup).toHaveCSS("backdrop-filter", "none");
+    await expect(popup).toHaveCSS("backdrop-filter", filter);
   }
 
+  const modernGlass = "color-mix(in srgb, var(--popover) 86%, transparent)";
+  const modernBlur = "blur(18px) saturate(0.9)";
   for (const dark of [false, true]) {
     await root.evaluate((el, dark) => {
       el.classList.toggle("dark", dark);
       el.removeAttribute("data-workspace-vibrancy");
     }, dark);
-    await expectSolidBackground();
+    await expectPopupSurface(modernGlass, modernBlur);
     await root.evaluate((el) => el.setAttribute("data-workspace-vibrancy", ""));
-    await expectSolidBackground();
+    await expectPopupSurface(modernGlass, modernBlur);
   }
 
   await root.evaluate((el) => {
@@ -258,9 +260,9 @@ test("Modern popups are solid and Classic popups keep their glass finish", async
   await cdp.send("Emulation.setEmulatedMedia", {
     features: [{ name: "prefers-reduced-transparency", value: "reduce" }],
   });
-  await expectSolidBackground();
+  await expectPopupSurface("var(--background)", "none");
   await root.evaluate((el) => el.setAttribute("data-ui-theme", "modern"));
-  await expectSolidBackground();
+  await expectPopupSurface("var(--popover)", "none");
 });
 
 async function dialogFinish(dialog: Locator) {
@@ -322,6 +324,11 @@ for (const theme of ["modern", "classic"]) {
         overlayBackground: "oklab(0 0 0 / 0.1)",
         overlayFilter: "none",
       });
+      if (theme === "modern") {
+        expect(reference.background).toBe(
+          appearance === "light" ? "oklch(0.97 0 0)" : "rgb(10, 10, 10)",
+        );
+      }
       await expect(git.getByRole("button", { name: "Close" })).toHaveCount(1);
 
       await page.goto("/?debug=sidebar-animation&trash-confirmation");
@@ -358,10 +365,40 @@ test("workspace panels share theme surfaces and Markdown preview keeps its own",
   const previewHeader = markdown.getByTestId("markdown-preview-toolbar");
   await expect(editorHeader).toBeVisible();
   await expect(previewHeader).toBeVisible();
-  await page.locator("html").evaluate((root) => {
+  const root = page.locator("html");
+  await root.evaluate((root) => {
     root.setAttribute("data-ui-theme", "modern");
     root.setAttribute("data-workspace-vibrancy", "");
   });
+
+  const sidebar = page.locator("[data-project-sidebar] > .bg-background");
+  const titlebar = page.locator("[data-workspace-titlebar]");
+  const transparent = "rgba(0, 0, 0, 0)";
+  const backingFromTheme = () =>
+    editorPanel.evaluate((element) => {
+      const sample = document.createElement("span");
+      sample.style.backgroundColor = "var(--background)";
+      element.append(sample);
+      const color = getComputedStyle(sample).backgroundColor;
+      sample.remove();
+      return color;
+    });
+  for (const [appearance, tint] of [
+    ["dark", "rgba(0, 0, 0, 0.7)"],
+    ["light", "rgba(255, 255, 255, 0.9)"],
+  ]) {
+    await root.evaluate((element, appearance) => {
+      element.classList.remove("light", "dark");
+      element.classList.add(appearance);
+    }, appearance);
+    await expect(editorPanel).toHaveCSS(
+      "background-color",
+      await backingFromTheme(),
+    );
+    await expect(root).toHaveCSS("background-color", tint);
+    await expect(sidebar).toHaveCSS("background-color", transparent);
+    await expect(titlebar).toHaveCSS("background-color", transparent);
+  }
 
   await expect(editorHeader).toHaveAttribute(
     "data-workspace-separator",
@@ -371,12 +408,11 @@ test("workspace panels share theme surfaces and Markdown preview keeps its own",
     "data-workspace-separator",
     "header",
   );
-  await expect(editorPanel).toHaveCSS("background-color", /\/ 0\.25\)/);
   await expect(editorHeader).toHaveCSS("border-image-source", /8px/);
-  await expect(editorHeader).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+  await expect(editorHeader).toHaveCSS("background-color", transparent);
   await expect(editorPanel.locator(".cm-editor")).toHaveCSS(
     "background-color",
-    "rgba(0, 0, 0, 0)",
+    transparent,
   );
   await expect(page.locator("[data-workspace-panel-own-surface]")).toHaveCount(
     1,
@@ -391,28 +427,15 @@ test("workspace panels share theme surfaces and Markdown preview keeps its own",
   await expect(previewHeader).toHaveCSS("background-color", previewBackground);
   await expect(previewHeader).toHaveCSS("border-image-source", /8px/);
 
-  const compactEditorBacking = await editorPanel.evaluate(
-    (element) => getComputedStyle(element).backgroundColor,
-  );
   const previewBacking = await previewPanel.evaluate(
     (element) => getComputedStyle(element).backgroundColor,
   );
-  const solidBacking = await editorPanel.evaluate((element) => {
-    const sample = document.createElement("span");
-    sample.style.backgroundColor = "var(--background)";
-    element.append(sample);
-    const color = getComputedStyle(sample).backgroundColor;
-    sample.remove();
-    return color;
-  });
-  async function expectBackingToFollowMotion(
+  const solidBacking = await backingFromTheme();
+  async function expectSolidBackingDuringMotion(
     direction: "entering" | "exiting",
   ) {
     const frames = await editorPanel.evaluate((panel, direction) => {
-      const pixel = document.createElement("canvas");
-      pixel.width = pixel.height = 1;
-      const context = pixel.getContext("2d", { willReadFrequently: true })!;
-      const frames: { progress: number; opacity: number }[] = [];
+      const frames: { progress: number; background: string }[] = [];
 
       return new Promise<typeof frames>((resolve) => {
         const observer = new MutationObserver(() => {
@@ -423,14 +446,11 @@ test("workspace panels share theme surfaces and Markdown preview keeps its own",
             }
             return;
           }
-          context.clearRect(0, 0, 1, 1);
-          context.fillStyle = getComputedStyle(panel).backgroundColor;
-          context.fillRect(0, 0, 1, 1);
           frames.push({
             progress: Number(
               panel.style.getPropertyValue("--expanded-panel-elevation"),
             ),
-            opacity: context.getImageData(0, 0, 1, 1).data[3] / 255,
+            background: getComputedStyle(panel).backgroundColor,
           });
         });
         observer.observe(panel, {
@@ -454,26 +474,26 @@ test("workspace panels share theme surfaces and Markdown preview keeps its own",
         frames.map(({ progress }) => progress).filter((p) => p > 0 && p < 1),
       ).size,
     ).toBeGreaterThan(1);
-    for (const { progress, opacity } of frames) {
-      expect(opacity).toBeCloseTo(0.25 + 0.75 * progress, 2);
-    }
+    expect(new Set(frames.map(({ background }) => background))).toEqual(
+      new Set([solidBacking]),
+    );
   }
-  await expectBackingToFollowMotion("entering");
+  await expectSolidBackingDuringMotion("entering");
   await expect(editorPanel).toHaveAttribute(
     "data-expanded-workspace-panel",
     "Editor",
   );
   await expect(editorPanel).toHaveCSS("background-color", solidBacking);
-  await expect(editorHeader).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+  await expect(editorHeader).toHaveCSS("background-color", transparent);
   await expect(editorPanel.locator(".cm-editor")).toHaveCSS(
     "background-color",
-    "rgba(0, 0, 0, 0)",
+    transparent,
   );
-  await expectBackingToFollowMotion("exiting");
+  await expectSolidBackingDuringMotion("exiting");
   await expect(editorPanel).not.toHaveAttribute(
     "data-expanded-workspace-panel",
   );
-  await expect(editorPanel).toHaveCSS("background-color", compactEditorBacking);
+  await expect(editorPanel).toHaveCSS("background-color", solidBacking);
 
   await page.emulateMedia({ reducedMotion: "reduce" });
   await editorHeader.locator("[data-panel-header-space]").dblclick();
@@ -486,7 +506,7 @@ test("workspace panels share theme surfaces and Markdown preview keeps its own",
   await page
     .getByRole("button", { name: "Restore Editor", exact: true })
     .click();
-  await expect(editorPanel).toHaveCSS("background-color", compactEditorBacking);
+  await expect(editorPanel).toHaveCSS("background-color", solidBacking);
 
   await previewHeader.locator("[data-panel-header-space]").dblclick();
   await expect(previewPanel).toHaveAttribute(
@@ -503,12 +523,14 @@ test("workspace panels share theme surfaces and Markdown preview keeps its own",
     "data-expanded-workspace-panel",
   );
 
-  await page.locator("html").evaluate((root) => {
+  await root.evaluate((root) => {
     root.setAttribute("data-ui-theme", "classic");
     root.removeAttribute("data-workspace-vibrancy");
   });
   await expect(editorHeader).toHaveCSS("border-image-source", "none");
   await expect(editorPanel).toHaveCSS("border-radius", "4px");
+  await expect(editorPanel).toHaveCSS("background-color", solidBacking);
+  await expect(previewPanel).toHaveCSS("background-color", previewBacking);
   await expect(previewHeader).toHaveCSS("background-color", previewBackground);
   await expect(previewHeader).toHaveCSS("border-image-source", "none");
 });

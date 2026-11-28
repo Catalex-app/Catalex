@@ -94,10 +94,10 @@
   color: var(--workspace-frosted-agent-comment, #7352b3);
 }
 
-/* Tint the existing selection and hover surfaces with the same translucent fill. */
+/* Use the same solid backing for normal and expanded Modern panels. */
 :root[data-ui-theme="modern"][data-workspace-vibrancy] {
   --workspace-content-fill: color-mix(in oklab, var(--muted) 25%, transparent);
-  --workspace-content-panel-backing: var(--workspace-content-fill);
+  --workspace-content-panel-backing: var(--background);
   --workspace-frosted-human-comment: #b88600;
   --workspace-glass-highlight: rgb(255 255 255 / 92%);
   --workspace-glass-hover: color-mix(in srgb, var(--foreground) 4%, transparent);
@@ -106,22 +106,6 @@
 :root[data-ui-theme="modern"][data-workspace-vibrancy] [data-workspace-panel-screen] {
   --workspace-editor-surface-fill: transparent;
   --workspace-panel-background-clip: padding-box;
-
-  &[data-expanded-workspace-panel]:not(
-    [data-workspace-editor-state],
-    :has([data-workspace-panel-own-surface])
-  ) {
-    --workspace-panel-backing: var(--background);
-
-    /* Follow the same eased progress as the panel bounds and backdrop. */
-    &[data-panel-expansion-motion] {
-      --workspace-panel-backing: color-mix(
-        in oklab,
-        var(--workspace-content-panel-backing),
-        var(--background) calc(100% * var(--expanded-panel-elevation))
-      );
-    }
-  }
 
   /* The minimap still paints its own layer over the document. */
   & [data-editor-minimap] {
@@ -673,8 +657,7 @@
 /* Shared modern popup finish. Components keep their layout and can override
    individual properties with ordinary utilities or inline styles. */
 :root:not([data-ui-theme="classic"]) {
-  --popup-surface-background: var(--background);
-  --popup-surface-filter: none;
+  --popup-surface-background: var(--popover);
   --popup-surface-foreground: var(--popover-foreground);
   --popup-surface-border: color-mix(in srgb, var(--border) 80%, transparent);
   --popup-surface-shadow:
@@ -683,10 +666,22 @@
     0 12px 32px rgb(0 0 0 / 10%);
 }
 
+@supports (backdrop-filter: blur(18px)) {
+  :root:not([data-ui-theme="classic"]) {
+    --popup-surface-background: color-mix(in srgb, var(--popover) 86%, transparent);
+    --popup-surface-filter: blur(18px) saturate(90%);
+  }
+}
+
 @media (prefers-reduced-transparency: reduce) {
   :root[data-ui-theme="classic"],
   :root.dark[data-ui-theme="classic"] {
     --popup-surface-background: var(--background);
+    --popup-surface-filter: none;
+  }
+
+  :root:not([data-ui-theme="classic"]) {
+    --popup-surface-background: var(--popover);
     --popup-surface-filter: none;
   }
 }
@@ -708,6 +703,11 @@
     background-size: var(--popup-surface-texture-size, auto);
     backdrop-filter: var(--popup-surface-filter, none);
   }
+}
+
+/* Modern dialogs keep their existing solid finish. */
+:root:not([data-ui-theme="classic"]) [data-slot="dialog-content"] {
+  backdrop-filter: none;
 }
 
 :root:not([data-ui-theme="classic"]) [data-slot="context-menu-content"] {
