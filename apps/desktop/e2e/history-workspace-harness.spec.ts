@@ -21,6 +21,22 @@ async function openHistory(page: Page, query = "") {
   return dialog;
 }
 
+test("the Rewind diff change bar is left of the line numbers", async ({
+  page,
+}) => {
+  const dialog = await openHistory(page);
+  await dialog.getByTestId("history-snapshot-older").click();
+  const editor = dialog
+    .getByTestId("history-front-card")
+    .locator(".cm-historyDiff");
+  await expect(editor.locator(".cm-changeGutter")).toBeVisible();
+  const [changeBar, lineNumbers] = await Promise.all([
+    editor.locator(".cm-changeGutter").boundingBox(),
+    editor.locator(".cm-lineNumbers").boundingBox(),
+  ]);
+  expect(changeBar!.x + changeBar!.width).toBeLessThan(lineNumbers!.x);
+});
+
 async function expectRenderedPdf(pane: Locator, text: string) {
   await expect(pane.locator(".mupdf-text-layer").first()).toContainText(text);
   const canvas = pane.locator("canvas").first();

@@ -367,9 +367,6 @@ const ancestorGutterMarker = new (class extends GutterMarker {
   elementClass = "cm-threeWayAncestorGutter";
 })();
 const theme = EditorView.baseTheme({
-  ".cm-changeGutter .cm-threeWayAncestorGutter": {
-    background: "linear-gradient(to bottom, transparent 24px, #94a3b8 24px)",
-  },
   ".cm-threeWayConflictChunk > .cm-chunkButtons": {
     display: "none !important",
   },
@@ -380,18 +377,8 @@ const theme = EditorView.baseTheme({
     color: "inherit",
   },
   ".cm-threeWayAncestor .cm-threeWayAncestorLine": {
-    backgroundColor: "#f1f5f9 !important",
     marginLeft: "-6px",
     paddingLeft: "6px",
-  },
-  ".cm-threeWayAncestorText": {
-    backgroundColor: "#cbd5e1 !important",
-  },
-  "&dark .cm-threeWayAncestor .cm-threeWayAncestorLine": {
-    backgroundColor: "rgba(148, 163, 184, 0.12) !important",
-  },
-  "&dark .cm-threeWayAncestorText": {
-    backgroundColor: "rgba(148, 163, 184, 0.28) !important",
   },
   ".cm-threeWayAncestor .cm-chunkButtons": { top: "2px", transform: "none" },
   ".cm-threeWayAncestor button": {

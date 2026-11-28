@@ -240,6 +240,8 @@ import {
   createEditorFontSizeTheme,
   createEditorLanguageExtension,
   createEditorSurfaceExtensions,
+  editorDiffExtensions,
+  editorSelectionTheme,
   type EditorResolvedTheme,
 } from "./editor-appearance";
 import { MERGE_PREVIEW_REFRESH_EVENT } from "@/lib/workspace-events";
@@ -960,17 +962,6 @@ const editorInteractionTheme = EditorView.theme({
     boxShadow:
       "0 0 0 1px rgba(59, 130, 246, 0.7), inset 0 -1px 0 rgba(59, 130, 246, 0.45)",
   },
-  "&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground": {
-    backgroundColor: "rgba(118, 186, 247, 0.44) !important",
-  },
-  "&:not(.cm-focused) > .cm-scroller > .cm-selectionLayer .cm-selectionBackground":
-    {
-      backgroundColor: "rgba(225, 227, 231, 0.55) !important",
-    },
-  ":root.dark[data-ui-theme] &:not(.cm-focused) > .cm-scroller > .cm-rowSelectionLayer .cm-selectionBackground":
-    {
-      backgroundColor: "rgba(225, 227, 231, 0.12) !important",
-    },
   ".cm-activeLine, .cm-activeLineGutter": {
     backgroundColor: "transparent !important",
   },
@@ -979,33 +970,6 @@ const editorInteractionTheme = EditorView.theme({
   },
   ".cm-content ::-moz-selection": {
     backgroundColor: "transparent !important",
-  },
-  // Original-text widgets use native selection, unlike the editable document's
-  // CodeMirror selection layer. Do not hide their browser selection highlight.
-  ".cm-deletedLine::selection, .cm-deletedLine ::selection": {
-    backgroundColor: "rgba(118, 186, 247, 0.44) !important",
-  },
-  ".cm-deletedLine::-moz-selection, .cm-deletedLine ::-moz-selection": {
-    backgroundColor: "rgba(118, 186, 247, 0.44) !important",
-  },
-  ".cm-changedLine": {
-    backgroundColor: "rgba(34, 197, 94, 0.08) !important",
-  },
-  ".cm-deletedChunk": {
-    backgroundColor: "rgba(239, 68, 68, 0.12) !important",
-    paddingLeft: "6px",
-    position: "relative",
-  },
-  ".cm-insertedLine": {
-    backgroundColor: "rgba(34, 197, 94, 0.15) !important",
-  },
-  ".cm-deletedLine": {
-    userSelect: "text",
-    WebkitUserSelect: "text",
-    backgroundColor: "rgba(239, 68, 68, 0.15) !important",
-  },
-  ".cm-changedText": {
-    backgroundColor: "rgba(34, 197, 94, 0.25) !important",
   },
   ".cm-chunkButtons, .cm-deletedChunk .cm-chunkButtons": {
     position: "absolute",
@@ -1034,53 +998,12 @@ const editorInteractionTheme = EditorView.theme({
     backgroundColor: "#ef4444",
     order: "-1",
   },
-  "&.cm-gitConflictMerge .cm-changedLine": {
-    backgroundColor: "rgba(139, 92, 246, 0.08) !important",
-  },
-  "&.cm-gitConflictMerge .cm-deletedChunk": {
-    backgroundColor: "rgba(59, 130, 246, 0.10) !important",
-  },
-  "&.cm-gitConflictMerge .cm-insertedLine": {
-    backgroundColor: "rgba(139, 92, 246, 0.15) !important",
-  },
-  "&.cm-gitConflictMerge .cm-deletedLine:not(.cm-threeWayAncestorLine)": {
-    backgroundColor: "rgba(59, 130, 246, 0.15) !important",
-  },
-  "&.cm-gitConflictMerge .cm-changedText": {
-    backgroundColor: "rgba(139, 92, 246, 0.25) !important",
-  },
-  "&.cm-gitConflictMerge .cm-deletedText": {
-    backgroundColor: "rgba(59, 130, 246, 0.25) !important",
-  },
-  "&.cm-gitConflictMerge .cm-deletedLineGutter": {
-    backgroundColor: "#2563eb !important",
-  },
-  "&.cm-gitConflictMerge .cm-changedLineGutter": {
-    backgroundColor: "#7c3aed !important",
-  },
   "&.cm-gitConflictMerge .cm-chunkButtons button[name=accept]": {
     backgroundColor: "#7c3aed",
   },
   "&.cm-gitConflictMerge .cm-chunkButtons button[name=reject]": {
     backgroundColor: "#2563eb",
     order: "-1",
-  },
-  ".cm-changeGutter": {
-    paddingLeft: "0",
-    width: "4px",
-    minWidth: "4px",
-    marginRight: "2px",
-  },
-  // Merge's widget markers and Git's line markers share one visual lane.
-  ".cm-gitChangeGutter ~ .cm-changeGutter": {
-    marginLeft: "-6px",
-  },
-  ".cm-changedLineGutter": { backgroundColor: "#22c55e" },
-  ".cm-deletedLineGutter": { backgroundColor: "#ef4444" },
-  ".cm-gitChangeGutter": {
-    width: "4px",
-    minWidth: "4px",
-    marginRight: "2px",
   },
   ".cm-gitLineAdd": {
     backgroundColor: "#22c55e !important",
@@ -3594,6 +3517,7 @@ export function LatexEditor({
         createEditorSurfaceExtensions(),
         scrollPastEnd(),
         editorInteractionTheme,
+        editorSelectionTheme,
       ],
     });
 
@@ -4239,6 +4163,7 @@ export function LatexEditor({
           },
           effects: [
             mergeCompartmentRef.current.reconfigure([
+              editorDiffExtensions,
               unifiedMergeView({
                 original: resumeReview
                   ? savedReview.original
@@ -4358,6 +4283,7 @@ export function LatexEditor({
           selection: { anchor: 0 },
           effects: [
             mergeCompartmentRef.current.reconfigure([
+              editorDiffExtensions,
               unifiedMergeView({
                 original: activeMergeChange.oldContent,
                 highlightChanges: true,
@@ -6079,13 +6005,6 @@ export function LatexEditor({
       <WorkspacePanel
         expansion={expansion}
         data-drawer-shell="true"
-        data-workspace-editor-state={
-          isWholeFileReview || activeGitFileConflict
-            ? "review"
-            : isLargeFileNotLoaded
-              ? "large-file"
-              : undefined
-        }
         className={`flex flex-1 flex-col ${
           showToolbar && !useGlobalToolbar ? "mt-2" : ""
         }`}

@@ -534,3 +534,107 @@ test("workspace panels share theme surfaces and Markdown preview keeps its own",
   await expect(previewHeader).toHaveCSS("background-color", previewBackground);
   await expect(previewHeader).toHaveCSS("border-image-source", "none");
 });
+
+const editorThemeVariants = [
+  { theme: "modern", dark: false },
+  { theme: "modern", dark: true },
+  { theme: "classic", dark: false },
+  { theme: "classic", dark: true },
+] as const;
+
+async function editorPanelColors(panel: Locator) {
+  return panel.evaluate((element, variants) => {
+    const root = document.documentElement;
+    const editor = element.querySelector(".cm-editor");
+    const header = element.querySelector("[data-workspace-panel-header]")!;
+    const surface =
+      editor ??
+      element.querySelector("[data-workspace-content-surface]") ??
+      element.querySelector("[data-drawer-host]")!;
+    const gutter = editor?.querySelector(".cm-gutters");
+    const background = (node: Element) =>
+      getComputedStyle(node).backgroundColor;
+    const paintedBackground = (node: Element) => {
+      while (node !== element && background(node) === "rgba(0, 0, 0, 0)") {
+        node = node.parentElement!;
+      }
+      return background(node);
+    };
+    return variants.map(({ theme, dark }) => {
+      root.dataset.uiTheme = theme;
+      root.toggleAttribute("data-workspace-vibrancy", theme === "modern");
+      root.classList.remove("light", "dark");
+      root.classList.add(dark ? "dark" : "light");
+      return {
+        theme,
+        dark,
+        panel: background(element),
+        header: background(header),
+        surface: paintedBackground(surface),
+        gutter: gutter ? background(gutter) : null,
+      };
+    });
+  }, editorThemeVariants);
+}
+
+test("review, conflict and large-file panels share the normal editor surface", async ({
+  page,
+}) => {
+  const panels = page.locator(
+    "[data-workspace-editor-shell] [data-workspace-panel-screen]",
+  );
+  await page.goto("/?debug=editor-diff&deferDiff=1&gitHead=untracked");
+  const normal = panels.filter({ has: page.locator(".cm-gitChangeGutter") });
+  await expect(normal.locator(".cm-content")).toBeVisible();
+  const reference = await editorPanelColors(normal);
+  const withoutGutter = reference.map((colors) => ({
+    ...colors,
+    gutter: null,
+  }));
+
+  await page.evaluate(async () => {
+    const path = "/src/renderer/stores/document-store.ts";
+    const { useDocumentStore } = (await import(
+      path
+    )) as typeof import("@/stores/document-store");
+    useDocumentStore.setState((state) => ({
+      files: state.files.map((file) =>
+        file.id === state.activeFileId
+          ? { ...file, content: undefined, fileSize: 12 * 1024 * 1024 }
+          : file,
+      ),
+    }));
+  });
+  const openAnyway = page.getByRole("button", { name: "Open Anyway" });
+  await expect(openAnyway).toBeVisible();
+  expect(await editorPanelColors(panels.filter({ has: openAnyway }))).toEqual(
+    withoutGutter,
+  );
+
+  await page.goto("/?debug=agent-file-review");
+  await page.getByText("results.png", { exact: true }).first().click();
+  const original = page.getByRole("region", {
+    name: "Current file",
+    exact: true,
+  });
+  await expect(original.locator("img")).toBeVisible();
+  expect(await editorPanelColors(panels.filter({ has: original }))).toEqual(
+    withoutGutter,
+  );
+
+  await page.goto("/?debug=git-actions&recovery=binary&workspace=1");
+  await page.getByText("figure.png", { exact: true }).first().click();
+  const current = page.getByRole("region", {
+    name: "Current version",
+    exact: true,
+  });
+  await expect(current.locator("img")).toBeVisible();
+  expect(await editorPanelColors(panels.filter({ has: current }))).toEqual(
+    withoutGutter,
+  );
+
+  await page.goto("/?debug=editor-diff&gitConflict=1");
+  const conflict = panels.filter({ has: page.locator(".cm-gitConflictMerge") });
+  await expect(conflict.locator(".cm-changeGutter")).toBeVisible();
+  expect(await editorPanelColors(conflict)).toEqual(reference);
+});

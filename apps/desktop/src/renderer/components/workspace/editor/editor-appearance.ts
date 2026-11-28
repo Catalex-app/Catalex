@@ -10,6 +10,8 @@ import {
   Direction,
   EditorView,
   RectangleMarker,
+  ViewPlugin,
+  type ViewUpdate,
   drawSelection,
   layer,
 } from "@codemirror/view";
@@ -64,8 +66,24 @@ const editorSurfaceTheme = EditorView.theme({
       "color-mix(in oklch, var(--muted-foreground) 70%, transparent)",
   },
   ".cm-gutters": {
+    "--editor-change-bar-width": "4px",
+    "--editor-change-bar-gap": "2px",
     paddingRight: "4px",
     transition: "width 320ms ease-out, min-width 320ms ease-out",
+  },
+  // CodeMirror registers the change gutters after the line numbers.
+  ".cm-gutters > :is(.cm-gitChangeGutter, .cm-changeGutter)": {
+    order: "-1",
+    marginLeft: "4px",
+    paddingLeft: "0",
+    width: "var(--editor-change-bar-width)",
+    minWidth: "var(--editor-change-bar-width)",
+    marginRight: "var(--editor-change-bar-gap)",
+  },
+  // Merge widget markers and Git line markers share one visual lane.
+  ".cm-gutters > .cm-gitChangeGutter ~ .cm-changeGutter": {
+    marginLeft:
+      "calc(0px - var(--editor-change-bar-width) - var(--editor-change-bar-gap))",
   },
   ".dark & .cm-gutters": {
     backgroundColor: "color-mix(in oklab, var(--muted) 50%, var(--background))",
@@ -110,6 +128,97 @@ const editorSurfaceTheme = EditorView.theme({
   },
 });
 
+const deletedLine = ".cm-deletedLine";
+
+function isDeletedText(node: Node) {
+  return (node instanceof Element ? node : node.parentElement)?.closest(
+    deletedLine,
+  );
+}
+
+function selectionRows(
+  view: EditorView,
+  ranges: readonly Range[],
+  includeDeleted = false,
+): RectangleMarker[] {
+  if (!ranges.length) return [];
+
+  const document = view.dom.ownerDocument;
+  const textRange = document.createRange();
+  const scroll = view.scrollDOM;
+  const bounds = scroll.getBoundingClientRect();
+  const originX =
+    (view.textDirection === Direction.LTR
+      ? bounds.left
+      : bounds.right - scroll.clientWidth * view.scaleX) -
+    scroll.scrollLeft * view.scaleX;
+  const originY = bounds.top - scroll.scrollTop * view.scaleY;
+  const markers: RectangleMarker[] = [];
+
+  for (const selected of ranges) {
+    const root = selected.commonAncestorContainer;
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    const fragments: DOMRect[] = [];
+    for (
+      let node = root.nodeType === Node.TEXT_NODE ? root : walker.nextNode();
+      node;
+      node = walker.nextNode()
+    ) {
+      if (!selected.intersectsNode(node)) continue;
+      const element = node.parentElement;
+      const widget = element?.closest('.cm-content [contenteditable="false"]');
+      if (widget && !(includeDeleted && isDeletedText(node))) continue;
+      const start = node === selected.startContainer ? selected.startOffset : 0;
+      const end =
+        node === selected.endContainer
+          ? selected.endOffset
+          : (node as Text).length;
+      if (start >= end) continue;
+      textRange.setStart(node, start);
+      textRange.setEnd(node, end);
+      for (const rect of textRange.getClientRects()) {
+        if (rect.width && rect.height) fragments.push(rect);
+      }
+    }
+
+    // Syntax spans can split a visual row. Join touching fragments while
+    // preserving separate islands in bidirectional text.
+    fragments.sort((a, b) => a.top - b.top || a.left - b.left);
+    let row:
+      | { left: number; right: number; top: number; bottom: number }
+      | undefined;
+    const paint = () => {
+      if (!row) return;
+      markers.push(
+        new RectangleMarker(
+          "cm-selectionBackground",
+          row.left - originX,
+          row.top - originY,
+          row.right - row.left,
+          row.bottom - row.top,
+        ),
+      );
+    };
+    for (const fragment of fragments) {
+      if (
+        row &&
+        Math.abs(fragment.top - row.top) < 0.5 &&
+        fragment.left <= row.right + 0.5 &&
+        fragment.right >= row.left - 0.5
+      ) {
+        row.left = Math.min(row.left, fragment.left);
+        row.right = Math.max(row.right, fragment.right);
+        row.bottom = Math.max(row.bottom, fragment.bottom);
+      } else {
+        paint();
+        row = fragment.toJSON();
+      }
+    }
+    paint();
+  }
+  return markers;
+}
+
 // Draw selections per rendered text fragment while CodeMirror handles the
 // caret and selection state.
 const rowSelection = [
@@ -121,20 +230,7 @@ const rowSelection = [
       update.selectionSet || update.docChanged || update.viewportChanged,
     markers(view) {
       if (view.state.selection.ranges.every((range) => range.empty)) return [];
-
-      const document = view.dom.ownerDocument;
-      const selected = document.createRange();
-      const textRange = document.createRange();
-      const scroll = view.scrollDOM;
-      const bounds = scroll.getBoundingClientRect();
-      const originX =
-        (view.textDirection === Direction.LTR
-          ? bounds.left
-          : bounds.right - scroll.clientWidth * view.scaleX) -
-        scroll.scrollLeft * view.scaleX;
-      const originY = bounds.top - scroll.scrollTop * view.scaleY;
-      const markers: RectangleMarker[] = [];
-
+      const ranges: Range[] = [];
       for (const range of view.state.selection.ranges) {
         for (const visible of view.visibleRanges) {
           const from = Math.max(range.from, visible.from);
@@ -143,77 +239,13 @@ const rowSelection = [
 
           const start = view.domAtPos(from, 1);
           const end = view.domAtPos(to, -1);
+          const selected = view.dom.ownerDocument.createRange();
           selected.setStart(start.node, start.offset);
           selected.setEnd(end.node, end.offset);
-          if (selected.collapsed) continue;
-
-          const root = selected.commonAncestorContainer;
-          const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-          const fragments: DOMRect[] = [];
-          for (
-            let node =
-              root.nodeType === Node.TEXT_NODE ? root : walker.nextNode();
-            node;
-            node = walker.nextNode()
-          ) {
-            if (
-              !selected.intersectsNode(node) ||
-              node.parentElement?.closest(
-                '.cm-content [contenteditable="false"]',
-              )
-            )
-              continue;
-            const startOffset =
-              node === selected.startContainer ? selected.startOffset : 0;
-            const endOffset =
-              node === selected.endContainer
-                ? selected.endOffset
-                : (node as Text).length;
-            if (startOffset >= endOffset) continue;
-            textRange.setStart(node, startOffset);
-            textRange.setEnd(node, endOffset);
-            for (const rect of textRange.getClientRects()) {
-              if (rect.width && rect.height) fragments.push(rect);
-            }
-          }
-
-          // Syntax spans can split a visual row. Join touching fragments while
-          // preserving separate islands in bidirectional text.
-          fragments.sort((a, b) => a.top - b.top || a.left - b.left);
-          let row:
-            | { left: number; right: number; top: number; bottom: number }
-            | undefined;
-          const paint = () => {
-            if (!row) return;
-            markers.push(
-              new RectangleMarker(
-                "cm-selectionBackground",
-                row.left - originX,
-                row.top - originY,
-                row.right - row.left,
-                row.bottom - row.top,
-              ),
-            );
-          };
-          for (const fragment of fragments) {
-            if (
-              row &&
-              Math.abs(fragment.top - row.top) < 0.5 &&
-              fragment.left <= row.right + 0.5 &&
-              fragment.right >= row.left - 0.5
-            ) {
-              row.left = Math.min(row.left, fragment.left);
-              row.right = Math.max(row.right, fragment.right);
-              row.bottom = Math.max(row.bottom, fragment.bottom);
-            } else {
-              paint();
-              row = fragment.toJSON();
-            }
-          }
-          paint();
+          if (!selected.collapsed) ranges.push(selected);
         }
       }
-      return markers;
+      return selectionRows(view, ranges);
     },
   }),
   EditorView.theme({
@@ -221,11 +253,161 @@ const rowSelection = [
     ":root[data-ui-theme] & .cm-rowSelectionLayer": {
       display: "block",
     },
-    ":root[data-ui-theme] & .cm-selectionLayer:not(.cm-rowSelectionLayer)": {
-      visibility: "hidden",
-    },
+    ":root[data-ui-theme] & .cm-selectionLayer:not(.cm-rowSelectionLayer):not(.cm-diffSelectionLayer)":
+      {
+        visibility: "hidden",
+      },
   }),
 ];
+
+const unfocusedDarkSelection =
+  ":root.dark[data-ui-theme] &:not(.cm-focused) > .cm-scroller > ";
+
+export const editorSelectionTheme = EditorView.theme({
+  "&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground": {
+    backgroundColor: "rgba(118, 186, 247, 0.44) !important",
+  },
+  "&:not(.cm-focused) > .cm-scroller > .cm-selectionLayer .cm-selectionBackground":
+    {
+      backgroundColor: "rgba(225, 227, 231, 0.55) !important",
+    },
+  [`${unfocusedDarkSelection}.cm-rowSelectionLayer .cm-selectionBackground, ${unfocusedDarkSelection}.cm-diffSelectionLayer .cm-selectionBackground`]:
+    {
+      backgroundColor: "rgba(225, 227, 231, 0.12) !important",
+    },
+});
+
+// A deletion or ancestor widget has no positions in the editable document.
+// Paint its native range using the same rectangles as a document selection.
+const diffSelection = ViewPlugin.fromClass(
+  class {
+    readonly dom: HTMLElement;
+    readonly owner: Document;
+
+    constructor(readonly view: EditorView) {
+      this.owner = view.dom.ownerDocument;
+      this.dom = this.owner.createElement("div");
+      this.dom.className = "cm-layer cm-selectionLayer cm-diffSelectionLayer";
+      this.dom.setAttribute("aria-hidden", "true");
+      view.scrollDOM.appendChild(this.dom);
+      this.owner.addEventListener("selectionchange", this.schedule);
+    }
+
+    private schedule = () => {
+      this.view.requestMeasure({
+        key: this,
+        read: (view) => {
+          const selection = this.owner.getSelection();
+          if (!selection?.rangeCount || selection.isCollapsed) return [];
+          const range = selection.getRangeAt(0);
+          const { startContainer, endContainer } = range;
+          if (
+            !view.contentDOM.contains(startContainer) ||
+            !view.contentDOM.contains(endContainer) ||
+            !(isDeletedText(startContainer) || isDeletedText(endContainer))
+          )
+            return [];
+          return selectionRows(view, [range], true);
+        },
+        write: (markers, view) => {
+          this.dom.style.transform = `scale(${1 / view.scaleX}, ${1 / view.scaleY})`;
+          this.dom.replaceChildren(...markers.map((marker) => marker.draw()));
+        },
+      });
+    };
+
+    update(update: ViewUpdate) {
+      if (update.docChanged || update.viewportChanged || update.geometryChanged)
+        this.schedule();
+    }
+
+    destroy() {
+      this.owner.removeEventListener("selectionchange", this.schedule);
+      this.dom.remove();
+    }
+  },
+);
+
+const drawingDeletedSelection =
+  ":root[data-ui-theme] & .cm-scroller:has(> .cm-diffSelectionLayer > *)";
+
+const diffTheme = EditorView.theme({
+  "&": {
+    "--diff-original": "#ef4444",
+    "--diff-proposed": "#22c55e",
+  },
+  "&.cm-gitConflictMerge": {
+    "--diff-original": "#2563eb",
+    "--diff-proposed": "#7c3aed",
+  },
+  "&.cm-historyDiff": {
+    "--diff-original": "var(--destructive)",
+    "--diff-proposed": "var(--chart-2)",
+  },
+  ".cm-deletedChunk, .cm-deletedLineGutter": {
+    "--diff-color": "var(--diff-original)",
+  },
+  ".cm-changedLine, .cm-changedLineGutter": {
+    "--diff-color": "var(--diff-proposed)",
+  },
+  ".cm-threeWayAncestor, .cm-threeWayAncestorGutter": {
+    "--diff-color": "#94a3b8",
+  },
+  "&.cm-merge-b .cm-changedLine, .cm-deletedChunk, .cm-threeWayAncestorLine": {
+    backgroundColor:
+      "color-mix(in srgb, var(--diff-color) 12%, transparent) !important",
+  },
+  ".cm-deletedChunk": {
+    paddingLeft: "6px",
+    position: "relative",
+  },
+  "&.cm-merge-b .cm-changedLine .cm-changedText, &.cm-merge-b .cm-deletedChunk .cm-deletedText, .cm-threeWayAncestorText":
+    {
+      background: "color-mix(in srgb, var(--diff-color) 25%, transparent)",
+      textDecorationLine: "underline",
+      textDecorationColor:
+        "color-mix(in srgb, var(--diff-color) 75%, transparent)",
+      textDecorationThickness: "2px",
+      textUnderlineOffset: "1px",
+      borderRadius: "var(--radius-xs)",
+      boxDecorationBreak: "clone",
+      WebkitBoxDecorationBreak: "clone",
+    },
+  "&.cm-merge-b .cm-changeGutter .cm-changedLineGutter, &.cm-merge-b .cm-changeGutter .cm-deletedLineGutter":
+    {
+      background: "var(--diff-color) !important",
+    },
+  ".cm-changeGutter .cm-threeWayAncestorGutter": {
+    background:
+      "linear-gradient(to bottom, transparent 24px, var(--diff-color) 24px)",
+  },
+  ".cm-deletedLine": { userSelect: "text", WebkitUserSelect: "text" },
+  ".cm-deletedLine::selection, .cm-deletedLine ::selection": {
+    backgroundColor: "rgba(118, 186, 247, 0.44) !important",
+  },
+  ".cm-deletedLine::-moz-selection, .cm-deletedLine ::-moz-selection": {
+    backgroundColor: "rgba(118, 186, 247, 0.44) !important",
+  },
+  ".cm-diffSelectionLayer": {
+    display: "none",
+    pointerEvents: "none",
+    zIndex: -1,
+  },
+  ":root[data-ui-theme] & .cm-diffSelectionLayer": { display: "block" },
+  [`${drawingDeletedSelection} > .cm-rowSelectionLayer`]: {
+    visibility: "hidden",
+  },
+  [`${drawingDeletedSelection} .cm-deletedLine::selection, ${drawingDeletedSelection} .cm-deletedLine ::selection`]:
+    {
+      backgroundColor: "transparent !important",
+    },
+  [`${drawingDeletedSelection} .cm-deletedLine::-moz-selection, ${drawingDeletedSelection} .cm-deletedLine ::-moz-selection`]:
+    {
+      backgroundColor: "transparent !important",
+    },
+});
+
+export const editorDiffExtensions = [diffTheme, diffSelection];
 
 /** Presentation shared by editable documents and isolated historical source. */
 export function createEditorSurfaceExtensions(): Extension[] {

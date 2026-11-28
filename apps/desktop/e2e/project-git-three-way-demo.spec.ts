@@ -3,6 +3,8 @@ import fixtures from "../src/renderer/dev/harnesses/agent-three-way-fixtures.jso
   type: "json",
 };
 
+const ancestorFill = "color(srgb 0.580392 0.639216 0.721569 / 0.12)";
+
 async function state(page: Page) {
   return page.evaluate(async () => {
     const path = "/src/renderer/lib/desktop/bridge.ts";
@@ -33,7 +35,7 @@ for (const fixture of fixtures) {
     );
     await expect(page.locator(".cm-threeWayAncestorLine").first()).toHaveCSS(
       "background-color",
-      "rgb(241, 245, 249)",
+      ancestorFill,
     );
     expect(await state(page)).toMatchObject({
       agentWorkspaceRoot: null,
@@ -115,7 +117,7 @@ test("project Git demo resolves multiple files independently through review navi
   await expect(panel).toBeVisible();
   await expect(page.locator(".cm-threeWayAncestorLine").first()).toHaveCSS(
     "background-color",
-    "rgba(148, 163, 184, 0.12)",
+    ancestorFill,
   );
   await page.screenshot({ path: test.info().outputPath("git-merge-dark.png") });
   await page.evaluate(() => localStorage.setItem("theme", "light"));

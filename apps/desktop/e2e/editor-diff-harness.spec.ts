@@ -1,4 +1,17 @@
-import { expect, test } from "@playwright/test";
+import { expect, type Locator, test } from "@playwright/test";
+
+async function expectLeftChangeBar(editor: Locator, gutterClass: string) {
+  const bar = editor.locator(gutterClass);
+  await expect(bar).toBeVisible();
+  const [barBox, gutters, lineNumbers] = await Promise.all([
+    bar.boundingBox(),
+    editor.locator(".cm-gutters").boundingBox(),
+    editor.locator(".cm-lineNumbers").boundingBox(),
+  ]);
+  expect(barBox!.x - gutters!.x).toBeCloseTo(4, 2);
+  expect(barBox!.width).toBe(4);
+  expect(lineNumbers!.x - barBox!.x - barBox!.width).toBeCloseTo(2, 2);
+}
 
 test("agent execution keeps the source editor and source PDF visible", async ({
   page,
@@ -235,8 +248,10 @@ test("ignored files hide Git line markers while untracked files keep them", asyn
   });
 
   await expect(page.getByTestId("editor-diff-harness-shell")).toBeVisible();
-  await expect(page.locator(".cm-gitChangeGutter")).toHaveCount(1);
-  await expect(page.locator(".cm-gitLineAdd").first()).toBeVisible();
+  const editor = page.locator(".cm-editor");
+  await expect(editor.locator(".cm-gitLineAdd").first()).toBeVisible();
+  await expect(editor.locator(".cm-changeGutter")).toHaveCount(0);
+  await expectLeftChangeBar(editor, ".cm-gitChangeGutter");
   await page.screenshot({
     path: "test-results/editor-untracked-file-gutter.png",
     fullPage: true,
@@ -315,6 +330,7 @@ test("Git conflicts use a Current versus Incoming merge review", async ({
   await expect(editor.locator(".cm-changedLineGutter")).toBeVisible();
   await expect(editor.locator(".cm-deletedLineGutter")).toBeVisible();
   await expect(editor.locator(".cm-gitChangeGutter")).toHaveCount(0);
+  await expectLeftChangeBar(editor, ".cm-changeGutter");
 
   const conflictColors = await page.evaluate(() => {
     const incoming = document.querySelector<HTMLButtonElement>(
@@ -845,6 +861,9 @@ test("proposal originals remain selectable and read-only with Git indicators", a
   await expect(
     page.locator(".cm-gitChangeGutter .cm-gitLineAdd").first(),
   ).toBeVisible();
+  const editor = page.locator(".cm-editor");
+  await expectLeftChangeBar(editor, ".cm-gitChangeGutter");
+  await expectLeftChangeBar(editor, ".cm-changeGutter");
   const before = await page.locator(".cm-content").textContent();
   const box = (await original.boundingBox())!;
   await page.mouse.move(box.x + 2, box.y + 8);
@@ -854,8 +873,36 @@ test("proposal originals remain selectable and read-only with Git indicators", a
   await expect
     .poll(() => page.evaluate(() => window.getSelection()?.toString()))
     .toContain("This paragraph");
+  const originalSelection = page
+    .locator(".cm-diffSelectionLayer .cm-selectionBackground")
+    .first();
+  await expect(originalSelection).toBeVisible();
+  const originalStyle = await originalSelection.evaluate((marker) => {
+    const { backgroundColor, borderTopLeftRadius } = getComputedStyle(marker);
+    return { backgroundColor, borderTopLeftRadius };
+  });
+  expect(parseFloat(originalStyle.borderTopLeftRadius)).toBeGreaterThan(0);
   await page.keyboard.type("must not edit");
   await expect(page.locator(".cm-content")).toHaveText(before!);
+  await page.locator(".cm-content").evaluate((content) => content.blur());
+  const unfocusedColor = "rgba(225, 227, 231, 0.55)";
+  await expect(originalSelection).toHaveCSS("background-color", unfocusedColor);
+  await page.evaluate(() => {
+    window.__editorDiffHarness?.selectText?.("This paragraph");
+  });
+  const editableSelection = page
+    .locator(".cm-rowSelectionLayer .cm-selectionBackground")
+    .first();
+  await expect(editableSelection).toHaveCSS(
+    "background-color",
+    originalStyle.backgroundColor,
+  );
+  await expect(editableSelection).toHaveCSS(
+    "border-top-left-radius",
+    originalStyle.borderTopLeftRadius,
+  );
+  await page.locator(".cm-content").evaluate((content) => content.blur());
+  await expect(editableSelection).toHaveCSS("background-color", unfocusedColor);
   await page.getByRole("button", { name: "Accept All", exact: false }).click();
   await expect(page.locator(".cm-deletedChunk")).toHaveCount(0);
   await expect(

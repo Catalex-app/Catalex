@@ -12,6 +12,8 @@ import {
   createEditorFontSizeTheme,
   createEditorLanguageExtension,
   createEditorSurfaceExtensions,
+  editorDiffExtensions,
+  editorSelectionTheme,
 } from "./editor/editor-appearance";
 import { WorkspacePanelHeader } from "./workspace-panel";
 import "./history-snapshot-content.css";
@@ -69,32 +71,6 @@ function SnapshotSource({
       EditorView.theme(
         {
           "&.cm-focused": { outline: "none" },
-          ".cm-changedLine, .cm-deletedChunk": {
-            borderRadius: "0",
-          },
-          "&.cm-merge-b .cm-changedLine": {
-            backgroundColor:
-              "color-mix(in oklab, var(--chart-2) 11%, transparent)",
-          },
-          "&.cm-merge-b .cm-changedText": {
-            background: "color-mix(in oklab, var(--chart-2) 21%, transparent)",
-          },
-          ".cm-deletedChunk": {
-            backgroundColor:
-              "color-mix(in oklab, var(--destructive) 9%, transparent)",
-            padding: "0 12px",
-          },
-          "&.cm-merge-b .cm-deletedChunk .cm-deletedText": {
-            background:
-              "color-mix(in oklab, var(--destructive) 17%, transparent)",
-          },
-          ".cm-changeGutter": { width: "3px" },
-          "&.cm-merge-b .cm-changedLineGutter": {
-            backgroundColor: "var(--chart-2)",
-          },
-          "&.cm-merge-b .cm-deletedLineGutter": {
-            backgroundColor: "var(--destructive)",
-          },
         },
         { dark: resolvedTheme === "dark" },
       ),
@@ -106,6 +82,9 @@ function SnapshotSource({
 
     if (original !== undefined) {
       extensions.push(
+        EditorView.editorAttributes.of({ class: "cm-historyDiff" }),
+        editorSelectionTheme,
+        editorDiffExtensions,
         unifiedMergeView({
           original,
           mergeControls: false,
